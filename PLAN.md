@@ -114,6 +114,14 @@
 - **上传队列增强**:多文件排队 + 最多 3 并发;单任务暂停/继续(断点续传)、取消(清理 `.part`)、失败自动重试(≤3 次指数退避)后可手动重试/移除;`.part` 不再出现在目录与索引
 - 新增接口:`POST /api/upload/abort`;`GET /api/trash`、`POST /api/trash/restore|delete|empty`
 
+### M1.5 效率与传输(2026-11-24,v1.2.0)
+- **A1 排序/筛选**:工具栏加类型筛选(全部/仅文件夹/视频/图片/音乐/压缩包/其他)+ 升降序切换(文件夹恒在前),选择持久化 localStorage
+- **A2 快捷键**:Del/Backspace 删除、F2 改名、Ctrl+C/X/V、Ctrl+A 全选、Enter 打开、Esc 取消(输入框/弹窗/播放器内不拦截)
+- **A3 底部状态栏**:共 N 项(文件夹/文件数)+ 文件合计大小 + 已选统计;「计算本目录总大小」按钮调用新接口 `GET /api/size?vpath=`(递归统计,跳过保险箱/回收站/排除目录)
+- **B1 跨库拖拽**:可拖到侧栏其它存储库/面包屑/目录行;Ctrl+拖拽=复制,否则=移动;dragVPaths 延迟 400ms 清理并在 drop 时直接读取,避免浏览器清空 dataTransfer 导致丢失
+- **B2 操作进度条**:移动/复制/批量删除走 runBatch 逐项队列,面板显示 i/N 与进度条(大目录不确定进度),可随时取消
+- 临时测试库 lib3/lib4 与 _abtest/_abdest 已清理
+
 ### M2 完成情况(2026-11-24,v0.2.0)
 - 构建环境:Android 命令行 SDK(D:\android-sdk,platform 34 + build-tools 34)、Gradle 8.7(D:\gradle-8.7)、JDK 21
 - APK:`release/linNas-0.2.0-debug.apk`(com.linnas.app,minSdk 24 / target 34,8.9MB,debug 签名)
@@ -199,3 +207,22 @@
 - 服务端启动时探测 ffmpeg 是否可用;没有则仅提示"该格式不支持在线播放"
 - 点播 AVI/RMVB/FLV 等老格式时:`ffmpeg -i 输入 -c:v libx264 -preset veryfast -c:a aac -f mp4 -movflags frag_keyframe+empty_moov pipe:1` 边转边流(无需落盘等待转完)
 - 转码会话按 (文件, 清晰度) 缓存,热门片可转码后缓存到临时目录复用
+
+## M5.1 PC 端二维码入口 + 扫码竖屏(2026-11-24,v1.1.1)
+- Web UI(server/ui/dist/index.html + pp.js)侧栏「更多」新增 #btn-pair「手机连接」,点击弹出 #dlg-pair:内含 /api/pair/qr?size=320&ip= 二维码与 info.urls 地址列表。UI 由 //go:embed ui 内嵌,改后必须重新 go build 才生效。
+- Android v1.1.1:扫码 Activity 锁定竖屏(manifest 覆盖 + setOrientationLocked(true))。
+
+### M6 详情统计 / 可编辑路径 / 播放增强(2026-11-24,v1.3.0)
+- **server/info.go**:GET /api/info?vpath= —— 文件/文件夹详情;目录 filepath.WalkDir 递归统计(跳过 vault/trash/excluded);媒体文件 ffprobe(-show_format -show_streams)解析分辨率/时长/帧率/编码/码率;findFFprobe() 定位 ffprobe.exe。
+- **server/subtitle.go**:GET /api/subtitle?vpath=(同目录同名或 <stem>.<lang>.srt 字幕列表)、GET /api/subtitle/content?vpath=(srt/sub→WebVTT,ass/ssa→ffmpeg -f webvtt,去 BOM/CRLF/索引行)。
+- **server/transcode.go**:streamVideo 转码结果按 sha1(abs|mtime|size|v1) 缓存到 DataDir/transcode/<key>.mp4,二次请求 http.ServeContent 命中(支持 Range 拖动);&t= 时禁缓存。
+- **前端**:可编辑路径(#btn-editpath/#in-path + resolveUserPath,支持虚拟路径与 Windows 绝对路径映射);详情弹窗 #dlg-info(infoRow/fmtDur/showInfo);播放器重写——播放列表(buildPlaylist/playItem/renderPlaylist)、字幕(track 用 trackEl.track.mode 切换)、倍速/画中画/全屏/上一下一;媒体库按文件夹分组 #media-group;文件与媒体行加“详情”按钮。
+- **实测**:字幕 clip1.srt→WebVTT 显示“你好,这是第一行字幕”(track mode=showing, activeCues=1);播放列表 2 项自动连播(1/2→2/2);转码缓存首播 502ms→二次 22ms(23×);媒体分组 /lib1/anime、/lib2、/lib3;详情 1920×1080 / 23:41 / 23.98fps / h264 / aac / 1610kbps;可编辑路径 H:\NAS\anime→/lib1/anime。go vet 干净、go build OK、health 1.3.0。
+
+### M7 安全:多用户 / 自动锁定 / 分享链接 / 操作日志(2026-11-25,v1.4.0)
+- **server/security.go**:User/UsersDoc/Session/authStore —— hashPassword(pbkdf2 风格 120000 轮 + 每用户 salt,常量时间比较);CreateUser/SetPassword/SetRole/DeleteUser(禁删最后管理员)/List(脱敏)/Login(token=randHex 24)/Get(闲置超 idle 即失效=自动锁定)/Logout/CheckUserPassword/MultiUser/UserCount;AuditEntry+auditLog(DataDir/audit.log,上限 5000,启动读入,追加写,仅 POST/DELETE 记录,含 IP 与状态码);Share+shareStore(DataDir/shares.json,过期即失效);公开处理器 handleShareInfo / handleShareRaw(支持 Range/206、?dl=1) / handleSharePage(内嵌深色单页,可浏览目录、内联播放、密码校验)。
+- **api.go**:Server 增加 auth/audit/shares;中间件链改为 withToken → auditLog → recordDevice → logRequests;withToken 重写 —— 放行 health/auth/status/auth/login,无用户且无全局口令时开放访问,接受全局口令(视为 admin)或会话 token,401「未登录或登录已过期」;新增 authorize(sess,r) 角色守卫(admin 全通;user 禁 /api/users*、/api/audit*、改 settings、改 libs、devices/clear;viewer 禁一切写操作,除 /api/auth* 与保险箱解锁/上锁);分享相关路由挂在 mux 上免鉴权。
+- **config.go**:新增 IdleLockMinutes(默认 30);settings GET 增 idleLockMinutes/multiUser/userCount,POST 可改 1–1440 分钟并同步 s.auth.idle。
+- **前端**:顶栏账号菜单(#btn-user/#usermenu:当前身份、改密码、锁定、退出);登录框 #dlg-login 与锁屏 #lockscreen;api() 的 401 分流 —— 多用户时按是否有会话决定弹锁屏或登录框,单用户口令模式沿用 askToken;用户管理 #dlg-users(新建/改角色/改密码/删除);操作日志 #view-audit;分享管理 #view-shares + 文件行“分享链接”按钮 + #dlg-share/#dlg-share-done;系统设置“安全与账号”组;角色感知 UI(updateRoleUI/isAdmin/canWrite,只读用户隐藏上传/新建/改名/删除/设置等)。
+- **实测**:admin 登录显示“管理员”;只读用户 GET /api/ls 200、POST /api/mkdir 403、GET /api/users 403、界面只剩“下载/详情”;会话失效自动弹锁屏,密码解锁成功;分享页免登录可看文件,密码分享先校验密码;目录分享返回 entries;操作日志显示登录/用户管理/分享记录。go vet 干净、go build OK、health 1.4.0。
+- **数据文件**:linnas-data/users.json、shares.json、audit.log(删除 users.json 并重启可回到免登录模式)。
