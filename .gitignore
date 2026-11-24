@@ -38,3 +38,9 @@ android/local.properties
 # ===== 临时 / 分块上传残留 =====
 *.part
 *.tmp
+
+# ===== 本地测试 / 调试临时产物 =====
+_abtest/
+_abdest/
+shots/qr_decode*.py
+shots/qr-test.png
