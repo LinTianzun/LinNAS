@@ -1,0 +1,201 @@
+# LinNAS — 本地云盘/NAS 方案 v1.1(已确认)
+
+> 决策已确认(2026-11-24):
+> - PC 服务端:**Go**
+> - Android:**Kotlin 原生**(Media3/ExoPlayer)
+> - 相册自动备份:**二期**
+> - 片源:**混合格式**(MP4/MKV 为主 + AVI/RMVB 等老格式)→ ffmpeg 按需转码为**必选组件**
+
+## 一、目标
+
+- PC(Windows)插两块外置机械硬盘(H盘 / I盘),跑一个**服务端程序**
+- Android 手机回家连同一 WiFi:**像本地云盘一样上传 / 浏览 / 下载**,并能**在线观看视频**
+- PC 端有管理界面
+- 全程局域网直连,不依赖公网、不依赖云服务
+
+## 二、总体架构
+
+```
+[Android App]         [任意浏览器(PC/手机)]
+      |  HTTP REST           |
+      +----------+  +--------+
+                 |  |
+          [PC 服务端 linNas-server]
+                 |
+   [H盘]  [I盘]  [SQLite 索引]  [缩略图缓存]
+```
+
+- 一切通信走 HTTP(REST + 少量 WebSocket)
+- 手机 App 与浏览器共用同一套服务端 API
+- 数据不落第三方,盘上文件保持原样(不打包、不改名)
+
+## 三、技术选型(推荐)
+
+| 部分 | 选型 | 理由 |
+|---|---|---|
+| PC 服务端 | **Go** | 编译成单个 exe,双击即用,无运行时依赖;标准库 `net/http` 原生支持 Range 请求(视频拖动进度条的命脉);将来可原样搬到真 NAS / 树莓派 |
+| Web UI(PC 管理端) | Vue 3 + Vite,构建产物嵌入 exe | 一套 UI,PC 浏览器和手机浏览器都能用;M1 阶段手机直接用浏览器就能体验全部功能 |
+| Android 端 | **Kotlin + Media3/ExoPlayer + OkHttp/Retrofit** | 视频硬解最稳、格式支持最广;上传走 OkHttp 分块 |
+| 数据 | SQLite | 零配置,单文件,够用 |
+| 转码(可选) | ffmpeg | 仅对不兼容格式按需转码 |
+
+备选:
+- PC 端 Python(FastAPI):开发最快,但分发要装环境,不适合"家用双击即用"
+- Android 用 Flutter:UI 一套代码,但播放器/后台上传要写平台通道,坑多;不推荐一期用
+
+## 四、功能模块
+
+### PC 服务端
+1. **存储池管理**:把 `H:\`、`I:\` 注册为存储库(每个库可设 可读可写 / 只读),路径映射
+2. **文件 API**:目录列表、上传(分块 + 断点续传)、下载、Range 流式播放
+3. **媒体库**:后台扫描建 SQLite 索引;图片缩略图;视频用 ffmpeg 抽帧生成封面
+4. **局域网发现**:mDNS 广播 + 首次配对二维码(扫码免输 IP)
+5. **鉴权**:配对 token,防局域网蹭网
+6. **Web 管理界面**:库管理、文件管理、上传、设置
+
+### Android 端
+1. **发现/连接**:mDNS 自动发现或扫码配对
+2. **文件浏览**:目录树 + 缩略图网格
+3. **上传**:系统文件选择 / 相册多选;后台上传队列、断点续传
+4. **播放**:ExoPlayer 在线播放——拖进度、倍速、外挂 srt 字幕
+5. (二期)相册自动后台备份
+
+## 五、关键设计点
+
+- **视频拖动进度条** = HTTP `Range: bytes=...` → 服务端必须返回 `206 Partial Content`,这是播放体验的核心
+- **格式兼容策略**:
+  - MP4(H.264 + AAC):全设备直放
+  - MKV / H.265(HEVC):大多数手机硬解可直放
+  - AVI / FLV / RMVB 等老格式:点播时 ffmpeg 按需转码(或提示不支持)
+- **大文件上传**:5MB 分块,失败只重传该块
+- **机械盘够用**:单盘顺序读 100MB/s+,支持 3~4 人同时看 1080p 无压力
+- **PC 不能睡眠**:手机访问时 PC 得醒着 → 电源计划设"接通电源时不睡眠"(二期可做 Wake-on-LAN 唤醒)
+- **Windows 防火墙**:首次运行提示放行端口(默认 52700)
+
+## 六、里程碑
+
+| 阶段 | 内容 | 效果 |
+|---|---|---|
+| **M1** ✅ 2026-11-24 | Go 服务端:文件 API + Range 播放 + Web UI(嵌入 exe) | 手机浏览器打开即能传、能看 —— 核心体验最快落地 |
+| **M2** ✅ 2026-11-24 | Android 端:连接/浏览/上传/观看(APK 已构建) | 像云盘一样用 |
+| **M3** ✅ 2026-11-24 | 播放器集成 ✅、缩略图 ✅、ffmpeg 按需转码 ✅、媒体库索引(SQLite)✅ | 完整影院体验 |
+| **M4** 🚧 2026-11-24 | 相册自动备份 ✅;WebDAV 挂载、Tailscale 出门远程访问 待做 | 进阶 |
+
+### M1 完成情况(2026-11-24)
+- Go 1.27.4 服务端,单文件 `server/linNas-server.exe`(UI 已嵌入)
+- 存储库注册(H:\ I:\ 等,可只读)、虚拟路径防穿越
+- Range→206 流式播放(字节级校验通过)、分块上传 5MB + 断点续传(SHA256 一致)
+- Web UI:深色手机友好,添加库/浏览/上传/改名/删除/播放器区
+- 详见 server/README.md
+
+### M1.1 体验增强(2026-11-24,v0.2.0)
+- **一键启动**:`server/启动linNas.bat` 双击即启动服务并自动开浏览器(已在运行则仅开页面);`停止linNas.bat` 一键停止;exe 自身也支持启动后自动开浏览器(`-no-browser` 可关)
+- **UI 重做**:深墨绿+琥珀电源灯主题、桌面端侧栏布局、移动端单列
+- **功能补齐**:当前目录搜索、按名称/大小/时间排序、列表/网格切换、拖拽上传、上传队列面板(进度/速度)、视频/音频/图片页内灯箱播放
+
+### M1.2 文件管理与隐私(2026-11-24,v0.5.0)
+- **目录选择器**:添加/编辑存储库时可浏览服务器盘符与目录,无需手写路径;已有存储库可重新「设置」(改名/换路径/只读)
+- **文件操作**:多选后「移动到…」「复制/剪切→粘贴」;支持把文件/文件夹拖到文件夹或面包屑上移动
+- **网格缩略图**:图片 / 视频缩略图接入网格与列表(ffmpeg)
+- **隐私保险箱**:服务端隐藏目录 + 密码门禁(非加密),解锁后可上传/下载/预览/导出/删除
+- **主题与设置**:深/浅/跟随系统主题;系统设置(版本/端口/数据目录/ffmpeg 状态、索引统计与重建、访问口令、保险箱管理)
+
+### M1.3 媒体/搜索/设备/保险箱增强(2026-11-24,v0.6.0)
+- **媒体库**:侧栏入口,视频/图片/音乐分类网格(缩略图墙,200 项/页,可加载更多)
+- **全局搜索**:跨库文件名搜索(走 SQLite 索引),结果可预览/定位
+- **设备管理**:记录并展示访问过的设备(UA 识别浏览器/系统、IP、次数、首次/最近),可清空
+- **保险箱**:内部视频/音频/图片可直接播放(Range 拖动);支持整文件夹批量导入 + 文件浏览多选「存入保险箱」
+- **拖拽修复**:文件/文件夹可直接拖到同目录文件夹或面包屑上完成移动(改用自维护拖拽状态)
+
+### M1.4 稳定性与体验(2026-11-24,v0.9.0)
+- **开机自启**:`安装开机自启.bat` 在启动文件夹写 `linNas-autostart.vbs`,登录后静默起服务(最小化、不弹浏览器);`卸载开机自启.bat` 取消;已实测
+- **存储库排除子目录**:Library 增加 `Exclude []string`;浏览/索引/缩略图/raw 均隐藏并 403;库改动后自动重建索引
+- **回收站**:删除改为移动到 `<库>\.linNasTrash`(带 `.meta/<id>.json` 记录原位置),侧栏「回收站」支持恢复/彻底删除/清空,跨盘走复制后删除
+- **上传队列增强**:多文件排队 + 最多 3 并发;单任务暂停/继续(断点续传)、取消(清理 `.part`)、失败自动重试(≤3 次指数退避)后可手动重试/移除;`.part` 不再出现在目录与索引
+- 新增接口:`POST /api/upload/abort`;`GET /api/trash`、`POST /api/trash/restore|delete|empty`
+
+### M2 完成情况(2026-11-24,v0.2.0)
+- 构建环境:Android 命令行 SDK(D:\android-sdk,platform 34 + build-tools 34)、Gradle 8.7(D:\gradle-8.7)、JDK 21
+- APK:`release/linNas-0.2.0-debug.apk`(com.linnas.app,minSdk 24 / target 34,8.9MB,debug 签名)
+- 功能:连接(地址+口令)、存储库/目录浏览、面包屑、多选上传(前台服务队列、5MB 分块断点续传、通知进度)、系统播放器在线看片(拖进度)、新建文件夹
+- 服务端首启自动注册 `H:\`、`I:\`(实际测试:H盘 3.3TB/I盘 2.7TB 已自动识别,真实视频 SSE.mp4 走 206 分段正常)
+- 详细说明:`android/README.md`
+
+### M3 完成情况(2026-11-24,v0.3.0)
+- **服务端 media.go**:`GET /api/thumb`(ffmpeg 抽帧/缩放,JPEG 落盘缓存)、`GET /api/stream`(native 格式转发 raw 支持 Range 拖动;AVI/RMVB/FLV/WMV/MPG/VOB 等走 ffmpeg 边转边发 frag-mp4,`&t=秒` 指定起始)。实测:视频缩略图 200/7.9KB、图片缩略图 200/8.8KB、183MB mp4 转码首包 ftyp 正确、native 直出 200+Accept-Ranges
+- **Android**:新增 `PlayerActivity`(ExoPlayer 内置播放页,倍速 0.75~2x、保持亮屏;原生格式走 raw 可拖动、老格式走 stream);列表新增图片/视频缩略图(Coil 加载 /api/thumb);APK `release/linNas-0.3.0-debug.apk`(9.4MB)
+- 未做:媒体库索引(SQLite)、字幕、mDNS 自动发现
+
+### M3.1 媒体库索引完成(2026-11-24,v0.4.0)
+- **服务端 index.go**:SQLite(modernc 纯 Go 驱动,无 CGO/单 exe 不受影响)。表 `files(lib_id,path,parent,name,is_dir,size,mod_time,kind)` + 索引 `linnas-data/index.db`(WAL 模式)。启动后后台全量扫描(6 小时内不重扫,结果存 meta)。
+- **新接口**:`GET /api/search?q=` 文件名搜索、`GET /api/media?type=video|image|audio&sort=&offset=&limit=` 媒体库分页、`GET /api/index/status`、`POST /api/reindex`。
+- **实测**:244,998 个文件全量扫描 1 分 15 秒(video 16959 / image 6917 / audio 174 / 目录 39897);搜索与分页正常。
+- **Android v0.4.0**:新增「媒体库」页(视频/图片/音乐聚合,点视频直进播放器);APK `release/linNas-0.4.0-debug.apk`(9.4MB)。
+
+### M4 完成情况(2026-11-24,v0.5.0)
+- **相册自动备份(Android)**:`backup/PhotoBackup.kt` 用 WorkManager 每 6 小时(可限 WiFi)增量扫描 MediaStore 新照片/视频,分块上传到指定目录(默认 `/lib1/手机备份`),按 DATE_ADDED 逐条前移断点、失败自动重试;主界面「备份」按钮配置(启用/目录/仅WiFi/立即备份/状态),Android 13+ 自动申请媒体权限。
+- APK:`release/linNas-0.5.0-debug.apk`(9.8MB)。
+- 待做:M4 其余两项 —— WebDAV 挂载、Tailscale 出门远程访问。
+
+### M4.1 App 界面重构 + 局域网自动发现(2026-11-24,v0.6.0)
+- **界面重做**:底部 4 tab(文件/媒体/传输/设置)+ 顶部连接状态胶囊 + 搜索框 + 面包屑 chip;深墨蓝(#0B0D11)配冷蓝主色(#6EA8FE),薄荷/琥珀/红作状态色;18 个手绘描边矢量图标(统一 1.7 描边,替换原 emoji);缩略图列表、媒体两列网格、空状态与加载态。
+- **局域网自动发现**(解决"要手输 IP"):`Discovery.kt` 并发扫描本机 /24 网段 52700 端口(250ms 超时、64 并发),命中 `/api/health` 即列出;首次打开 App 自动弹「发现服务器」,点一下连接并记住;保留「手动输入」兜底。
+- APK:`release/linNas-0.6.0-debug.apk`(9.9MB);设计预览:`shots/redesign-4screens.png`。
+
+### M4.2 主题 / 排序 / 磁盘(v0.7.0)
+- **主题系统**:自定义主题属性(lInk/lSurface/lSurfaceHigh/lOutline/lText/lTextDim/lPrimary/lOnPrimary),4 套主题 `Theme.LinNas`(墨蓝)/`.Green`/`.Amber`/`.Mono`,布局与形状全部改用 `?attr/` 引用 → 设置页切换即时生效(recreate)。
+- **文件页**:列表/网格双视图切换;按 名称/大小/时间 排序 + 升降序(目录恒在前),偏好持久化。
+- **顶部磁盘剩余**:接入 `/api/disks`,进库显示「H盘 · 剩余 1.8 TB」,根目录显示「共剩余 3.5 TB」。
+- APK:`release/linNas-0.7.0-debug.apk`(9.8MB);主题预览:`shots/theme-4screens.png`。
+
+### M4.3 功能对齐 PC 端 + 传输进度(v0.8.0)
+- **全局搜索**:文件页「全库」开关,调 `/api/search` 全库搜(300ms 防抖)。
+- **移动 / 复制**:行菜单「移动到…/复制到…」+ 目录选择弹窗,调 `/api/move`、`/api/copy`。
+- **设置页服务器区**:改访问口令(`/api/settings` POST)、系统信息(GET)、设备管理(`/api/devices` + `/clear`)、保险箱入口。
+- **保险箱**:`VaultActivity`(status/setup/unlock/lock/ls/upload/raw/delete),密码解锁后浏览、上传、播放、下载、删除。
+- **传输进度**:上传改为实时回调(逐块上报百分比,通知栏 + 传输页);下载用系统 DownloadManager(通知栏 + 传输页进度)。
+- APK:`release/linNas-0.8.0-debug.apk`(9.96MB)。
+
+### M4.4 修闪退 + 播放优化 + 加库/保险箱导入导出(v0.9.0)
+- **闪退加固**:主题里 `android:statusBarColor`/`textColorPrimary` 不再引用自定义主题属性;`bg_tile/bg_pill/bg_card` 改用固定颜色(排除 drawable 主题属性导致的 inflate 崩溃);新增 `LinNasApp`(全局 UncaughtExceptionHandler → 落盘 `crash.txt` + 打开 `CrashActivity` 显示可复制堆栈)。
+- **播放优化**:±10s 快进/快退、画面比例(适应/裁剪/拉伸)、倍速、解码错误提示、拔耳机自动暂停、保持亮屏。
+- **手机端添加存储库**:设置 → 服务器 → 添加存储库,浏览电脑盘符/目录(`/api/fs/dirs`)→ 命名 → `POST /api/libs`。
+- **保险箱导入/导出**:导入(从存储库选文件移入)、导出(条目「⋯」→ 导出到存储库…),接口 `/api/vault/import|export`。
+- APK:`release/linNas-0.9.0-debug.apk`(9.9MB)。
+
+### M4.5 闪退定位 + 播放体验包(v0.9.1 / v1.0.0)
+- **闪退根因(由用户堆栈定位)**:主题中 Material 颜色属性写成字面色值(`#E9EDF5`)而非 `@color` 引用 → `resolveAttribute` 得到 resourceId=0 → `NavigationBarMenuView.createDefaultColorStateList` 取 0 号资源 → `Resources$NotFoundException: Resource ID #0x0` → BottomNavigationView inflate 失败 → 启动闪退。修复:为 4 套主题各建 8 个颜色资源(`t_blue/green/amber/mono_*`),主题内全部改 `@color` 引用;底部导航补 `itemIconTint`。
+- **播放体验包(v1.0.0)**:
+  - 横竖屏:顶部「旋转」按钮锁横屏/恢复自动旋转,全屏黑底 + 隐藏系统栏氛围。
+  - 手势:双击左/右 ±10s、上下滑音量/亮度、水平拖动进度、长按 2.0x、单击显隐控件。
+  - 续播记忆:`PlaybackStore.kt`(SharedPreferences,按 vpath 记录 position/duration;>10s 且距结尾 >30s 才记录),文件行副标题显示「继续观看 · 还剩约 x 分钟」。
+  - 字幕:同目录同名 `.srt/.ass/.ssa/.vtt` 自动挂载(MediaItem.SubtitleConfiguration)。
+- APK:`release/linNas-1.0.0-debug.apk`(9.9MB)。
+
+### M5 零配置连接:mDNS 广播 + 二维码配对(2026-11-24,v1.1.0)
+目标(用户原话):「做 ②:mDNS 服务端广播 + 二维码配对,让「连接」彻底不用手输 IP(App 打开自动弹服务器列表 → 或扫电脑上的二维码)」。
+- **服务端**:
+  - `mdns.go` 广播 `_linnas._tcp.`(A/PTR/SRV/TXT,TTL 120;组播 224.0.0.251:5353 + 各网卡子网广播,30s 一次)。
+  - `pair.go`:UDP **52701** 局域网发现(每 3s 广播配对 JSON;收到 `LINNAS_DISCOVER` 时按「同网段优先」单播应答)、`GET /api/pair`(JSON)、`GET /api/pair/qr`(PNG 二维码,size 128~1024)、`GET /pair`(深色配对页:大二维码 + 三步提示 + 三个可达地址,推荐地址带标签)。
+  - 配对 URI `linnas://pair?ip=&port=&name=linNas[&token=]`,设了口令会带上 `token`,App 扫码后自动鉴权。
+  - 主地址选择用 rank:192.168.* > 10.* > 172.16-31 > 其它,避免误选 VPN 网卡。
+  - 说明:Windows 上 5353 常被系统 DNS Client 占用(mDNS 只能单向广播),故叠加 UDP 52701 与网段扫描三路并行,广播在 Windows 上可靠。
+- **Android(v1.1.0,versionCode 2)**:
+  - `Discovery.kt` 重写:`listenBeacon()`(UDP 52701 广播探测+收包)、`mdns()`(委托 `MdnsDiscovery`)、`scan()`(原 /24 扫描)三路并行去重合并;`parsePair()` 支持 `linnas://pair?...`、`http(s)://host:port`、裸 `ip[:port]`。
+  - 新增 `MdnsDiscovery.kt`:NsdManager 发现 `_linnas._tcp.` 并 resolveService 拿 host/port。
+  - `MainActivity`:发现弹窗加「扫码配对」按钮(ZXing `ScanContract`),扫到配对二维码直接连;自动发现列表点选即连(不再硬编码 52700)。
+  - 新增依赖 `com.journeyapps:zxing-android-embedded:4.3.0`,清单加 `CAMERA` 权限。
+- 实测:`/api/pair` 主地址正确为 192.168.10.2;`/pair` 配对页截图 `shots/pair-page.png`;`/api/pair/qr?size=320` 返回合法 PNG;UDP `LINNAS_DISCOVER` 收到 JSON 回包。
+- APK:`release/linNas-1.1.0-debug.apk`(10.7MB)。
+
+## 七、已确认决策
+
+1. PC 端语言:**Go** ✅
+2. Android 端:**Kotlin 原生** ✅
+3. 相册自动备份:**二期** ✅
+4. 视频格式:**混合都有** → ffmpeg 按需转码列入必选组件 ✅
+
+### ffmpeg 转码子方案(因混合格式而必选)
+- 服务端启动时探测 ffmpeg 是否可用;没有则仅提示"该格式不支持在线播放"
+- 点播 AVI/RMVB/FLV 等老格式时:`ffmpeg -i 输入 -c:v libx264 -preset veryfast -c:a aac -f mp4 -movflags frag_keyframe+empty_moov pipe:1` 边转边流(无需落盘等待转完)
+- 转码会话按 (文件, 清晰度) 缓存,热门片可转码后缓存到临时目录复用

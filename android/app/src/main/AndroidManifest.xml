@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- 扫码配对 -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Android 13+ 通知权限(上传进度通知) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Android 14 前台服务(上传队列 dataSync) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- M2 上传相册视频用 -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <!-- 旧版本回退 -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+
+    <application
+        android:name=".LinNasApp"
+        android:label="linNas"
+        android:icon="@drawable/ic_launcher_vec"
+        android:theme="@style/Theme.LinNas"
+        android:usesCleartextTraffic="true">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|keyboardHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <!-- 崩溃详情页 -->
+        <activity android:name=".CrashActivity" android:exported="false" />
+        <!-- 保险箱 -->
+        <activity
+            android:name=".VaultActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+        <!-- M3 内置播放器页 -->
+        <activity
+            android:name=".PlayerActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:theme="@style/Theme.LinNas.Player" />
+        <!-- M2 后台上传服务 -->
+        <service
+            android:name=".upload.UploadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+    </application>
+</manifest>

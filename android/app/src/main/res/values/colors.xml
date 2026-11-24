@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 语义色(跨主题不变) -->
+    <color name="mint">#79E2B6</color>
+    <color name="amber">#F2C879</color>
+    <color name="danger">#FF7A7A</color>
+    <color name="text_dim">#98A2B3</color>
+    <color name="text">#E9EDF5</color>
+    <color name="primary">#6EA8FE</color>
+    <color name="on_primary">#071021</color>
+    <color name="ink">#0B0D11</color>
+    <color name="surface">#14181F</color>
+    <color name="surface_high">#1C222C</color>
+    <color name="outline">#2A323E</color>
+    <color name="ic_bg">#0B0D11</color>
+
+    <!-- 主题 1:墨蓝 -->
+    <color name="t_blue_ink">#0B0D11</color>
+    <color name="t_blue_surface">#14181F</color>
+    <color name="t_blue_surface_high">#1C222C</color>
+    <color name="t_blue_outline">#2A323E</color>
+    <color name="t_blue_text">#E9EDF5</color>
+    <color name="t_blue_text_dim">#98A2B3</color>
+    <color name="t_blue_primary">#6EA8FE</color>
+    <color name="t_blue_on_primary">#071021</color>
+
+    <!-- 主题 2:墨绿 -->
+    <color name="t_green_ink">#06100C</color>
+    <color name="t_green_surface">#0E1A15</color>
+    <color name="t_green_surface_high">#15241D</color>
+    <color name="t_green_outline">#23352B</color>
+    <color name="t_green_text">#E6F2EB</color>
+    <color name="t_green_text_dim">#8FA79A</color>
+    <color name="t_green_primary">#59D3A6</color>
+    <color name="t_green_on_primary">#04140D</color>
+
+    <!-- 主题 3:琥珀 -->
+    <color name="t_amber_ink">#100D08</color>
+    <color name="t_amber_surface">#1A150E</color>
+    <color name="t_amber_surface_high">#241D13</color>
+    <color name="t_amber_outline">#3A2F22</color>
+    <color name="t_amber_text">#F4EDE1</color>
+    <color name="t_amber_text_dim">#B3A491</color>
+    <color name="t_amber_primary">#E7B368</color>
+    <color name="t_amber_on_primary">#1A1206</color>
+
+    <!-- 主题 4:纯黑 -->
+    <color name="t_mono_ink">#000000</color>
+    <color name="t_mono_surface">#0B0B0D</color>
+    <color name="t_mono_surface_high">#141417</color>
+    <color name="t_mono_outline">#242428</color>
+    <color name="t_mono_text">#F2F2F5</color>
+    <color name="t_mono_text_dim">#9A9AA3</color>
+    <color name="t_mono_primary">#9EC5FF</color>
+    <color name="t_mono_on_primary">#05101F</color>
+</resources>

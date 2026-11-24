@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.LinNas" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="lInk">@color/t_blue_ink</item>
+        <item name="lSurface">@color/t_blue_surface</item>
+        <item name="lSurfaceHigh">@color/t_blue_surface_high</item>
+        <item name="lOutline">@color/t_blue_outline</item>
+        <item name="lText">@color/t_blue_text</item>
+        <item name="lTextDim">@color/t_blue_text_dim</item>
+        <item name="lPrimary">@color/t_blue_primary</item>
+        <item name="lOnPrimary">@color/t_blue_on_primary</item>
+        <item name="colorPrimary">@color/t_blue_primary</item>
+        <item name="colorOnPrimary">@color/t_blue_on_primary</item>
+        <item name="colorSecondary">@color/t_blue_primary</item>
+        <item name="colorOnSecondary">@color/t_blue_on_primary</item>
+        <item name="colorSurface">@color/t_blue_surface</item>
+        <item name="colorOnSurface">@color/t_blue_text</item>
+        <item name="colorSurfaceVariant">@color/t_blue_surface_high</item>
+        <item name="colorOnSurfaceVariant">@color/t_blue_text_dim</item>
+        <item name="colorOutline">@color/t_blue_outline</item>
+        <item name="colorOnBackground">@color/t_blue_text</item>
+        <item name="android:colorBackground">@color/t_blue_ink</item>
+        <item name="android:statusBarColor">@color/t_blue_ink</item>
+        <item name="android:navigationBarColor">@color/t_blue_ink</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:textColorPrimary">@color/t_blue_text</item>
+        <item name="android:textColorSecondary">@color/t_blue_text_dim</item>    </style>
+
+    <style name="Theme.LinNas.Green" parent="Theme.LinNas">
+        <item name="lInk">@color/t_green_ink</item>
+        <item name="lSurface">@color/t_green_surface</item>
+        <item name="lSurfaceHigh">@color/t_green_surface_high</item>
+        <item name="lOutline">@color/t_green_outline</item>
+        <item name="lText">@color/t_green_text</item>
+        <item name="lTextDim">@color/t_green_text_dim</item>
+        <item name="lPrimary">@color/t_green_primary</item>
+        <item name="lOnPrimary">@color/t_green_on_primary</item>
+        <item name="colorPrimary">@color/t_green_primary</item>
+        <item name="colorOnPrimary">@color/t_green_on_primary</item>
+        <item name="colorSecondary">@color/t_green_primary</item>
+        <item name="colorOnSecondary">@color/t_green_on_primary</item>
+        <item name="colorSurface">@color/t_green_surface</item>
+        <item name="colorOnSurface">@color/t_green_text</item>
+        <item name="colorSurfaceVariant">@color/t_green_surface_high</item>
+        <item name="colorOnSurfaceVariant">@color/t_green_text_dim</item>
+        <item name="colorOutline">@color/t_green_outline</item>
+        <item name="colorOnBackground">@color/t_green_text</item>
+        <item name="android:colorBackground">@color/t_green_ink</item>
+        <item name="android:statusBarColor">@color/t_green_ink</item>
+        <item name="android:navigationBarColor">@color/t_green_ink</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:textColorPrimary">@color/t_green_text</item>
+        <item name="android:textColorSecondary">@color/t_green_text_dim</item>    </style>
+
+    <style name="Theme.LinNas.Amber" parent="Theme.LinNas">
+        <item name="lInk">@color/t_amber_ink</item>
+        <item name="lSurface">@color/t_amber_surface</item>
+        <item name="lSurfaceHigh">@color/t_amber_surface_high</item>
+        <item name="lOutline">@color/t_amber_outline</item>
+        <item name="lText">@color/t_amber_text</item>
+        <item name="lTextDim">@color/t_amber_text_dim</item>
+        <item name="lPrimary">@color/t_amber_primary</item>
+        <item name="lOnPrimary">@color/t_amber_on_primary</item>
+        <item name="colorPrimary">@color/t_amber_primary</item>
+        <item name="colorOnPrimary">@color/t_amber_on_primary</item>
+        <item name="colorSecondary">@color/t_amber_primary</item>
+        <item name="colorOnSecondary">@color/t_amber_on_primary</item>
+        <item name="colorSurface">@color/t_amber_surface</item>
+        <item name="colorOnSurface">@color/t_amber_text</item>
+        <item name="colorSurfaceVariant">@color/t_amber_surface_high</item>
+        <item name="colorOnSurfaceVariant">@color/t_amber_text_dim</item>
+        <item name="colorOutline">@color/t_amber_outline</item>
+        <item name="colorOnBackground">@color/t_amber_text</item>
+        <item name="android:colorBackground">@color/t_amber_ink</item>
+        <item name="android:statusBarColor">@color/t_amber_ink</item>
+        <item name="android:navigationBarColor">@color/t_amber_ink</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:textColorPrimary">@color/t_amber_text</item>
+        <item name="android:textColorSecondary">@color/t_amber_text_dim</item>    </style>
+
+    <style name="Theme.LinNas.Mono" parent="Theme.LinNas">
+        <item name="lInk">@color/t_mono_ink</item>
+        <item name="lSurface">@color/t_mono_surface</item>
+        <item name="lSurfaceHigh">@color/t_mono_surface_high</item>
+        <item name="lOutline">@color/t_mono_outline</item>
+        <item name="lText">@color/t_mono_text</item>
+        <item name="lTextDim">@color/t_mono_text_dim</item>
+        <item name="lPrimary">@color/t_mono_primary</item>
+        <item name="lOnPrimary">@color/t_mono_on_primary</item>
+        <item name="colorPrimary">@color/t_mono_primary</item>
+        <item name="colorOnPrimary">@color/t_mono_on_primary</item>
+        <item name="colorSecondary">@color/t_mono_primary</item>
+        <item name="colorOnSecondary">@color/t_mono_on_primary</item>
+        <item name="colorSurface">@color/t_mono_surface</item>
+        <item name="colorOnSurface">@color/t_mono_text</item>
+        <item name="colorSurfaceVariant">@color/t_mono_surface_high</item>
+        <item name="colorOnSurfaceVariant">@color/t_mono_text_dim</item>
+        <item name="colorOutline">@color/t_mono_outline</item>
+        <item name="colorOnBackground">@color/t_mono_text</item>
+        <item name="android:colorBackground">@color/t_mono_ink</item>
+        <item name="android:statusBarColor">@color/t_mono_ink</item>
+        <item name="android:navigationBarColor">@color/t_mono_ink</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:textColorPrimary">@color/t_mono_text</item>
+        <item name="android:textColorSecondary">@color/t_mono_text_dim</item>    </style>
+
+    <style name="Theme.LinNas.Player" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">@color/t_blue_primary</item>
+        <item name="colorOnPrimary">@color/t_blue_on_primary</item>
+        <item name="colorSurface">#000000</item>
+        <item name="colorOnSurface">#FFFFFF</item>
+        <item name="android:statusBarColor">#000000</item>
+        <item name="android:navigationBarColor">#000000</item>
+        <item name="android:colorBackground">#000000</item>
+    </style>
+
+    <style name="TextTitle">
+        <item name="android:textSize">26sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">?attr/lText</item>
+        <item name="android:letterSpacing">-0.02</item>
+    </style>
+    <style name="TextLabel">
+        <item name="android:textSize">12sp</item>
+        <item name="android:textColor">?attr/lTextDim</item>
+        <item name="android:letterSpacing">0.08</item>
+    </style>
+    <style name="TextItem">
+        <item name="android:textSize">15sp</item>
+        <item name="android:textColor">?attr/lText</item>
+    </style>
+    <style name="TextMeta">
+        <item name="android:textSize">12sp</item>
+        <item name="android:textColor">?attr/lTextDim</item>
+    </style>
+</resources>

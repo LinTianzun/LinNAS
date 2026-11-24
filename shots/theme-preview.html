@@ -1,0 +1,110 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+body{background:#05070A;padding:26px;display:flex;gap:22px}
+.phone{--ink:#0B0D11;--sur:#14181F;--hi:#1C222C;--line:#2A323E;--txt:#E9EDF5;--dim:#98A2B3;--pri:#6EA8FE;--onp:#071021;
+ width:340px;height:740px;background:var(--ink);border-radius:28px;overflow:hidden;position:relative;color:var(--txt);flex:0 0 auto;box-shadow:0 18px 44px rgba(0,0,0,.62)}
+.green{--ink:#06100C;--sur:#0E1A15;--hi:#15241D;--line:#23352B;--txt:#E6F2EB;--dim:#8FA79A;--pri:#59D3A6;--onp:#04140D}
+.amber{--ink:#100D08;--sur:#1A150E;--hi:#241D13;--line:#3A2F22;--txt:#F4EDE1;--dim:#B3A491;--pri:#E7B368;--onp:#1A1206}
+.mono{--ink:#000000;--sur:#0B0B0D;--hi:#141417;--line:#242428;--txt:#F2F2F5;--dim:#9A9AA3;--pri:#9EC5FF;--onp:#05101F}
+.bar{display:flex;align-items:center;padding:14px 18px 6px}
+.lg{font-size:20px;font-weight:700;letter-spacing:.3px}
+.dk{font-size:10.5px;color:var(--dim);margin-top:1px}
+.sp{flex:1}
+.chip{display:flex;align-items:center;gap:6px;background:var(--hi);border-radius:999px;padding:6px 11px;font-size:11.5px}
+.dot{width:7px;height:7px;border-radius:50%;background:#79E2B6}
+.ic{width:34px;height:34px;display:flex;align-items:center;justify-content:center;color:var(--dim);font-size:15px}
+.content{padding:0 14px}
+.crumbs{display:flex;gap:6px;padding:6px 0 8px;font-size:12.5px;align-items:center}
+.crumb{background:var(--hi);border-radius:999px;padding:5px 10px;color:var(--dim)}
+.crumb.on{color:var(--txt)}
+.sep{color:var(--line)}
+.tools{display:flex;align-items:center;padding-bottom:6px}
+.sort{color:var(--dim);font-size:12.5px;display:flex;gap:5px;align-items:center}
+.view{color:var(--dim);font-size:15px;margin-left:auto}
+.search{background:var(--sur);border:1px solid var(--line);border-radius:11px;height:40px;display:flex;align-items:center;gap:9px;padding:0 12px;color:var(--dim);font-size:13px}
+.list{display:flex;flex-direction:column;gap:2px;padding-top:8px}
+.row{display:flex;align-items:center;gap:12px;padding:8px 6px;min-height:56px}
+.tile{width:38px;height:38px;border-radius:11px;background:var(--hi);display:flex;align-items:center;justify-content:center}
+.name{font-size:14px;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta{font-size:11.5px;color:var(--dim);margin-top:2px}
+.more{margin-left:auto;color:var(--dim);font-size:14px}
+.fab{position:absolute;right:16px;bottom:78px;background:var(--pri);color:var(--onp);border-radius:15px;display:flex;align-items:center;gap:7px;padding:12px 17px;font-size:13px;font-weight:600}
+.nav{position:absolute;left:0;right:0;bottom:0;height:64px;background:var(--sur);display:flex;align-items:center;justify-content:space-around;font-size:10.5px;color:var(--dim)}
+.it{display:flex;flex-direction:column;align-items:center;gap:3px}
+.it.on{color:var(--pri)}
+.tag{position:absolute;left:14px;top:-22px;font-size:12px;color:#98A2B3}
+.wrap{position:relative;padding-top:22px}
+svg{display:block}
+</style></head><body>
+<div class="wrap"><div class="tag">墨蓝(默认)</div><div class="phone">
+ <div class="bar"><div><div class="lg">linNas</div><div class="dk">共剩余 3.5 TB</div></div><div class="sp"></div>
+  <div class="chip"><span class="dot"></span>已连接</div><div class="ic">↻</div><div class="ic">⋯</div></div>
+ <div class="content">
+  <div class="crumbs"><span class="crumb">存储库</span><span class="sep">/</span><span class="crumb on">H盘</span></div>
+  <div class="tools"><div class="sort">⇅ 名称 ↑</div><div class="view">▦</div></div>
+  <div class="search"><span>⌕</span>搜索当前目录</div>
+  <div class="list">
+   <div class="row"><div class="tile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--pri)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7.5a2 2 0 0 1 2-2h4.2l2 2h8.8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-15a2 2 0 0 1-2-2z"/></svg></div><div><div class="name">电影</div><div class="meta">文件夹</div></div><div class="more">⋯</div></div>
+   <div class="row"><div class="tile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--pri)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7.5a2 2 0 0 1 2-2h4.2l2 2h8.8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-15a2 2 0 0 1-2-2z"/></svg></div><div><div class="name">电视剧</div><div class="meta">文件夹</div></div><div class="more">⋯</div></div>
+   <div class="row"><div class="tile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--pri)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6.5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><path d="M10 9.2l5.2 3.3-5.2 3.3z"/></svg></div><div><div class="name">SSE.mp4</div><div class="meta">183.3 MB · 11-24 12:30</div></div><div class="more">⋯</div></div>
+   <div class="row"><div class="tile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--pri)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5h16a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1z"/><circle cx="8.5" cy="10.5" r="1.4"/><path d="M4.5 16.5l4.5-5 3 3.2 2.4-2.1 4.6 4.6"/></svg></div><div><div class="name">DSC_0142.jpg</div><div class="meta">3.1 MB · 11-23 20:14</div></div><div class="more">⋯</div></div>
+  </div>
+ </div>
+ <div class="fab">↑ 上传</div>
+ <div class="nav"><div class="it on">▣<span>文件</span></div><div class="it">▶<span>媒体</span></div><div class="it">⇧<span>传输</span></div><div class="it">⚙<span>设置</span></div></div>
+</div></div>
+
+<div class="wrap"><div class="tag">墨绿</div><div class="phone green">
+ <div class="bar"><div><div class="lg">linNas</div><div class="dk">H盘 · 剩余 1.8 TB</div></div><div class="sp"></div>
+  <div class="chip"><span class="dot"></span>已连接</div><div class="ic">↻</div><div class="ic">⋯</div></div>
+ <div class="content">
+  <div class="crumbs"><span class="crumb">存储库</span><span class="sep">/</span><span class="crumb on">H盘</span></div>
+  <div class="tools"><div class="sort">⇅ 时间 ↓</div><div class="view">▦</div></div>
+  <div class="search"><span>⌕</span>搜索当前目录</div>
+  <div class="list">
+   <div class="row"><div class="tile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--pri)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7.5a2 2 0 0 1 2-2h4.2l2 2h8.8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-15a2 2 0 0 1-2-2z"/></svg></div><div><div class="name">电影</div><div class="meta">文件夹</div></div><div class="more">⋯</div></div>
+   <div class="row"><div class="tile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--pri)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6.5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><path d="M10 9.2l5.2 3.3-5.2 3.3z"/></svg></div><div><div class="name">旅行 vlog 2025.mp4</div><div class="meta">1.2 GB · 11-24 18:02</div></div><div class="more">⋯</div></div>
+   <div class="row"><div class="tile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--pri)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 17.5V7.2l8-2v10.3"/><circle cx="7.3" cy="17.5" r="2.2"/><circle cx="15.3" cy="15.5" r="2.2"/></svg></div><div><div class="name">电台录音.m4a</div><div class="meta">42.6 MB · 11-20 08:02</div></div><div class="more">⋯</div></div>
+   <div class="row"><div class="tile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--dim)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 3.5h7l4 4v13a1 1 0 0 1-1 1h-10a1 1 0 0 1-1-1v-16a1 1 0 0 1 1-1z"/><path d="M13.5 3.5v4h4"/></svg></div><div><div class="name">学习资料.docx</div><div class="meta">1.2 MB · 11-18 22:41</div></div><div class="more">⋯</div></div>
+  </div>
+ </div>
+ <div class="fab">↑ 上传</div>
+ <div class="nav"><div class="it on">▣<span>文件</span></div><div class="it">▶<span>媒体</span></div><div class="it">⇧<span>传输</span></div><div class="it">⚙<span>设置</span></div></div>
+</div></div>
+
+<div class="wrap"><div class="tag">琥珀</div><div class="phone amber">
+ <div class="bar"><div><div class="lg">linNas</div><div class="dk">共剩余 3.5 TB</div></div><div class="sp"></div>
+  <div class="chip"><span class="dot"></span>已连接</div><div class="ic">↻</div><div class="ic">⋯</div></div>
+ <div class="content">
+  <div class="crumbs"><span class="crumb">存储库</span><span class="sep">/</span><span class="crumb on">I盘</span></div>
+  <div class="tools"><div class="sort">⇅ 大小 ↓</div><div class="view">▤</div></div>
+  <div class="search"><span>⌕</span>搜索当前目录</div>
+  <div class="list">
+   <div class="row"><div class="tile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--pri)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7.5a2 2 0 0 1 2-2h4.2l2 2h8.8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-15a2 2 0 0 1-2-2z"/></svg></div><div><div class="name">纪录片</div><div class="meta">文件夹</div></div><div class="more">⋯</div></div>
+   <div class="row"><div class="tile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--pri)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6.5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><path d="M10 9.2l5.2 3.3-5.2 3.3z"/></svg></div><div><div class="name">电影 · 星际穿越.mkv</div><div class="meta">8.6 GB · 11-22 21:10</div></div><div class="more">⋯</div></div>
+   <div class="row"><div class="tile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--pri)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6.5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><path d="M10 9.2l5.2 3.3-5.2 3.3z"/></svg></div><div><div class="name">老片儿.avi</div><div class="meta">700 MB · 11-12 09:30</div></div><div class="more">⋯</div></div>
+   <div class="row"><div class="tile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--pri)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5h16a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1z"/><circle cx="8.5" cy="10.5" r="1.4"/><path d="M4.5 16.5l4.5-5 3 3.2 2.4-2.1 4.6 4.6"/></svg></div><div><div class="name">IMG_2048.jpg</div><div class="meta">2.8 MB · 11-21 07:40</div></div><div class="more">⋯</div></div>
+  </div>
+ </div>
+ <div class="fab">↑ 上传</div>
+ <div class="nav"><div class="it on">▣<span>文件</span></div><div class="it">▶<span>媒体</span></div><div class="it">⇧<span>传输</span></div><div class="it">⚙<span>设置</span></div></div>
+</div></div>
+
+<div class="wrap"><div class="tag">纯黑(OLED)</div><div class="phone mono">
+ <div class="bar"><div><div class="lg">linNas</div><div class="dk">共剩余 3.5 TB</div></div><div class="sp"></div>
+  <div class="chip"><span class="dot"></span>已连接</div><div class="ic">↻</div><div class="ic">⋯</div></div>
+ <div class="content">
+  <div class="crumbs"><span class="crumb">存储库</span><span class="sep">/</span><span class="crumb on">H盘</span></div>
+  <div class="tools"><div class="sort">⇅ 名称 ↑</div><div class="view">▦</div></div>
+  <div class="search"><span>⌕</span>搜索当前目录</div>
+  <div class="list">
+   <div class="row"><div class="tile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--pri)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7.5a2 2 0 0 1 2-2h4.2l2 2h8.8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-15a2 2 0 0 1-2-2z"/></svg></div><div><div class="name">电影</div><div class="meta">文件夹</div></div><div class="more">⋯</div></div>
+   <div class="row"><div class="tile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--pri)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7.5a2 2 0 0 1 2-2h4.2l2 2h8.8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-15a2 2 0 0 1-2-2z"/></svg></div><div><div class="name">电视剧</div><div class="meta">文件夹</div></div><div class="more">⋯</div></div>
+   <div class="row"><div class="tile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--pri)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6.5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><path d="M10 9.2l5.2 3.3-5.2 3.3z"/></svg></div><div><div class="name">SSE.mp4</div><div class="meta">183.3 MB · 11-24 12:30</div></div><div class="more">⋯</div></div>
+   <div class="row"><div class="tile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--dim)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 3.5h7l4 4v13a1 1 0 0 1-1 1h-10a1 1 0 0 1-1-1v-16a1 1 0 0 1 1-1z"/><path d="M13.5 3.5v4h4"/></svg></div><div><div class="name">学习资料.docx</div><div class="meta">1.2 MB · 11-18 22:41</div></div><div class="more">⋯</div></div>
+  </div>
+ </div>
+ <div class="fab">↑ 上传</div>
+ <div class="nav"><div class="it on">▣<span>文件</span></div><div class="it">▶<span>媒体</span></div><div class="it">⇧<span>传输</span></div><div class="it">⚙<span>设置</span></div></div>
+</div></div>
+</body></html>

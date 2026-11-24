@@ -1,0 +1,133 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><style>
+:root{--ink:#0B0D11;--surface:#14181F;--hi:#1C222C;--line:#2A323E;--text:#E9EDF5;--dim:#98A2B3;--pri:#6EA8FE;--mint:#79E2B6;--amber:#F2C879}
+*{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+body{background:#05070A;padding:28px;display:flex;gap:24px}
+.phone{width:393px;height:852px;background:var(--ink);border-radius:30px;overflow:hidden;position:relative;color:var(--text);flex:0 0 auto;box-shadow:0 20px 50px rgba(0,0,0,.6)}
+.bar{display:flex;align-items:center;padding:16px 20px 8px}
+.logo{font-size:21px;font-weight:700;letter-spacing:.3px}
+.sp{flex:1}
+.chip{display:flex;align-items:center;gap:7px;background:var(--hi);border-radius:999px;padding:7px 12px;font-size:12px}
+.dot{width:8px;height:8px;border-radius:50%}
+.ico{width:40px;height:40px;display:flex;align-items:center;justify-content:center;color:var(--dim)}
+.content{padding:0 16px}
+.crumbs{display:flex;align-items:center;gap:6px;padding:8px 0 12px;font-size:13px}
+.crumb{background:var(--hi);border-radius:999px;padding:6px 11px;color:var(--dim)}
+.crumb.on{color:var(--text)}
+.sep{color:var(--line)}
+.search{background:var(--surface);border:1px solid var(--line);border-radius:12px;height:44px;display:flex;align-items:center;gap:10px;padding:0 14px;color:var(--dim);font-size:14px}
+.list{display:flex;flex-direction:column;gap:4px;padding-top:10px}
+.row{display:flex;align-items:center;gap:14px;padding:9px 8px;min-height:64px}
+.tile{width:42px;height:42px;border-radius:12px;background:var(--hi);display:flex;align-items:center;justify-content:center}
+.name{font-size:15px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta{font-size:12px;color:var(--dim);margin-top:2px}
+.more{margin-left:auto;color:var(--dim)}
+.fab{position:absolute;right:20px;bottom:84px;background:var(--pri);color:#071021;border-radius:16px;display:flex;align-items:center;gap:8px;padding:14px 20px;font-size:14px;font-weight:600;box-shadow:0 8px 24px rgba(110,168,254,.3)}
+.nav{position:absolute;left:0;right:0;bottom:0;height:72px;background:var(--surface);display:flex;align-items:center;justify-content:space-around;font-size:11px;color:var(--dim)}
+.nav .it{display:flex;flex-direction:column;align-items:center;gap:4px}
+.nav .it.on{color:var(--pri)}
+.toggle{display:flex;gap:0;border:1px solid var(--line);border-radius:999px;overflow:hidden;margin:8px 0 14px}
+.toggle div{flex:1;text-align:center;padding:10px;font-size:13px;color:var(--dim)}
+.toggle .on{background:rgba(110,168,254,.16);color:var(--pri);font-weight:600}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+.thumb{height:112px;background:linear-gradient(135deg,#1C222C,#232B38);display:flex;align-items:center;justify-content:center;color:#3A4353}
+.cname{font-size:12.5px;color:var(--text);padding:8px 10px 10px;line-height:1.35}
+.h1{font-size:19px;font-weight:700;margin:6px 0 2px}
+.pcard{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px;margin-top:12px}
+.line{display:flex;align-items:center;justify-content:space-between;font-size:15px}
+.sw{width:44px;height:26px;border-radius:999px;background:var(--pri);position:relative}
+.sw::after{content:"";position:absolute;right:3px;top:3px;width:20px;height:20px;border-radius:50%;background:#fff}
+.sw.off{background:var(--line)}.sw.off::after{left:3px;right:auto}
+.field{background:var(--ink);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:13px;color:var(--dim);margin-top:12px}
+.btnrow{display:flex;gap:8px;margin-top:12px}
+.btn{flex:1;text-align:center;border-radius:999px;padding:11px;font-size:13px;font-weight:600}
+.btn.pri{background:rgba(110,168,254,.18);color:var(--pri)}
+.btn.out{border:1px solid var(--line);color:var(--text)}
+.status{font-size:12px;color:var(--dim);margin-top:10px}
+.label{font-size:12px;letter-spacing:.08em;color:var(--dim);margin:24px 0 10px}
+.upitem{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:8px}
+.uprow{display:flex;justify-content:space-between;font-size:13px}
+.pbar{height:5px;border-radius:3px;background:var(--line);margin-top:10px;overflow:hidden}
+.pbar i{display:block;height:100%;background:var(--pri);border-radius:3px}
+.big{font-size:16px;margin-top:4px}
+.mini{font-size:12px;color:var(--dim);margin-top:2px}
+.about{font-size:15px}.about .sub{font-size:12px;color:var(--dim);margin-top:6px;line-height:1.6}
+</style></head><body>
+
+<!-- 1 文件 -->
+<div class="phone">
+  <div class="bar"><div class="logo">linNas</div><div class="sp"></div>
+    <div class="chip"><span class="dot" style="background:var(--mint)"></span>已连接</div>
+    <div class="ico">↻</div><div class="ico">⋯</div></div>
+  <div class="content">
+    <div class="crumbs"><span class="crumb">存储库</span><span class="sep">/</span><span class="crumb on">H盘</span></div>
+    <div class="search"><span>⌕</span>搜索当前目录</div>
+    <div class="list">
+      <div class="row"><div class="tile" style="color:var(--pri)">▣</div><div><div class="name">电影</div><div class="meta">文件夹</div></div><div class="more">⋯</div></div>
+      <div class="row"><div class="tile" style="color:var(--pri)">▣</div><div><div class="name">电视剧</div><div class="meta">文件夹</div></div><div class="more">⋯</div></div>
+      <div class="row"><div class="tile" style="color:var(--pri)">▶</div><div><div class="name">SSE.mp4</div><div class="meta">183.3 MB · 11-24 12:30</div></div><div class="more">⋯</div></div>
+      <div class="row"><div class="tile" style="color:var(--mint)">▧</div><div><div class="name">DSC_0142.jpg</div><div class="meta">3.1 MB · 11-23 20:14</div></div><div class="more">⋯</div></div>
+      <div class="row"><div class="tile" style="color:var(--amber)">♪</div><div><div class="name">电台录音.m4a</div><div class="meta">42.6 MB · 11-20 08:02</div></div><div class="more">⋯</div></div>
+      <div class="row"><div class="tile" style="color:var(--dim)">▤</div><div><div class="name">学习资料.docx</div><div class="meta">1.2 MB · 11-18 22:41</div></div><div class="more">⋯</div></div>
+    </div>
+  </div>
+  <div class="fab">↑ 上传</div>
+  <div class="nav"><div class="it on">▣<span>文件</span></div><div class="it">▶<span>媒体</span></div><div class="it">⇧<span>传输</span></div><div class="it">⚙<span>设置</span></div></div>
+</div>
+
+<!-- 2 媒体 -->
+<div class="phone">
+  <div class="bar"><div class="logo">linNas</div><div class="sp"></div><div class="chip"><span class="dot" style="background:var(--mint)"></span>已连接</div><div class="ico">↻</div><div class="ico">⋯</div></div>
+  <div class="content">
+    <div class="toggle"><div class="on">视频</div><div>图片</div><div>音乐</div></div>
+    <div class="grid">
+      <div class="card"><div class="thumb">▶</div><div class="cname">SSE.mp4</div></div>
+      <div class="card"><div class="thumb">▶</div><div class="cname">旅行 vlog 2025.mp4</div></div>
+      <div class="card"><div class="thumb">▶</div><div class="cname">电影 · 星际穿越.mkv</div></div>
+      <div class="card"><div class="thumb">▶</div><div class="cname">老片儿.avi</div></div>
+      <div class="card"><div class="thumb">▶</div><div class="cname">演唱会现场.mp4</div></div>
+      <div class="card"><div class="thumb">▶</div><div class="cname">纪录片 第01集.mp4</div></div>
+    </div>
+  </div>
+  <div class="nav"><div class="it">▣<span>文件</span></div><div class="it on">▶<span>媒体</span></div><div class="it">⇧<span>传输</span></div><div class="it">⚙<span>设置</span></div></div>
+</div>
+
+<!-- 3 传输 -->
+<div class="phone">
+  <div class="bar"><div class="logo">linNas</div><div class="sp"></div><div class="chip"><span class="dot" style="background:var(--mint)"></span>已连接</div><div class="ico">↻</div><div class="ico">⋯</div></div>
+  <div class="content">
+    <div class="h1">相册自动备份</div>
+    <div class="pcard">
+      <div class="line"><span>自动备份照片 / 视频</span><span class="sw"></span></div>
+      <div class="field">/lib1/手机备份</div>
+      <div class="line" style="margin-top:12px;font-size:14px;color:var(--dim)"><span>仅在 WiFi 下备份</span><span class="sw" style="transform:scale(.9)"></span></div>
+      <div class="status">上次:本次上传 12 张 · 累计 348 张</div>
+      <div class="btnrow"><div class="btn pri">保存设置</div><div class="btn out">立即备份</div></div>
+    </div>
+    <div class="label">上传队列</div>
+    <div class="upitem"><div class="uprow"><span>IMG_20261124_1832.jpg</span><span style="color:var(--dim)">64%</span></div><div class="pbar"><i style="width:64%"></i></div></div>
+    <div class="upitem"><div class="uprow"><span>VID_20261124_1801.mp4</span><span style="color:var(--dim)">已完成</span></div><div class="pbar"><i style="width:100%;background:var(--mint)"></i></div></div>
+  </div>
+  <div class="nav"><div class="it">▣<span>文件</span></div><div class="it">▶<span>媒体</span></div><div class="it on">⇧<span>传输</span></div><div class="it">⚙<span>设置</span></div></div>
+</div>
+
+<!-- 4 设置 -->
+<div class="phone">
+  <div class="bar"><div class="logo">linNas</div><div class="sp"></div><div class="chip"><span class="dot" style="background:var(--mint)"></span>已连接</div><div class="ico">↻</div><div class="ico">⋯</div></div>
+  <div class="content">
+    <div class="label" style="margin-top:6px">连接</div>
+    <div class="pcard" style="margin-top:0">
+      <div class="mini">当前服务器</div>
+      <div class="big">http://192.168.10.2:52700</div>
+      <div class="mini">无口令</div>
+      <div class="btnrow"><div class="btn pri">扫描局域网</div><div class="btn out">手动输入</div></div>
+    </div>
+    <div class="label">关于</div>
+    <div class="pcard" style="margin-top:0">
+      <div class="about">linNas App v0.6.0<div class="sub">服务端 v0.5.0<br><br>手机与电脑连同一 WiFi 即可自动发现服务器,首次连接后会记住。</div></div>
+    </div>
+  </div>
+  <div class="nav"><div class="it">▣<span>文件</span></div><div class="it">▶<span>媒体</span></div><div class="it">⇧<span>传输</span></div><div class="it on">⚙<span>设置</span></div></div>
+</div>
+
+</body></html>

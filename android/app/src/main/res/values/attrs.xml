@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <attr name="lInk" format="color" />
+    <attr name="lSurface" format="color" />
+    <attr name="lSurfaceHigh" format="color" />
+    <attr name="lOutline" format="color" />
+    <attr name="lText" format="color" />
+    <attr name="lTextDim" format="color" />
+    <attr name="lPrimary" format="color" />
+    <attr name="lOnPrimary" format="color" />
+</resources>

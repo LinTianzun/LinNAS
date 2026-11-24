@@ -1,0 +1,40 @@
+# ===== OS / 编辑器 =====
+Thumbs.db
+desktop.ini
+.DS_Store
+.idea/
+*.iml
+.vscode/
+
+# ===== LinNAS 运行期数据（索引库 / 缩略图 / 配置 / 日志）=====
+server/linnas-data/
+server/*.log
+server/_*.log
+server/_*.err
+server/*.exe
+server/*.exe~
+server/.linNasTrash/
+
+# ===== Go 构建产物 =====
+server/*.test
+*.test
+*.out
+
+# ===== Android / Gradle 构建产物 =====
+android/.gradle/
+android/.kotlin/
+android/build/
+android/app/build/
+android/captures/
+android/local.properties
+
+# ===== 二进制 / 安装包 =====
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+
+# ===== 临时 / 分块上传残留 =====
+*.part
+*.tmp

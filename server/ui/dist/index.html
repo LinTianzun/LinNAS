@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0d0c">
+<title>linNas</title>
+<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="%230b0d0c"/><circle cx="16" cy="16" r="6.5" fill="%23e8a33d"/></svg>'>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <button id="btn-brand" class="brand" title="回到主页">
+    <span class="brand-led"></span>
+    <span class="brand-name">linNas</span>
+  </button>
+  <div class="top-actions">
+    <div class="conn" id="conn" title="服务连接状态">
+      <span class="led" id="conn-led"></span>
+      <span id="conn-text">连接中…</span>
+    </div>
+    <button class="btn icon-btn" id="btn-theme" title="切换主题"></button>
+    <button class="btn icon-btn" id="btn-settings" title="系统设置"></button>
+  </div>
+</header>
+
+<div class="app">
+
+  <aside class="sidebar" id="sidebar">
+    <div class="side-head">存储库</div>
+    <nav class="lib-list" id="lib-list"></nav>
+    <button class="side-add" id="btn-add-lib"><span data-icon="plus"></span>添加目录</button>
+    <div class="side-head side-head2">更多</div>
+    <nav class="lib-list">
+      <button class="lib-item" id="btn-media"><span data-icon="film"></span><span class="nm">媒体库</span></button>
+      <button class="lib-item" id="btn-search"><span data-icon="search"></span><span class="nm">搜索</span></button>
+      <button class="lib-item" id="btn-devices"><span data-icon="monitor"></span><span class="nm">设备</span></button>
+      <button class="lib-item" id="btn-trash"><span data-icon="trash"></span><span class="nm">回收站</span></button>
+      <button class="lib-item" id="btn-vault"><span data-icon="lock"></span><span class="nm">隐私保险箱</span></button>
+    </nav>
+    <div class="side-foot"><span id="ver-text">linNas</span></div>
+  </aside>
+
+  <main class="main">
+
+    <!-- 主页 -->
+    <section class="view" id="view-home">
+      <div class="page-head">
+        <h1>存储库</h1>
+        <button class="btn" id="btn-add-lib2"><span data-icon="plus"></span>添加目录</button>
+      </div>
+      <p class="page-sub" id="home-sub"></p>
+      <div class="lib-cards" id="lib-cards"></div>
+    </section>
+
+    <!-- 文件浏览 -->
+    <section class="view" id="view-browse" hidden>
+      <div class="toolbar">
+        <button class="btn icon-btn back" id="btn-back" title="返回"><span data-icon="chevron-left"></span></button>
+        <nav class="crumbs" id="crumbs"></nav>
+        <div class="tools">
+          <div class="search">
+            <span data-icon="search"></span>
+            <input id="in-search" type="search" placeholder="搜索当前目录" autocomplete="off">
+          </div>
+          <select id="sel-type" title="筛选类型">
+            <option value="all">全部</option>
+            <option value="dir">仅文件夹</option>
+            <option value="video">视频</option>
+            <option value="image">图片</option>
+            <option value="audio">音乐</option>
+            <option value="archive">压缩包</option>
+            <option value="file">其他文件</option>
+          </select>
+          <select id="sel-sort" title="排序方式">
+            <option value="name">按名称</option>
+            <option value="size">按大小</option>
+            <option value="time">按时间</option>
+          </select>
+          <button class="btn icon-btn" id="btn-sortdir" title="升序/降序"></button>
+          <button class="btn icon-btn" id="btn-viewmode" title="切换视图"></button>
+          <button class="btn" id="btn-select" title="多选文件进行移动/复制/删除"><span data-icon="check-square"></span>选择</button>
+          <span class="tool-sep"></span>
+          <button class="btn" id="btn-mkdir"><span data-icon="folder-plus"></span>新建文件夹</button>
+          <button class="btn primary" id="btn-upload"><span data-icon="upload"></span>上传</button>
+        </div>
+      </div>
+
+      <!-- 选中操作条 -->
+      <div class="actionbar" id="selbar" hidden>
+        <span class="sel-count">已选 <b id="sel-count">0</b> 项</span>
+        <div class="sel-btns">
+          <button class="btn" id="btn-sel-move"><span data-icon="move"></span>移动到…</button>
+          <button class="btn" id="btn-sel-copy"><span data-icon="copy"></span>复制</button>
+          <button class="btn" id="btn-sel-cut"><span data-icon="cut"></span>剪切</button>
+          <button class="btn" id="btn-sel-vault"><span data-icon="lock"></span>存入保险箱</button>
+          <button class="btn danger" id="btn-sel-delete"><span data-icon="trash"></span>删除</button>
+          <button class="btn ghost" id="btn-sel-cancel">取消</button>
+        </div>
+      </div>
+
+      <!-- 剪贴板条 -->
+      <div class="actionbar pastebar" id="pastebar" hidden>
+        <span class="sel-count"><b id="paste-count">0</b> 项待粘贴 <span id="paste-mode"></span></span>
+        <div class="sel-btns">
+          <button class="btn primary" id="btn-paste"><span data-icon="paste"></span>粘贴到此处</button>
+          <button class="btn ghost" id="btn-paste-cancel">取消</button>
+        </div>
+      </div>
+
+      <div class="file-list" id="file-list"></div>
+      <div class="statusbar" id="statusbar">
+        <span id="stat-info"></span>
+        <button class="btn ghost small" id="btn-dirsize">计算本目录总大小</button>
+      </div>
+      <input type="file" id="file-input" multiple hidden>
+    </section>
+
+    <!-- 保险箱 -->
+    <section class="view" id="view-vault" hidden>
+      <div class="page-head">
+        <h1><span data-icon="lock" class="title-ic"></span>隐私保险箱</h1>
+        <div class="btns" id="vault-actions"></div>
+      </div>
+      <p class="page-sub">保险箱内容存放在<b>存储库内的隐藏目录</b>(如 H:\NAS\.linNasVault),普通浏览和搜索都看不到;需密码解锁后访问。</p>
+      <div id="vault-body"></div>
+      <input type="file" id="vault-file-input" multiple hidden>
+    </section>
+
+    <!-- 媒体库 -->
+    <section class="view" id="view-media" hidden>
+      <div class="page-head">
+        <h1><span data-icon="film" class="title-ic"></span>媒体库</h1>
+        <select id="media-sort" title="排序">
+          <option value="name">按名称</option>
+          <option value="mtime">按时间</option>
+          <option value="size">按大小</option>
+        </select>
+      </div>
+      <div class="tabs" id="media-tabs">
+        <button data-type="video" class="on">视频</button>
+        <button data-type="image">图片</button>
+        <button data-type="audio">音乐</button>
+      </div>
+      <p class="page-sub" id="media-sub"></p>
+      <div class="file-list grid" id="media-grid"></div>
+      <div class="load-more-wrap"><button class="btn" id="btn-media-more" hidden>加载更多</button></div>
+    </section>
+
+    <!-- 全局搜索 -->
+    <section class="view" id="view-search" hidden>
+      <div class="page-head"><h1><span data-icon="search" class="title-ic"></span>搜索</h1></div>
+      <div class="search search-lg">
+        <span data-icon="search"></span>
+        <input id="in-global-search" type="search" placeholder="搜索所有存储库中的文件名…" autocomplete="off">
+      </div>
+      <p class="page-sub" id="search-sub"></p>
+      <div class="file-list" id="search-list"></div>
+    </section>
+
+    <!-- 设备管理 -->
+    <section class="view" id="view-devices" hidden>
+      <div class="page-head">
+        <h1><span data-icon="monitor" class="title-ic"></span>设备</h1>
+        <div class="btns">
+          <button class="btn" id="btn-dev-refresh"><span data-icon="refresh"></span>刷新</button>
+          <button class="btn ghost" id="btn-dev-clear">清空记录</button>
+        </div>
+      </div>
+      <p class="page-sub">最近通过浏览器/手机访问过本服务的设备(按最近活跃排序)。</p>
+      <div id="device-list"></div>
+    </section>
+
+    <!-- 回收站 -->
+    <section class="view" id="view-trash" hidden>
+      <div class="page-head">
+        <h1><span data-icon="trash" class="title-ic"></span>回收站</h1>
+        <div class="btns">
+          <button class="btn" id="btn-trash-refresh"><span data-icon="refresh"></span>刷新</button>
+          <button class="btn danger" id="btn-trash-empty">清空回收站</button>
+        </div>
+      </div>
+      <p class="page-sub">删除的文件会先放进各存储库的隐藏目录 <code>.linNasTrash</code>,可以随时恢复。</p>
+      <div id="trash-list"></div>
+    </section>
+
+  </main>
+</div>
+
+<!-- 上传面板 -->
+<div class="up-panel" id="up-panel" hidden>
+  <div class="up-head">
+    <span class="up-title">上传 <b id="up-count"></b></span>
+    <div class="up-head-btns">
+      <button class="btn icon-btn" id="up-clear" title="清除已完成"><span data-icon="check"></span></button>
+      <button class="btn icon-btn" id="up-close" title="收起"><span data-icon="x"></span></button>
+    </div>
+  </div>
+  <div class="up-list" id="up-list"></div>
+</div>
+
+<!-- 操作进度 -->
+<div class="op-panel" id="op-panel" hidden>
+  <div class="op-head">
+    <span class="op-title" id="op-title">处理中…</span>
+    <button class="btn icon-btn" id="op-cancel" title="取消"><span data-icon="x"></span></button>
+  </div>
+  <div class="bar"><i id="op-bar" style="width:0%"></i></div>
+  <div class="op-sub" id="op-sub"></div>
+</div>
+
+<!-- 拖拽遮罩 -->
+<div class="drop-overlay" id="drop-overlay" hidden>
+  <div class="drop-box">
+    <span data-icon="upload" class="drop-ic"></span>
+    <p>松开,上传到 <b id="drop-path"></b></p>
+  </div>
+</div>
+
+<!-- 播放器 -->
+<div class="player-modal" id="player-modal" hidden>
+  <div class="player-box">
+    <div class="player-head">
+      <span class="player-title" id="player-title"></span>
+      <div class="player-tools">
+        <button class="btn" id="player-speed" title="播放速度">1×</button>
+        <button class="btn icon-btn" id="player-pip" title="画中画"><span data-icon="pip"></span></button>
+        <button class="btn icon-btn" id="player-full" title="全屏"><span data-icon="maximize"></span></button>
+        <button class="btn icon-btn" id="player-close" title="关闭 (Esc)"><span data-icon="x"></span></button>
+      </div>
+    </div>
+    <div class="player-stage">
+      <video id="player-video" controls playsinline preload="metadata" hidden></video>
+      <audio id="player-audio" controls hidden></audio>
+      <img id="player-img" alt="" hidden>
+    </div>
+  </div>
+</div>
+
+<!-- 添加/编辑存储库 -->
+<dialog id="dlg-lib">
+  <h3 id="dlg-lib-title">添加存储库</h3>
+  <p class="dlg-hint">选择本机的一个目录作为存储库,手机和浏览器将通过它访问文件。不会移动或修改原文件。</p>
+  <label>目录
+    <div class="pick-row">
+      <input id="in-lib-path" placeholder="点击右侧选择目录" readonly>
+      <button class="btn" id="btn-pick-dir" type="button">选择…</button>
+    </div>
+  </label>
+  <label>显示名称 <input id="in-lib-name" placeholder="例如 电影"></label>
+  <label>排除的子目录(每行一个,隐藏且不索引)
+    <textarea id="in-lib-exclude" rows="3" placeholder="例如 U盘备份&#10;project"></textarea>
+  </label>
+  <label class="chk"><input type="checkbox" id="in-lib-ro"> 只读(禁止上传、改名、删除)</label>
+  <div class="dlg-btns">
+    <button class="btn ghost" id="dlg-lib-cancel">取消</button>
+    <button class="btn primary" id="dlg-lib-ok">确定</button>
+  </div>
+</dialog>
+
+<!-- 服务器目录选择器 -->
+<dialog id="dlg-dirpick" class="wide">
+  <h3>选择目录</h3>
+  <div class="picker-drives" id="dir-drives"></div>
+  <div class="picker-path"><button class="btn icon-btn" id="btn-dir-up" title="上一级"><span data-icon="chevron-left"></span></button><span id="dir-path" class="mono-path"></span></div>
+  <div class="picker-list" id="dir-list"></div>
+  <div class="dlg-btns">
+    <button class="btn ghost" id="dlg-dirpick-cancel">取消</button>
+    <button class="btn primary" id="btn-dir-ok">选择此文件夹</button>
+  </div>
+</dialog>
+
+<!-- 目标文件夹选择器(虚拟路径,用于移动/复制/导出) -->
+<dialog id="dlg-folderpick" class="wide">
+  <h3 id="fpick-title">选择目标文件夹</h3>
+  <div class="picker-path"><button class="btn icon-btn" id="btn-fpick-up" title="上一级"><span data-icon="chevron-left"></span></button><span id="fpick-path" class="mono-path"></span></div>
+  <div class="picker-list" id="fpick-list"></div>
+  <div class="dlg-btns">
+    <button class="btn ghost" id="dlg-fpick-cancel">取消</button>
+    <button class="btn primary" id="btn-fpick-ok">确定</button>
+  </div>
+</dialog>
+
+<!-- 保险箱目标文件夹选择器 -->
+<dialog id="dlg-vaultdest" class="wide">
+  <h3>存入保险箱的哪个文件夹</h3>
+  <div class="picker-path"><button class="btn icon-btn" id="btn-vdest-up" title="上一级"><span data-icon="chevron-left"></span></button><span id="vaultdest-path" class="mono-path"></span></div>
+  <div class="picker-list" id="vaultdest-list"></div>
+  <div class="dlg-btns">
+    <button class="btn ghost" id="dlg-vaultdest-cancel">取消</button>
+    <button class="btn primary" id="btn-vaultdest-ok">存入此文件夹</button>
+  </div>
+</dialog>
+
+<!-- 从存储库挑选文件导入保险箱 -->
+<dialog id="dlg-vaultpick" class="wide">
+  <h3>选择要导入保险箱的文件(可多选)</h3>
+  <div class="picker-path"><button class="btn icon-btn" id="btn-vpick-up" title="上一级"><span data-icon="chevron-left"></span></button><span id="vaultpick-path" class="mono-path"></span></div>
+  <div class="picker-list" id="vaultpick-list"></div>
+  <div class="dlg-btns">
+    <button class="btn ghost" id="dlg-vaultpick-cancel">取消</button>
+    <button class="btn primary" id="btn-vaultpick-ok">导入选中 0 项</button>
+  </div>
+</dialog>
+
+<!-- 通用输入 -->
+<dialog id="dlg-input">
+  <h3 id="dlg-input-title"></h3>
+  <label id="lbl-input"><input id="in-input"></label>
+  <div class="dlg-btns">
+    <button class="btn ghost" id="btn-input-cancel">取消</button>
+    <button class="btn primary" id="btn-input-ok">确定</button>
+  </div>
+</dialog>
+
+<!-- 通用确认 -->
+<dialog id="dlg-confirm">
+  <h3 id="confirm-title"></h3>
+  <p class="dlg-hint" id="confirm-msg"></p>
+  <div class="dlg-btns">
+    <button class="btn ghost" id="btn-confirm-cancel">取消</button>
+    <button class="btn primary danger" id="btn-confirm-ok">确定</button>
+  </div>
+</dialog>
+
+<!-- 口令 -->
+<dialog id="dlg-token">
+  <h3>访问口令</h3>
+  <p class="dlg-hint">服务端启用了口令保护,口令在服务端启动日志里可找到。</p>
+  <label>口令 <input id="in-token" type="password" autocomplete="current-password"></label>
+  <div class="dlg-btns">
+    <button class="btn ghost" id="btn-token-cancel">取消</button>
+    <button class="btn primary" id="btn-token-ok">确定</button>
+  </div>
+</dialog>
+
+<!-- 保险箱密码 -->
+<dialog id="dlg-vaultpw">
+  <h3 id="vaultpw-title">解锁保险箱</h3>
+  <p class="dlg-hint" id="vaultpw-hint"></p>
+  <label>密码 <input id="in-vault-pw" type="password" autocomplete="off"></label>
+  <label id="vaultpw-pw2-wrap" hidden>确认密码 <input id="in-vault-pw2" type="password" autocomplete="off"></label>
+  <div class="dlg-btns">
+    <button class="btn ghost" id="dlg-vaultpw-cancel">取消</button>
+    <button class="btn primary" id="btn-vaultpw-ok">确定</button>
+  </div>
+</dialog>
+
+<!-- 系统设置 -->
+<dialog id="dlg-settings" class="wide">
+  <h3>系统设置</h3>
+  <div class="settings-body" id="settings-body"></div>
+  <div class="dlg-btns">
+    <button class="btn primary" id="dlg-settings-close">关闭</button>
+  </div>
+</dialog>
+
+<div id="toast" class="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>

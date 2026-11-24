@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:minHeight="64dp"
+    android:paddingStart="8dp"
+    android:paddingEnd="4dp"
+    android:paddingTop="6dp"
+    android:paddingBottom="6dp"
+    android:background="?attr/selectableItemBackground">
+    <FrameLayout
+        android:layout_width="42dp"
+        android:layout_height="42dp"
+        android:background="@drawable/bg_tile">
+        <ImageView
+            android:id="@+id/ficon"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:layout_gravity="center"
+            android:tint="?attr/lPrimary"
+            android:contentDescription="类型图标" />
+        <ImageView
+            android:id="@+id/fthumb"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="centerCrop"
+            android:visibility="gone"
+            android:contentDescription="缩略图" />
+    </FrameLayout>
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginStart="14dp"
+        android:orientation="vertical">
+        <TextView
+            android:id="@+id/fname"
+            style="@style/TextItem"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:maxLines="1"
+            android:ellipsize="middle" />
+        <TextView
+            android:id="@+id/fmeta"
+            style="@style/TextMeta"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:maxLines="1"
+            android:ellipsize="end" />
+    </LinearLayout>
+    <ImageButton
+        android:id="@+id/fmore"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:padding="10dp"
+        android:src="@drawable/ic_more"
+        android:tint="?attr/lTextDim"
+        android:contentDescription="更多操作" />
+</LinearLayout>
