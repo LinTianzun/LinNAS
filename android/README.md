@@ -84,3 +84,8 @@ D:\gradle-8.7\bin\gradle.bat assembleDebug
 - 字幕(外挂 srt)、画中画
 - 离线缓存 / 断点下载
 - WebDAV / Tailscale(远程访问)
+
+## 2026-11-24 v1.1.1(扫码竖屏 + PC 端入口)
+- 扫码页面改为**竖屏**:重写 pp/src/main/AndroidManifest.xml 覆盖 zxing 的 com.journeyapps.barcodescanner.CaptureActivity(ndroid:screenOrientation="portrait" + 	ools:replace="android:screenOrientation",根节点加 xmlns:tools),并在 MainActivity.startQrScan() 把 ScanOptions.setOrientationLocked(false) 改为 	rue。
+- 产物:E:\linNas\release\linNas-1.1.1-debug.apk(versionCode 3 / versionName 1.1.1)。
+- PC 端 Web UI 侧栏「更多」新增「手机连接」按钮(id=tn-pair),点击弹窗直接显示配对二维码与三个地址(走 /api/pair、/api/pair/qr),不再需要单独运行 bat。

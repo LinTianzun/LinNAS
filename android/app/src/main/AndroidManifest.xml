@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -45,6 +46,11 @@
             android:exported="false"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:theme="@style/Theme.LinNas.Player" />
+        <!-- 扫码配对:覆盖 zxing 库自带的横屏声明,改为竖屏 -->
+        <activity
+            android:name="com.journeyapps.barcodescanner.CaptureActivity"
+            android:screenOrientation="portrait"
+            tools:replace="android:screenOrientation" />
         <!-- M2 后台上传服务 -->
         <service
             android:name=".upload.UploadService"

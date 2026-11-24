@@ -61,7 +61,8 @@ class MainActivity : AppCompatActivity() {
             setDesiredBarcodeFormats(ScanOptions.QR_CODE)
             setPrompt("对准电脑 linNas 配对页上的二维码")
             setBeepEnabled(false)
-            setOrientationLocked(false)
+            // 扫码页锁定竖屏(与 manifest 覆盖 zxing 的 sensorLandscape 呼应)
+            setOrientationLocked(true)
         }
         try {
             scanLauncher.launch(opts)
