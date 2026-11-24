@@ -16,9 +16,10 @@ func LoadConfig(dataDir string) (*Config, error) {
 		return nil, err
 	}
 	cfg := &Config{
-		Port:    DefaultPort,
-		Host:    "",
-		DataDir: dataDir,
+		Port:            DefaultPort,
+		Host:            "",
+		DataDir:         dataDir,
+		IdleLockMinutes: 30,
 	}
 	raw, err := os.ReadFile(filepath.Join(dataDir, configFileName))
 	if errors.Is(err, os.ErrNotExist) {
@@ -31,6 +32,9 @@ func LoadConfig(dataDir string) (*Config, error) {
 		return nil, err
 	}
 	cfg.DataDir = dataDir // never trust persisted DataDir
+	if cfg.IdleLockMinutes <= 0 {
+		cfg.IdleLockMinutes = 30
+	}
 	return cfg, nil
 }
 

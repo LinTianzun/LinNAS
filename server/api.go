@@ -18,6 +18,9 @@ type Server struct {
 	mux     *http.ServeMux
 	index   *Index
 	devices *deviceRegistry
+	auth    *authStore
+	audit   *auditLog
+	shares  *shareStore
 }
 
 // NewServer creates the HTTP mux with all routes registered.
@@ -26,6 +29,9 @@ func NewServer(cfg *Config) *Server {
 		cfg:     cfg,
 		mux:     http.NewServeMux(),
 		devices: newDeviceRegistry(),
+		auth:    newAuthStore(cfg.DataDir, cfg.IdleLockMinutes),
+		audit:   newAuditLog(cfg.DataDir),
+		shares:  newShareStore(cfg.DataDir),
 	}
 
 	api := http.NewServeMux()
@@ -36,6 +42,9 @@ func NewServer(cfg *Config) *Server {
 	api.HandleFunc("GET /api/disks", s.handleDisks)
 	api.HandleFunc("GET /api/ls", s.handleList)
 	api.HandleFunc("GET /api/size", s.handleSize)
+	api.HandleFunc("GET /api/info", s.handleInfo)
+	api.HandleFunc("GET /api/subtitle", s.handleSubtitleList)
+	api.HandleFunc("GET /api/subtitle/content", s.handleSubtitleContent)
 	api.HandleFunc("GET /api/raw", s.handleRaw)
 	api.HandleFunc("GET /api/stream", s.handleStream)
 	api.HandleFunc("GET /api/thumb", s.handleThumb)
@@ -80,13 +89,32 @@ func NewServer(cfg *Config) *Server {
 	api.HandleFunc("GET /api/devices", s.handleDevices)
 	api.HandleFunc("POST /api/devices/clear", s.handleDevicesClear)
 
+	// 安全:多用户 / 会话 / 操作日志 / 分享链接
+	api.HandleFunc("GET /api/auth/status", s.handleAuthStatus)
+	api.HandleFunc("POST /api/auth/login", s.handleAuthLogin)
+	api.HandleFunc("GET /api/auth/me", s.handleAuthMe)
+	api.HandleFunc("POST /api/auth/logout", s.handleAuthLogout)
+	api.HandleFunc("GET /api/users", s.handleUsersList)
+	api.HandleFunc("POST /api/users", s.handleUsersCreate)
+	api.HandleFunc("DELETE /api/users", s.handleUsersDelete)
+	api.HandleFunc("POST /api/users/update", s.handleUsersUpdate)
+	api.HandleFunc("POST /api/users/password", s.handleUsersPassword)
+	api.HandleFunc("GET /api/audit", s.handleAuditList)
+	api.HandleFunc("POST /api/shares", s.handleSharesCreate)
+	api.HandleFunc("GET /api/shares", s.handleSharesList)
+	api.HandleFunc("DELETE /api/shares", s.handleSharesDelete)
+
 	// 回收站
 	api.HandleFunc("GET /api/trash", s.handleTrashList)
 	api.HandleFunc("POST /api/trash/restore", s.handleTrashRestore)
 	api.HandleFunc("POST /api/trash/delete", s.handleTrashDelete)
 	api.HandleFunc("POST /api/trash/empty", s.handleTrashEmpty)
 
-	s.mux.Handle("/api/", s.withToken(s.recordDevice(s.logRequests(api))))
+	s.mux.Handle("/api/", s.withToken(s.auditLog(s.recordDevice(s.logRequests(api)))))
+	// 分享链接公开访问(免登录),更具体的路径优先于 /api/
+	s.mux.HandleFunc("GET /api/share/{id}", s.handleShareInfo)
+	s.mux.HandleFunc("GET /api/share/{id}/raw", s.handleShareRaw)
+	s.mux.HandleFunc("GET /s/{id}", s.handleSharePage)
 	// 配对相关接口必须免 token(新设备还没有令牌),注册在更具体的路径上即可优先于 /api/
 	s.mux.HandleFunc("GET /api/pair", s.handlePairInfo)
 	s.mux.HandleFunc("GET /api/pair/qr", s.handlePairQR)
@@ -134,10 +162,17 @@ func (w *loggingResponseWriter) WriteHeader(code int) {
 	w.ResponseWriter.WriteHeader(code)
 }
 
-// withToken enforces the shared token on all API routes (except health).
+// withToken enforces authentication and role-based authorization.
+// 未配置任何用户且未设口令时开放访问(局域网单机默认行为)。
+// 否则接受两种凭据:全局访问口令(视为 admin 兜底)或用户登录会话 token。
 func (s *Server) withToken(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.cfg.Token == "" || r.URL.Path == "/api/health" {
+		p := r.URL.Path
+		if p == "/api/health" || p == "/api/auth/status" || p == "/api/auth/login" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if s.cfg.Token == "" && !s.auth.MultiUser() {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -145,12 +180,60 @@ func (s *Server) withToken(next http.Handler) http.Handler {
 		if got == "" {
 			got = r.URL.Query().Get("token")
 		}
-		if got != s.cfg.Token {
-			writeErr(w, http.StatusUnauthorized, "token 无效")
+		var sess *Session
+		if s.cfg.Token != "" && got == s.cfg.Token {
+			sess = &Session{Username: "admin", Role: "admin", Token: got}
+		} else if ss := s.auth.Get(got); ss != nil {
+			sess = ss
+		}
+		if sess == nil {
+			writeErr(w, http.StatusUnauthorized, "未登录或登录已过期")
 			return
 		}
-		next.ServeHTTP(w, r)
+		if !s.authorize(sess, r) {
+			writeErr(w, http.StatusForbidden, "无权限执行此操作")
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(withUser(r.Context(), sess)))
 	})
+}
+
+// authorize 根据角色限制访问:admin 全部;user 可读写文件但不能改系统/用户;viewer 只读。
+func (s *Server) authorize(sess *Session, r *http.Request) bool {
+	role := sess.Role
+	if role == "admin" {
+		return true
+	}
+	p := r.URL.Path
+	m := r.Method
+	// 任何登录用户都可以修改自己的密码
+	if p == "/api/users/password" {
+		return true
+	}
+	// 管理员专属
+	if strings.HasPrefix(p, "/api/users") || strings.HasPrefix(p, "/api/audit") {
+		return false
+	}
+	if p == "/api/settings" && m != "GET" {
+		return false
+	}
+	if (p == "/api/libs" || p == "/api/libs/update") && m != "GET" {
+		return false
+	}
+	if p == "/api/devices/clear" {
+		return false
+	}
+	// 只读角色禁止一切写操作(读、登录、退出、解锁除外)
+	if role == "viewer" && (m == "POST" || m == "DELETE") {
+		switch {
+		case strings.HasPrefix(p, "/api/auth"):
+			return true
+		case p == "/api/vault/unlock" || p == "/api/vault/lock":
+			return true
+		}
+		return false
+	}
+	return true
 }
 
 func clientIP(r *http.Request) string {

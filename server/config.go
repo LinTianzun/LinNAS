@@ -3,7 +3,7 @@ package main
 import "fmt"
 
 // Version of linNas server.
-const Version = "1.2.0"
+const Version = "1.4.0"
 
 // DefaultPort is the port linNas listens on by default.
 const DefaultPort = 52700
@@ -16,6 +16,8 @@ type Config struct {
 	DataDir   string    // where linNas keeps its own data (config etc.)
 	VaultDir  string    // 隐私保险箱目录(默认放在第一个可写存储库里,如 H:\NAS\.linNasVault)
 	Libraries []Library // registered storage libraries
+	// IdleLockMinutes 会话闲置多少分钟后自动锁定(需重新登录),默认 30。
+	IdleLockMinutes int `json:"idleLockMinutes,omitempty"`
 }
 
 // Library is one registered storage location (e.g. H:\, I:\).

@@ -44,3 +44,5 @@ _abtest/
 _abdest/
 shots/qr_decode*.py
 shots/qr-test.png
+*.bak
+tmp_zxing/

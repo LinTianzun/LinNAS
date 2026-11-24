@@ -21,6 +21,15 @@
       <span id="conn-text">连接中…</span>
     </div>
     <button class="btn icon-btn" id="btn-theme" title="切换主题"></button>
+    <div class="user-wrap">
+      <button class="btn icon-btn" id="btn-user" title="账号"><span data-icon="user"></span></button>
+      <div class="usermenu" id="usermenu" hidden>
+        <div class="um-head"><span id="um-name">—</span><span class="um-role" id="um-role"></span></div>
+        <button class="um-item" id="btn-um-pw"><span data-icon="key"></span>修改密码</button>
+        <button class="um-item" id="btn-um-lock" hidden><span data-icon="lock"></span>锁定屏幕</button>
+        <button class="um-item danger" id="btn-um-logout" hidden><span data-icon="logout"></span>退出登录</button>
+      </div>
+    </div>
     <button class="btn icon-btn" id="btn-settings" title="系统设置"></button>
   </div>
 </header>
@@ -38,6 +47,9 @@
       <button class="lib-item" id="btn-devices"><span data-icon="monitor"></span><span class="nm">设备</span></button>
       <button class="lib-item" id="btn-trash"><span data-icon="trash"></span><span class="nm">回收站</span></button>
       <button class="lib-item" id="btn-vault"><span data-icon="lock"></span><span class="nm">隐私保险箱</span></button>
+      <button class="lib-item" id="btn-pair"><span data-icon="smartphone"></span><span class="nm">手机连接</span></button>
+      <button class="lib-item" id="btn-shares" hidden><span data-icon="link"></span><span class="nm">分享链接</span></button>
+      <button class="lib-item" id="btn-audit" hidden><span data-icon="list"></span><span class="nm">操作日志</span></button>
     </nav>
     <div class="side-foot"><span id="ver-text">linNas</span></div>
   </aside>
@@ -59,6 +71,8 @@
       <div class="toolbar">
         <button class="btn icon-btn back" id="btn-back" title="返回"><span data-icon="chevron-left"></span></button>
         <nav class="crumbs" id="crumbs"></nav>
+        <button class="btn icon-btn" id="btn-editpath" title="编辑路径"><span data-icon="edit"></span></button>
+        <input id="in-path" class="path-input" hidden autocomplete="off" spellcheck="false" placeholder="输入路径,例如 /lib1/电影 或 H:\NAS\电影">
         <div class="tools">
           <div class="search">
             <span data-icon="search"></span>
@@ -137,6 +151,7 @@
           <option value="mtime">按时间</option>
           <option value="size">按大小</option>
         </select>
+        <button class="btn ghost" id="media-group" title="按文件夹分组显示">按文件夹分组</button>
       </div>
       <div class="tabs" id="media-tabs">
         <button data-type="video" class="on">视频</button>
@@ -170,6 +185,30 @@
       </div>
       <p class="page-sub">最近通过浏览器/手机访问过本服务的设备(按最近活跃排序)。</p>
       <div id="device-list"></div>
+    </section>
+
+    <!-- 操作日志 -->
+    <section class="view" id="view-audit" hidden>
+      <div class="page-head">
+        <h1><span data-icon="list" class="title-ic"></span>操作日志</h1>
+        <div class="btns">
+          <button class="btn" id="btn-audit-refresh"><span data-icon="refresh"></span>刷新</button>
+        </div>
+      </div>
+      <p class="page-sub">记录谁在什么时候做了什么(登录、删除、移动、分享、修改设置等),仅管理员可见。</p>
+      <div id="audit-list"></div>
+    </section>
+
+    <!-- 分享链接 -->
+    <section class="view" id="view-shares" hidden>
+      <div class="page-head">
+        <h1><span data-icon="link" class="title-ic"></span>分享链接</h1>
+        <div class="btns">
+          <button class="btn" id="btn-share-refresh"><span data-icon="refresh"></span>刷新</button>
+        </div>
+      </div>
+      <p class="page-sub">分享出去的链接,拿到链接的人无需登录即可访问(可设密码与有效期)。</p>
+      <div id="share-list"></div>
     </section>
 
     <!-- 回收站 -->
@@ -224,6 +263,10 @@
     <div class="player-head">
       <span class="player-title" id="player-title"></span>
       <div class="player-tools">
+        <button class="btn" id="player-sub" title="字幕" hidden>字幕</button>
+        <button class="btn icon-btn" id="player-prev" title="上一个"><span data-icon="prev"></span></button>
+        <button class="btn icon-btn" id="player-next" title="下一个"><span data-icon="next"></span></button>
+        <button class="btn icon-btn" id="player-playlist" title="播放列表"><span data-icon="list"></span></button>
         <button class="btn" id="player-speed" title="播放速度">1×</button>
         <button class="btn icon-btn" id="player-pip" title="画中画"><span data-icon="pip"></span></button>
         <button class="btn icon-btn" id="player-full" title="全屏"><span data-icon="maximize"></span></button>
@@ -235,8 +278,16 @@
       <audio id="player-audio" controls hidden></audio>
       <img id="player-img" alt="" hidden>
     </div>
+    <div class="player-playlist" id="player-playlist" hidden></div>
   </div>
 </div>
+
+<!-- 详情 -->
+<dialog id="dlg-info">
+  <h3>详情</h3>
+  <div class="info-body" id="info-body"></div>
+  <div class="dlg-actions"><button class="btn ghost" id="info-close" type="button">关闭</button></div>
+</dialog>
 
 <!-- 添加/编辑存储库 -->
 <dialog id="dlg-lib">
@@ -347,12 +398,101 @@
   </div>
 </dialog>
 
+<!-- 分享 -->
+<dialog id="dlg-share">
+  <h3>创建分享链接</h3>
+  <p class="dlg-hint" id="share-hint"></p>
+  <label>有效期
+    <select id="share-exp">
+      <option value="1">1 小时</option>
+      <option value="24" selected>1 天</option>
+      <option value="168">7 天</option>
+      <option value="720">30 天</option>
+      <option value="0">永久有效</option>
+    </select>
+  </label>
+  <label>访问密码(可选) <input id="share-pw" type="text" autocomplete="off" placeholder="留空表示无需密码"></label>
+  <label class="chk"><input type="checkbox" id="share-dl" checked> 允许下载</label>
+  <div class="dlg-btns">
+    <button class="btn ghost" id="btn-share-cancel">取消</button>
+    <button class="btn primary" id="btn-share-ok">创建</button>
+  </div>
+</dialog>
+
+<!-- 分享结果 -->
+<dialog id="dlg-share-done">
+  <h3>分享链接已创建</h3>
+  <p class="dlg-hint">把下面的链接发给对方即可访问。</p>
+  <label>链接 <input id="share-url" readonly></label>
+  <div class="dlg-btns">
+    <button class="btn ghost" id="btn-share-copy">复制链接</button>
+    <button class="btn primary" id="btn-share-done-ok">完成</button>
+  </div>
+</dialog>
+
+<!-- 登录 -->
+<dialog id="dlg-login">
+  <h3>登录 linNas</h3>
+  <p class="dlg-hint" id="login-hint">本服务已启用多用户,请输入账号登录。</p>
+  <label>用户名 <input id="in-login-user" autocomplete="username"></label>
+  <label>密码 <input id="in-login-pw" type="password" autocomplete="current-password"></label>
+  <div class="dlg-btns">
+    <button class="btn ghost" id="btn-login-cancel">取消</button>
+    <button class="btn primary" id="btn-login-ok">登录</button>
+  </div>
+</dialog>
+
+<!-- 锁屏 -->
+<div class="lockscreen" id="lockscreen" hidden>
+  <div class="lock-box">
+    <div class="lock-brand"><span class="brand-led"></span> linNas</div>
+    <p id="lock-msg">已自动锁定,请重新登录</p>
+    <label>用户名 <input id="in-lock-user" autocomplete="username"></label>
+    <label>密码 <input id="in-lock-pw" type="password" autocomplete="current-password"></label>
+    <button class="btn primary" id="btn-lock-ok">解锁</button>
+  </div>
+</div>
+
+<!-- 用户管理 -->
+<dialog id="dlg-users" class="wide">
+  <h3>用户管理</h3>
+  <p class="dlg-hint">创建账号后,访问 linNas 需要登录。角色:管理员(全部权限)/ 普通用户(可读写文件)/ 只读用户(仅浏览与播放)。</p>
+  <div id="users-list"></div>
+  <div class="adduser">
+    <input id="in-new-user" placeholder="用户名" autocomplete="off">
+    <input id="in-new-pw" type="text" placeholder="密码(至少 4 位)" autocomplete="off">
+    <select id="sel-new-role">
+      <option value="user">普通用户</option>
+      <option value="admin">管理员</option>
+      <option value="viewer">只读用户</option>
+    </select>
+    <button class="btn primary" id="btn-add-user">添加用户</button>
+  </div>
+  <div class="dlg-actions">
+    <button class="btn ghost" id="btn-users-close">关闭</button>
+  </div>
+</dialog>
+
 <!-- 系统设置 -->
 <dialog id="dlg-settings" class="wide">
   <h3>系统设置</h3>
   <div class="settings-body" id="settings-body"></div>
   <div class="dlg-btns">
     <button class="btn primary" id="dlg-settings-close">关闭</button>
+  </div>
+</dialog>
+
+
+<!-- 手机连接 -->
+<dialog id="dlg-pair">
+  <h3>手机连接</h3>
+  <p class="dlg-hint">手机与电脑连同一 Wi-Fi,打开 linNas App 即可自动发现;也可直接扫下面的二维码连接。</p>
+  <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
+    <img id="pair-qr" alt="配对二维码" src="" style="width:220px;height:220px;background:#fff;border-radius:12px;padding:8px;box-shadow:0 2px 10px rgba(0,0,0,.25)" />
+    <div id="pair-addrs" style="font-size:13px;line-height:1.9;min-width:200px"></div>
+  </div>
+  <div class="dlg-btns">
+    <button class="btn primary" id="dlg-pair-close">关闭</button>
   </div>
 </dialog>
 

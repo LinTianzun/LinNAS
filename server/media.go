@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -215,62 +214,11 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 		s.handleRaw(w, r)
 		return
 	}
-	ff := findFFmpeg()
-	if ff == "" {
-		writeErr(w, 503, "未安装 ffmpeg,无法转码该格式")
-		return
-	}
-
-	args := []string{"-v", "error", "-nostdin"}
-	if t := r.URL.Query().Get("t"); t != "" && t != "0" {
-		args = append(args, "-ss", t)
-	}
-	args = append(args,
-		"-i", abs,
-		"-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency",
-		"-c:a", "aac", "-b:a", "160k", "-ac", "2",
-		"-movflags", "frag_keyframe+empty_moov+default_base_moof",
-		"-f", "mp4",
-		"pipe:1",
-	)
-	cmd := exec.Command(ff, args...)
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		writeErr(w, 500, "启动转码失败: "+err.Error())
-		return
-	}
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Start(); err != nil {
-		writeErr(w, 500, "启动转码失败: "+err.Error())
-		return
-	}
-	stop := make(chan struct{})
-	go func() {
-		select {
-		case <-r.Context().Done():
-			if cmd.Process != nil {
-				_ = cmd.Process.Kill()
-			}
-		case <-stop:
-		}
-	}()
-
-	w.Header().Set("Content-Type", "video/mp4")
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(http.StatusOK)
-	flusher, _ := w.(http.Flusher)
-	fw := &flushWriter{w: w, f: flusher}
-	_, copyErr := io.Copy(fw, stdout)
-	close(stop)
-	_ = cmd.Wait()
-	if copyErr != nil {
-		log.Printf("转码流出错 %s: %v %s", vp, copyErr, strings.TrimSpace(stderr.String()))
-	}
+	s.streamVideo(w, r, abs, info, r.URL.Query().Get("t"))
 }
 
 type flushWriter struct {
-	w http.ResponseWriter
+	w io.Writer
 	f http.Flusher
 }
 
