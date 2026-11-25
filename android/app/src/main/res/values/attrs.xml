@@ -8,4 +8,7 @@
     <attr name="lTextDim" format="color" />
     <attr name="lPrimary" format="color" />
     <attr name="lOnPrimary" format="color" />
+    <attr name="lDanger" format="color" />
+    <attr name="lSuccess" format="color" />
+    <attr name="lIsLight" format="boolean" />
 </resources>

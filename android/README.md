@@ -2,10 +2,10 @@
 
 ## 当前版本
 
-- 版本名：**1.4.0**
+- 版本名：**1.5.0**
 - `versionCode`：**6**
 - 最低系统：Android 7.0（API 24）
-- 当前分发包：[`release/linNas-1.4.0-debug.apk`](../release/linNas-1.4.0-debug.apk)
+- 当前分发包：[`release/linNas-1.5.0-debug.apk`](../release/linNas-1.5.0-debug.apk)
 
 该 APK 使用 Android debug 签名，适合手动安装和测试；不是 Google Play 发布包。服务端与 Android 客户端独立版本化，发布步骤见根目录 [RELEASING.md](../RELEASING.md)。
 

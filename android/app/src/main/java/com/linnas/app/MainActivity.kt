@@ -3,6 +3,7 @@ package com.linnas.app
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.res.ColorStateList
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -25,7 +26,6 @@ import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.button.MaterialButtonToggleGroup
-import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.google.android.material.textfield.TextInputEditText
@@ -112,6 +112,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var setServer: TextView
     private lateinit var setToken: TextView
     private lateinit var setServerVersion: TextView
+    private lateinit var setAppVersion: TextView
+    private lateinit var setDownloadDir: TextView
 
     private val handler = Handler(Looper.getMainLooper())
     private val poller = object : Runnable {
@@ -172,6 +174,8 @@ class MainActivity : AppCompatActivity() {
         setServer = findViewById(R.id.setServer)
         setToken = findViewById(R.id.setToken)
         setServerVersion = findViewById(R.id.setServerVersion)
+        setAppVersion = findViewById(R.id.setAppVersion)
+        setDownloadDir = findViewById(R.id.setDownloadDir)
 
         fileAdapter = FileListAdapter(
             { vp -> client.thumbUrl(vp) },
@@ -194,7 +198,7 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<View>(R.id.btnRefresh).setOnClickListener { connectAndLoad(silent = true) }
         findViewById<View>(R.id.btnMenu).setOnClickListener { showTopMenu(it) }
-        findViewById<ExtendedFloatingActionButton>(R.id.fabUpload).setOnClickListener {
+        findViewById<View>(R.id.fabUpload).setOnClickListener {
             if (curPath.isEmpty()) toast("先进入一个存储库") else pickFile.launch("*/*")
         }
 
@@ -267,6 +271,7 @@ class MainActivity : AppCompatActivity() {
         nav.itemTextColor = csl
         nav.setOnItemSelectedListener { item ->
             currentTab = item.itemId
+            UiPrefs.setLastTab(this, item.itemId)
             findViewById<View>(R.id.pageFiles).visibility = if (item.itemId == R.id.tab_files) View.VISIBLE else View.GONE
             findViewById<View>(R.id.pageMedia).visibility = if (item.itemId == R.id.tab_media) View.VISIBLE else View.GONE
             findViewById<View>(R.id.pageTransfers).visibility = if (item.itemId == R.id.tab_transfers) View.VISIBLE else View.GONE
@@ -280,6 +285,15 @@ class MainActivity : AppCompatActivity() {
             }
             true
         }
+        restoreTab()
+    }
+
+    /** 主题切换会 recreate 重建 Activity:恢复上次所在的 tab,而不是回到文件页。 */
+    private fun restoreTab() {
+        val id = UiPrefs.lastTab(this)
+        if (id == R.id.tab_files) return
+        findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.bottomNav)
+            .selectedItemId = id
     }
 
     /** 切到底部导航 tab:0 文件 / 1 媒体 / 2 传输 / 3 设置。 */
@@ -602,7 +616,7 @@ class MainActivity : AppCompatActivity() {
                     Intent(Intent.ACTION_VIEW).apply { setDataAndType(Uri.parse(client.rawUrl(vp)), "image/*") }
                 )
                 else -> {
-                    Downloads.enqueue(this, client.rawUrl(vp, true), e.name)
+                    Downloads.enqueue(this, client.rawUrl(vp, true), e.name, UiPrefs.downloadDir(this))
                     toast("已开始下载 ${e.name}")
                 }
             }
@@ -765,6 +779,12 @@ class MainActivity : AppCompatActivity() {
         swWifi.isChecked = BackupConfig.wifiOnly(this)
         etBackupDir.setText(BackupConfig.targetDir(this))
         updateBackupStatus()
+        // 备份目标目录:可直接在媒体库里选文件夹(也仍可手输)
+        findViewById<View>(R.id.btnBackupDir).setOnClickListener {
+            showDirPicker { dir -> etBackupDir.setText(dir) }
+        }
+        setDownloadDir.text = UiPrefs.downloadDir(this).ifBlank { "下载目录" }
+        findViewById<View>(R.id.btnDownloadDir).setOnClickListener { showDownloadDirDialog() }
         findViewById<View>(R.id.btnSaveBackup).setOnClickListener { saveBackup(swBackup.isChecked) }
         findViewById<View>(R.id.btnBackupNow).setOnClickListener {
             swBackup.isChecked = true
@@ -788,6 +808,27 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateBackupStatus() {
         backupStatus.text = "上次:${BackupConfig.lastResult(this)}  ·  累计 ${BackupConfig.uploadedCount(this)} 张"
+    }
+
+    /** 下载保存位置:系统「下载」目录下的子文件夹(UiPrefs.downloadDir)。 */
+    private fun showDownloadDirDialog() {
+        val input = EditText(this).apply {
+            hint = "子文件夹名(如 linNas;留空存到下载根目录)"
+            setText(UiPrefs.downloadDir(this@MainActivity))
+            setSingleLine()
+        }
+        AlertDialog.Builder(this)
+            .setTitle("下载保存位置")
+            .setMessage("文件会保存到「手机 / 下载 / 子文件夹」;留空则直接存到「下载」。")
+            .setView(input)
+            .setPositiveButton("保存") { _, _ ->
+                val v = input.text.toString().trim()
+                UiPrefs.setDownloadDir(this, v)
+                setDownloadDir.text = v.ifBlank { "下载目录" }
+                toast(if (v.isBlank()) "已改为「下载」根目录" else "已改为「下载/$v」")
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
 
     private fun ensureMediaPermission() {
@@ -1112,6 +1153,10 @@ class MainActivity : AppCompatActivity() {
         setServer.text = ServerConfig.baseUrl.ifBlank { "未连接" }
         setToken.text = if (ServerConfig.token.isBlank()) "无口令" else "口令已设置"
         setServerVersion.text = if (serverVersion.isBlank()) "" else "服务端 v$serverVersion"
+        val appVer = try {
+            packageManager.getPackageInfo(packageName, 0).versionName
+        } catch (_: Exception) { null }
+        setAppVersion.text = "linNas App v" + (appVer ?: "")
         val loggedIn = ServerConfig.sessionUser.isNotBlank()
         val lb = findViewById<View>(R.id.btnLogin)
         val lo = findViewById<View>(R.id.btnLogout)
@@ -1378,18 +1423,75 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** 主题色块:6 套配色(4 深 + 2 浅),选中项描边加粗。 */
     private fun setupTheme() {
-        val group = findViewById<MaterialButtonToggleGroup>(R.id.themeToggle)
-        val ids = intArrayOf(R.id.btnTheme0, R.id.btnTheme1, R.id.btnTheme2, R.id.btnTheme3)
-        group.check(ids[ThemeStore.index(this).coerceIn(0, 3)])
-        group.addOnButtonCheckedListener { _, id, checked ->
-            if (!checked) return@addOnButtonCheckedListener
-            val idx = ids.indexOf(id)
-            if (idx >= 0 && idx != ThemeStore.index(this)) {
-                ThemeStore.setIndex(this, idx)
+        val grid = findViewById<LinearLayout>(R.id.themeGrid)
+        grid.removeAllViews()
+        val cur = ThemeStore.index(this)
+        val all = ThemeStore.all
+        var start = 0
+        while (start < all.size) {
+            val rowL = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                if (start > 0) setPadding(0, dp(10), 0, 0)
+            }
+            for (k in start until minOf(start + 3, all.size)) {
+                rowL.addView(
+                    themeCell(k, all[k], k == cur),
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                )
+            }
+            grid.addView(
+                rowL,
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            )
+            start += 3
+        }
+    }
+
+    @SuppressLint("UseCompatLoadingForDrawables")
+    private fun themeCell(index: Int, t: ThemeStore.T, selected: Boolean): View {
+        val ripple = theme.obtainStyledAttributes(intArrayOf(android.R.attr.selectableItemBackground)).let {
+            val d = it.getDrawable(0); it.recycle(); d
+        }
+        val cell = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            isClickable = true
+            isFocusable = true
+            setPadding(dp(4), dp(6), dp(4), dp(6))
+            background = ripple
+        }
+        val swatch = View(this).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(14).toFloat()
+                setColor(ContextCompat.getColor(this@MainActivity, t.swatch))
+                setStroke(
+                    dp(if (selected) 2 else 1),
+                    if (selected) ThemeColors.primary(this@MainActivity)
+                    else ThemeColors.outline(this@MainActivity)
+                )
+            }
+        }
+        cell.addView(swatch, LinearLayout.LayoutParams(dp(72), dp(46)))
+        cell.addView(TextView(this).apply {
+            text = t.label
+            textSize = 12f
+            gravity = Gravity.CENTER
+            setPadding(0, dp(6), 0, 0)
+            setTextColor(
+                if (selected) ThemeColors.primary(this@MainActivity)
+                else ThemeColors.textDim(this@MainActivity)
+            )
+        })
+        cell.setOnClickListener {
+            if (index != ThemeStore.index(this)) {
+                ThemeStore.setIndex(this, index)
                 recreate()
             }
         }
+        return cell
     }
 
     private fun updateDiskInfo() {

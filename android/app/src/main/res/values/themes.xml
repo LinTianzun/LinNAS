@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- ===== 主题 1:墨蓝(深色) ===== -->
     <style name="Theme.LinNas" parent="Theme.Material3.Dark.NoActionBar">
         <item name="lInk">@color/t_blue_ink</item>
         <item name="lSurface">@color/t_blue_surface</item>
@@ -9,6 +10,9 @@
         <item name="lTextDim">@color/t_blue_text_dim</item>
         <item name="lPrimary">@color/t_blue_primary</item>
         <item name="lOnPrimary">@color/t_blue_on_primary</item>
+        <item name="lDanger">@color/danger</item>
+        <item name="lSuccess">@color/mint</item>
+        <item name="lIsLight">false</item>
         <item name="colorPrimary">@color/t_blue_primary</item>
         <item name="colorOnPrimary">@color/t_blue_on_primary</item>
         <item name="colorSecondary">@color/t_blue_primary</item>
@@ -19,13 +23,16 @@
         <item name="colorOnSurfaceVariant">@color/t_blue_text_dim</item>
         <item name="colorOutline">@color/t_blue_outline</item>
         <item name="colorOnBackground">@color/t_blue_text</item>
+        <item name="colorError">@color/danger</item>
         <item name="android:colorBackground">@color/t_blue_ink</item>
         <item name="android:statusBarColor">@color/t_blue_ink</item>
         <item name="android:navigationBarColor">@color/t_blue_ink</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:textColorPrimary">@color/t_blue_text</item>
-        <item name="android:textColorSecondary">@color/t_blue_text_dim</item>    </style>
+        <item name="android:textColorSecondary">@color/t_blue_text_dim</item>
+    </style>
 
+    <!-- ===== 主题 2:墨绿 ===== -->
     <style name="Theme.LinNas.Green" parent="Theme.LinNas">
         <item name="lInk">@color/t_green_ink</item>
         <item name="lSurface">@color/t_green_surface</item>
@@ -50,8 +57,10 @@
         <item name="android:navigationBarColor">@color/t_green_ink</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:textColorPrimary">@color/t_green_text</item>
-        <item name="android:textColorSecondary">@color/t_green_text_dim</item>    </style>
+        <item name="android:textColorSecondary">@color/t_green_text_dim</item>
+    </style>
 
+    <!-- ===== 主题 3:琥珀 ===== -->
     <style name="Theme.LinNas.Amber" parent="Theme.LinNas">
         <item name="lInk">@color/t_amber_ink</item>
         <item name="lSurface">@color/t_amber_surface</item>
@@ -76,8 +85,10 @@
         <item name="android:navigationBarColor">@color/t_amber_ink</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:textColorPrimary">@color/t_amber_text</item>
-        <item name="android:textColorSecondary">@color/t_amber_text_dim</item>    </style>
+        <item name="android:textColorSecondary">@color/t_amber_text_dim</item>
+    </style>
 
+    <!-- ===== 主题 4:纯黑 ===== -->
     <style name="Theme.LinNas.Mono" parent="Theme.LinNas">
         <item name="lInk">@color/t_mono_ink</item>
         <item name="lSurface">@color/t_mono_surface</item>
@@ -102,18 +113,82 @@
         <item name="android:navigationBarColor">@color/t_mono_ink</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:textColorPrimary">@color/t_mono_text</item>
-        <item name="android:textColorSecondary">@color/t_mono_text_dim</item>    </style>
+        <item name="android:textColorSecondary">@color/t_mono_text_dim</item>
+    </style>
 
+    <!-- ===== 主题 5:云白(浅色) ===== -->
+    <style name="Theme.LinNas.Light" parent="Theme.Material3.Light.NoActionBar">
+        <item name="lInk">@color/t_light_ink</item>
+        <item name="lSurface">@color/t_light_surface</item>
+        <item name="lSurfaceHigh">@color/t_light_surface_high</item>
+        <item name="lOutline">@color/t_light_outline</item>
+        <item name="lText">@color/t_light_text</item>
+        <item name="lTextDim">@color/t_light_text_dim</item>
+        <item name="lPrimary">@color/t_light_primary</item>
+        <item name="lOnPrimary">@color/t_light_on_primary</item>
+        <item name="lDanger">@color/danger_light</item>
+        <item name="lSuccess">@color/mint_light</item>
+        <item name="lIsLight">true</item>
+        <item name="colorPrimary">@color/t_light_primary</item>
+        <item name="colorOnPrimary">@color/t_light_on_primary</item>
+        <item name="colorSecondary">@color/t_light_primary</item>
+        <item name="colorOnSecondary">@color/t_light_on_primary</item>
+        <item name="colorSurface">@color/t_light_surface</item>
+        <item name="colorOnSurface">@color/t_light_text</item>
+        <item name="colorSurfaceVariant">@color/t_light_surface_high</item>
+        <item name="colorOnSurfaceVariant">@color/t_light_text_dim</item>
+        <item name="colorOutline">@color/t_light_outline</item>
+        <item name="colorOnBackground">@color/t_light_text</item>
+        <item name="colorError">@color/danger_light</item>
+        <item name="android:colorBackground">@color/t_light_ink</item>
+        <item name="android:statusBarColor">@color/t_light_ink</item>
+        <item name="android:navigationBarColor">@color/t_light_ink</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:textColorPrimary">@color/t_light_text</item>
+        <item name="android:textColorSecondary">@color/t_light_text_dim</item>
+    </style>
+
+    <!-- ===== 主题 6:暖沙(浅色) ===== -->
+    <style name="Theme.LinNas.Warm" parent="Theme.LinNas.Light">
+        <item name="lInk">@color/t_warm_ink</item>
+        <item name="lSurface">@color/t_warm_surface</item>
+        <item name="lSurfaceHigh">@color/t_warm_surface_high</item>
+        <item name="lOutline">@color/t_warm_outline</item>
+        <item name="lText">@color/t_warm_text</item>
+        <item name="lTextDim">@color/t_warm_text_dim</item>
+        <item name="lPrimary">@color/t_warm_primary</item>
+        <item name="lOnPrimary">@color/t_warm_on_primary</item>
+        <item name="colorPrimary">@color/t_warm_primary</item>
+        <item name="colorOnPrimary">@color/t_warm_on_primary</item>
+        <item name="colorSecondary">@color/t_warm_primary</item>
+        <item name="colorOnSecondary">@color/t_warm_on_primary</item>
+        <item name="colorSurface">@color/t_warm_surface</item>
+        <item name="colorOnSurface">@color/t_warm_text</item>
+        <item name="colorSurfaceVariant">@color/t_warm_surface_high</item>
+        <item name="colorOnSurfaceVariant">@color/t_warm_text_dim</item>
+        <item name="colorOutline">@color/t_warm_outline</item>
+        <item name="colorOnBackground">@color/t_warm_text</item>
+        <item name="android:colorBackground">@color/t_warm_ink</item>
+        <item name="android:statusBarColor">@color/t_warm_ink</item>
+        <item name="android:navigationBarColor">@color/t_warm_ink</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:textColorPrimary">@color/t_warm_text</item>
+        <item name="android:textColorSecondary">@color/t_warm_text_dim</item>
+    </style>
+
+    <!-- ===== 播放页(始终纯黑,不随主题) ===== -->
     <style name="Theme.LinNas.Player" parent="Theme.Material3.Dark.NoActionBar">
-        <item name="colorPrimary">@color/t_blue_primary</item>
-        <item name="colorOnPrimary">@color/t_blue_on_primary</item>
+        <item name="colorPrimary">#FFFFFF</item>
+        <item name="colorOnPrimary">#000000</item>
         <item name="colorSurface">#000000</item>
         <item name="colorOnSurface">#FFFFFF</item>
         <item name="android:statusBarColor">#000000</item>
         <item name="android:navigationBarColor">#000000</item>
         <item name="android:colorBackground">#000000</item>
+        <item name="android:windowLightStatusBar">false</item>
     </style>
 
+    <!-- ===== 文本样式 ===== -->
     <style name="TextTitle">
         <item name="android:textSize">26sp</item>
         <item name="android:textStyle">bold</item>
@@ -131,6 +206,150 @@
     </style>
     <style name="TextMeta">
         <item name="android:textSize">12sp</item>
+        <item name="android:textColor">?attr/lTextDim</item>
+    </style>
+    <!-- 分区标题:比 TextLabel 更醒目,用于设置/传输页 -->
+    <style name="TextSection">
+        <item name="android:textSize">14sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">?attr/lText</item>
+    </style>
+
+    <!-- ===== 通用卡片 ===== -->
+    <style name="CardGroup">
+        <item name="cardBackgroundColor">?attr/lSurface</item>
+        <item name="cardCornerRadius">18dp</item>
+        <item name="cardElevation">0dp</item>
+        <item name="strokeColor">?attr/lOutline</item>
+        <item name="strokeWidth">1dp</item>
+    </style>
+
+    <!-- ===== 设置行(图标 + 标题 + 副标题 + chevron) ===== -->
+    <style name="RowItem">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:minHeight">56dp</item>
+        <item name="android:orientation">horizontal</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:paddingStart">16dp</item>
+        <item name="android:paddingEnd">12dp</item>
+        <item name="android:paddingTop">12dp</item>
+        <item name="android:paddingBottom">12dp</item>
+        <item name="android:background">?attr/selectableItemBackground</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+    </style>
+    <style name="RowIcon">
+        <item name="android:layout_width">34dp</item>
+        <item name="android:layout_height">34dp</item>
+        <item name="android:padding">7dp</item>
+        <item name="android:background">@drawable/bg_tile</item>
+        <item name="android:tint">?attr/lPrimary</item>
+        <item name="android:scaleType">fitCenter</item>
+    </style>
+    <style name="RowTitle">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:layout_marginStart">14dp</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:textColor">?attr/lText</item>
+    </style>
+    <style name="RowValue">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:textColor">?attr/lTextDim</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:ellipsize">end</item>
+    </style>
+    <style name="RowDivider">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">1dp</item>
+        <item name="android:layout_marginStart">64dp</item>
+        <item name="android:background">?attr/lOutline</item>
+    </style>
+    <style name="RowChevron">
+        <item name="android:layout_width">18dp</item>
+        <item name="android:layout_height">18dp</item>
+        <item name="android:layout_marginStart">8dp</item>
+        <item name="android:tint">?attr/lTextDim</item>
+        <item name="android:scaleType">fitCenter</item>
+    </style>
+
+    <!-- ===== 顶部返回栏(子页面统一) ===== -->
+    <style name="PageHeader">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:orientation">horizontal</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:paddingStart">4dp</item>
+        <item name="android:paddingEnd">12dp</item>
+        <item name="android:paddingTop">6dp</item>
+        <item name="android:paddingBottom">6dp</item>
+    </style>
+    <style name="HeaderIconButton">
+        <item name="android:layout_width">44dp</item>
+        <item name="android:layout_height">44dp</item>
+        <item name="android:padding">10dp</item>
+        <item name="android:background">?attr/selectableItemBackgroundBorderless</item>
+        <item name="android:tint">?attr/lText</item>
+        <item name="android:scaleType">fitCenter</item>
+    </style>
+    <style name="HeaderTitle">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:layout_marginStart">6dp</item>
+        <item name="android:textSize">18sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">?attr/lText</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:ellipsize">end</item>
+    </style>
+    <style name="HeaderTextAction">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">44dp</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:paddingStart">12dp</item>
+        <item name="android:paddingEnd">12dp</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:textColor">?attr/lPrimary</item>
+        <item name="android:background">?attr/selectableItemBackgroundBorderless</item>
+    </style>
+
+    <!-- ===== 小胶囊按钮(播放页/工具条) ===== -->
+    <style name="ChipButton" parent="Widget.Material3.Button.TextButton">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">36dp</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:minHeight">0dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:paddingStart">12dp</item>
+        <item name="android:paddingEnd">12dp</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:letterSpacing">0.02</item>
+        <item name="cornerRadius">18dp</item>
+    </style>
+
+    <!-- ===== 空状态 ===== -->
+    <style name="EmptyTitle">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">14dp</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:textColor">?attr/lText</item>
+    </style>
+    <style name="EmptyHint">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">6dp</item>
+        <item name="android:paddingStart">32dp</item>
+        <item name="android:paddingEnd">32dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:lineSpacingExtra">3dp</item>
         <item name="android:textColor">?attr/lTextDim</item>
     </style>
 </resources>

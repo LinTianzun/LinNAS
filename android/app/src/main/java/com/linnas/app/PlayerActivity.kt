@@ -9,12 +9,16 @@ import android.os.Bundle
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
+import android.view.WindowInsets
+import android.view.WindowInsetsController
 import android.view.WindowManager
-import android.widget.Button
+import android.widget.ImageButton
+import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -23,20 +27,21 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.google.android.material.button.MaterialButton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
-import org.json.JSONObject
+import java.util.Locale
 import kotlin.math.abs
 
 /**
- * 内置播放页(v1.0):
- *  - 横屏/竖屏自由切换(旋转按钮 + 随设备旋转)
- *  - 手势:双击左右快退/快进、上下滑调音量/亮度、长按倍速
- *  - 续播记忆:自动记住进度,再次打开从断点继续
- *  - 同名字幕(.srt/.ass)自动挂载
- *  - 画面比例、倍速、解码错误提示、拔耳机暂停、保持亮屏
+ * 内置播放页(v1.5,主流播放器布局):
+ *  - 纯黑舞台 + 顶部/底部渐变控制层,3.5 秒自动隐藏,点击画面切换
+ *  - 中部 上一集 / -10s / 播放暂停 / +10s / 下一集
+ *  - 底部进度条 + 时间 + 倍速/画面/旋转
+ *  - 手势:双击左右快退快进、上下滑音量亮度、水平拖进度、长按 2 倍速
+ *  - 续播记忆、同名字幕、画中画、锁横屏
  */
 class PlayerActivity : AppCompatActivity() {
 
@@ -46,18 +51,23 @@ class PlayerActivity : AppCompatActivity() {
         const val EXTRA_START = "start"
         const val EXTRA_VPATH = "vpath"
         const val EXTRA_SUB = "subtitle"
-        // P2 播放列表
         const val EXTRA_PLAYLIST = "playlist"    // JSON: [{"name":..,"vpath":..}]
         const val EXTRA_PLAY_INDEX = "playIndex" // 当前项下标
 
         /** 需服务端转码才能播的旧格式。 */
         private val TRANS_CODE = setOf("avi", "rmvb", "rm", "flv", "wmv", "mpg", "mpeg", "vob", "asf", "ogv")
+
+        private const val HIDE_DELAY = 3500L
     }
 
     private var player: ExoPlayer? = null
     private lateinit var view: PlayerView
     private lateinit var hintView: TextView
-    private lateinit var topBar: View
+    private lateinit var overlay: View
+    private lateinit var btnPlay: ImageButton
+    private lateinit var seekBar: SeekBar
+    private lateinit var tvPos: TextView
+    private lateinit var tvDur: TextView
     private lateinit var audioManager: AudioManager
 
     private val speeds = listOf(1.0f, 1.25f, 1.5f, 2.0f, 0.75f)
@@ -76,15 +86,17 @@ class PlayerActivity : AppCompatActivity() {
     private var locked = false
     private var lastResumeSave = 0L
     private var shouldRestorePlay = true
+    private var userSeeking = false
 
-    // ---------- P2 播放列表 ----------
+    // ---------- 播放列表 ----------
     private val client = LinNasClient()
     private var playlist = emptyList<Pair<String, String>>() // (vpath, name)
     private var playIdx = -1
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        setTheme(ThemeStore.styleRes(this))
+        setTheme(R.style.Theme_LinNas_Player)
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_player)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
@@ -97,12 +109,16 @@ class PlayerActivity : AppCompatActivity() {
 
         findViewById<TextView>(R.id.player_title).text = title
         hintView = findViewById(R.id.gestureHint)
-        topBar = findViewById(R.id.playerTopBar)
+        overlay = findViewById(R.id.playerOverlay)
+        btnPlay = findViewById(R.id.btn_play)
+        seekBar = findViewById(R.id.player_seek)
+        tvPos = findViewById(R.id.tv_pos)
+        tvDur = findViewById(R.id.tv_dur)
         view = findViewById(R.id.player_view)
         view.keepScreenOn = true
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
-        // P2 播放列表:多集时启用 上一集/下一集/列表 按钮
+        // 播放列表:多集时启用 上一集/下一集/列表 按钮
         playlist = parsePlaylist(intent.getStringExtra(EXTRA_PLAYLIST))
         playIdx = intent.getIntExtra(EXTRA_PLAY_INDEX, -1)
         if (playlist.size > 1 && playIdx in playlist.indices) {
@@ -132,23 +148,36 @@ class PlayerActivity : AppCompatActivity() {
                 ).show()
             }
 
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                updatePlayIcon()
+                if (isPlaying) scheduleHide() else showControls()
+            }
+
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_ENDED) {
                     PlaybackStore.clear(this@PlayerActivity, playbackKey)
-                    // P2:播完自动连播下一集
-                    if (playIdx in 0 until playlist.size - 1) loadListIndex(playIdx + 1)
+                    if (playIdx in 0 until playlist.size - 1) {
+                        loadListIndex(playIdx + 1)
+                    } else {
+                        showControls()
+                    }
                 }
+                updatePlayIcon()
+                updateProgress()
             }
         })
 
         setupButtons(p)
         setupGestures()
+        setupSeekBar(p)
 
-        // 每 5 秒保存一次进度
+        showControls()
         handler.postDelayed(saveProgressRunnable, 5000)
+        handler.post(uiRunnable)
     }
 
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+
     private val saveProgressRunnable = object : Runnable {
         override fun run() {
             val p = player ?: return
@@ -157,6 +186,99 @@ class PlayerActivity : AppCompatActivity() {
             }
             handler.postDelayed(this, 5000)
         }
+    }
+
+    private val uiRunnable = object : Runnable {
+        override fun run() {
+            updateProgress()
+            handler.postDelayed(this, 500)
+        }
+    }
+
+    private val hideControlsRunnable = Runnable { if (player?.isPlaying == true) hideControls() }
+
+    // ---------- 控制层显隐 ----------
+
+    private fun showControls() {
+        overlay.visibility = View.VISIBLE
+        setSystemBarsVisible(false)
+        scheduleHide()
+    }
+
+    private fun hideControls() {
+        overlay.visibility = View.GONE
+        setSystemBarsVisible(true)
+    }
+
+    private fun scheduleHide() {
+        handler.removeCallbacks(hideControlsRunnable)
+        handler.postDelayed(hideControlsRunnable, HIDE_DELAY)
+    }
+
+    /** 控制层隐藏时全屏沉浸(隐藏状态栏/导航栏),显示时恢复。 */
+    private fun setSystemBarsVisible(visible: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val c = window.insetsController ?: return
+            if (visible) {
+                c.show(WindowInsets.Type.systemBars())
+            } else {
+                c.systemBarsBehavior =
+                    WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                c.hide(WindowInsets.Type.systemBars())
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = if (visible) {
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            } else {
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                    View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                    View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                    View.SYSTEM_UI_FLAG_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+            }
+        }
+    }
+
+    private fun toggleControls() {
+        if (overlay.visibility == View.VISIBLE) hideControls() else showControls()
+    }
+
+    private fun updatePlayIcon() {
+        val playing = player?.isPlaying == true
+        btnPlay.setImageResource(if (playing) R.drawable.ic_pause else R.drawable.ic_play)
+        btnPlay.contentDescription = if (playing) "暂停" else "播放"
+    }
+
+    private fun updateProgress() {
+        val p = player ?: return
+        val dur = p.duration.coerceAtLeast(0L)
+        seekBar.max = dur.toInt().coerceAtLeast(1)
+        if (!userSeeking) {
+            seekBar.progress = p.currentPosition.toInt().coerceIn(0, seekBar.max)
+        }
+        tvPos.text = fmtTime(p.currentPosition)
+        tvDur.text = fmtTime(dur)
+    }
+
+    private fun setupSeekBar(p: ExoPlayer) {
+        seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar, progress: Int, fromUser: Boolean) {
+                if (fromUser) tvPos.text = fmtTime(progress.toLong())
+            }
+
+            override fun onStartTrackingTouch(sb: SeekBar) {
+                userSeeking = true
+                handler.removeCallbacks(hideControlsRunnable)
+            }
+
+            override fun onStopTrackingTouch(sb: SeekBar) {
+                userSeeking = false
+                p.seekTo(sb.progress.toLong())
+                scheduleHide()
+            }
+        })
     }
 
     private fun buildMediaItem(url: String, sub: String?): MediaItem {
@@ -168,7 +290,6 @@ class PlayerActivity : AppCompatActivity() {
                         MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(it))
                             // 服务端 /api/subtitle/content 统一输出 WebVTT;file:// 本地字幕按扩展名判断
                             .setMimeType(
-                                // 服务端 /api/subtitle/content 统一输出 WebVTT;file:// 本地字幕按扩展名判断
                                 if (it.startsWith("file:")) when (it.substringAfterLast('.', "").lowercase()) {
                                     "vtt" -> "text/vtt"
                                     "ass", "ssa" -> "text/x-ssa"
@@ -185,7 +306,7 @@ class PlayerActivity : AppCompatActivity() {
         return builder.build()
     }
 
-    // ---------- P2 播放列表 ----------
+    // ---------- 播放列表 ----------
 
     private fun parsePlaylist(json: String?): List<Pair<String, String>> {
         if (json.isNullOrBlank() || json == "[]") return emptyList()
@@ -205,7 +326,10 @@ class PlayerActivity : AppCompatActivity() {
         findViewById<View>(R.id.btn_list).visibility = View.VISIBLE
         findViewById<View>(R.id.btn_prev).setOnClickListener { loadListIndex(playIdx - 1) }
         findViewById<View>(R.id.btn_next).setOnClickListener { loadListIndex(playIdx + 1) }
-        findViewById<View>(R.id.btn_list).setOnClickListener { showListDialog() }
+        findViewById<View>(R.id.btn_list).setOnClickListener {
+            handler.removeCallbacks(hideControlsRunnable)
+            showListDialog()
+        }
     }
 
     /** 切到播放列表第 i 集:本地缓存/转码/原流 + 服务端字幕 + 每集独立续播。 */
@@ -230,6 +354,7 @@ class PlayerActivity : AppCompatActivity() {
             val resume = PlaybackStore.position(this@PlayerActivity, vp)
             if (resume > 0) p.seekTo(resume)
             p.playWhenReady = true
+            showControls()
         }
     }
 
@@ -253,39 +378,59 @@ class PlayerActivity : AppCompatActivity() {
             .setTitle("播放列表(${playlist.size})")
             .setItems(names) { _, which -> loadListIndex(which) }
             .setNegativeButton("关闭", null)
+            .setOnDismissListener { if (player?.isPlaying == true) scheduleHide() }
             .show()
     }
 
     private fun setupButtons(p: ExoPlayer) {
-        findViewById<Button>(R.id.btn_back).setOnClickListener { finish() }
-        findViewById<Button>(R.id.btn_seek_back).setOnClickListener {
-            p.seekTo((p.currentPosition - 10_000).coerceAtLeast(0))
+        findViewById<View>(R.id.btn_back).setOnClickListener { finish() }
+        btnPlay.setOnClickListener {
+            if (p.isPlaying) p.pause() else p.play()
+            updatePlayIcon()
+            showControls()
         }
-        findViewById<Button>(R.id.btn_seek_fwd).setOnClickListener {
-            p.seekTo(p.currentPosition + 10_000)
+        findViewById<MaterialButton>(R.id.btn_seek_back).setOnClickListener {
+            seekBy(p, -10_000)
+            showHint("快退 10 秒")
         }
-        findViewById<Button>(R.id.btn_aspect).setOnClickListener {
+        findViewById<MaterialButton>(R.id.btn_seek_fwd).setOnClickListener {
+            seekBy(p, 10_000)
+            showHint("快进 10 秒")
+        }
+        findViewById<MaterialButton>(R.id.btn_aspect).setOnClickListener {
             resizeIdx = (resizeIdx + 1) % resizeModes.size
             view.resizeMode = resizeModes[resizeIdx]
-            (it as Button).text = when (resizeIdx) { 0 -> "适应"; 1 -> "裁剪"; else -> "拉伸" }
+            val label = when (resizeIdx) { 0 -> "适应"; 1 -> "裁剪"; else -> "拉伸" }
+            (it as MaterialButton).text = label
+            showHint("画面:$label")
         }
-        val speedBtn = findViewById<Button>(R.id.btn_speed)
+        val speedBtn = findViewById<MaterialButton>(R.id.btn_speed)
         speedBtn.text = "1.0x"
         speedBtn.setOnClickListener {
             speedIdx = (speedIdx + 1) % speeds.size
             val s = speeds[speedIdx]
             p.setPlaybackSpeed(s)
-            speedBtn.text = String.format(java.util.Locale.US, "%.2fx", s).replace(".00", ".0")
+            val label = String.format(Locale.US, "%.2fx", s).replace(".00", ".0")
+            speedBtn.text = label
+            showHint("倍速 $label")
         }
-        findViewById<Button>(R.id.btn_rotate).setOnClickListener {
+        findViewById<MaterialButton>(R.id.btn_rotate).setOnClickListener {
             locked = !locked
             requestedOrientation = if (locked) {
                 ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
             } else {
                 ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             }
-            toast(if (locked) "已锁定横屏" else "已恢复自动旋转")
+            showHint(if (locked) "已锁定横屏" else "已恢复自动旋转")
         }
+    }
+
+    private fun seekBy(p: ExoPlayer, delta: Long) {
+        val dur = p.duration
+        val target = (p.currentPosition + delta).coerceAtLeast(0L)
+        p.seekTo(if (dur > 0) target.coerceAtMost(dur) else target)
+        updateProgress()
+        scheduleHide()
     }
 
     // ---------- 手势 ----------
@@ -297,14 +442,14 @@ class PlayerActivity : AppCompatActivity() {
         var downY = 0f
         var startVol = 0
         var startBright = 0f
-        var mode = 0 // 0 未判定 1 音量 2 亮度 3 长按倍速
+        var mode = 0 // 0 未判定 1 音量 2 亮度 3 长按倍速 4 水平拖动
         var longPress = false
 
         val gesture = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onDown(e: MotionEvent): Boolean { downX = e.x; downY = e.y; mode = 0; longPress = false; return true }
 
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-                if (view.isControllerFullyVisible) view.hideController() else view.showController()
+                toggleControls()
                 return true
             }
 
@@ -312,10 +457,10 @@ class PlayerActivity : AppCompatActivity() {
                 val p = player ?: return false
                 val half = view.width / 2
                 if (e.x < half) {
-                    p.seekTo((p.currentPosition - 10_000).coerceAtLeast(0))
+                    seekBy(p, -10_000)
                     showHint("快退 10 秒")
                 } else {
-                    p.seekTo(p.currentPosition + 10_000)
+                    seekBy(p, 10_000)
                     showHint("快进 10 秒")
                 }
                 return true
@@ -329,7 +474,7 @@ class PlayerActivity : AppCompatActivity() {
             }
         })
 
-        root.setOnTouchListener { v, ev ->
+        root.setOnTouchListener { _, ev ->
             gesture.onTouchEvent(ev)
             when (ev.action) {
                 MotionEvent.ACTION_DOWN -> {
@@ -343,7 +488,6 @@ class PlayerActivity : AppCompatActivity() {
                     val dx = ev.x - downX
                     val dy = ev.y - downY
                     if (mode == 0 && !longPress && abs(dx) > 12 && abs(dx) > abs(dy)) {
-                        // 水平拖动 = 快进/快退
                         mode = 4
                     } else if (mode == 0 && !longPress && abs(dy) > 24 && abs(dy) > abs(dx)) {
                         mode = if (dy < 0) 2 else 1
@@ -362,12 +506,13 @@ class PlayerActivity : AppCompatActivity() {
                             setBrightness(nb)
                             showHint("亮度 ${(nb * 100).toInt()}%")
                         }
-                        4 -> { // 水平拖动快进
+                        4 -> { // 水平拖动进度
                             val p = player ?: return@setOnTouchListener true
                             val total = p.duration.coerceAtLeast(1)
                             val deltaMs = (dx / view.width * total * 0.8).toLong()
                             val target = (p.currentPosition + deltaMs).coerceIn(0, total)
                             p.seekTo(target)
+                            updateProgress()
                             showHint(fmtTime(target))
                         }
                     }
@@ -402,23 +547,26 @@ class PlayerActivity : AppCompatActivity() {
         hintView.text = text
         hintView.visibility = View.VISIBLE
         hintView.removeCallbacks(hideHint)
-        hintView.postDelayed(hideHint, 700)
+        hintView.postDelayed(hideHint, 900)
     }
 
     private val hideHint = Runnable { hintView.visibility = View.GONE }
 
     private fun fmtTime(ms: Long): String {
-        val s = ms / 1000
-        return String.format("%d:%02d", s / 60, s % 60)
+        val total = (ms / 1000).coerceAtLeast(0)
+        val h = total / 3600
+        val m = (total % 3600) / 60
+        val s = total % 60
+        return if (h > 0) String.format(Locale.US, "%d:%02d:%02d", h, m, s)
+        else String.format(Locale.US, "%d:%02d", m, s)
     }
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 
-    // ---------- 画中画(P1) ----------
+    // ---------- 画中画 ----------
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        // 用户按 Home 离开时自动进入画中画(视频播放中、API 26+)
         val p = player ?: return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
             p.isPlaying && p.playbackState != Player.STATE_ENDED
@@ -431,16 +579,16 @@ class PlayerActivity : AppCompatActivity() {
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: android.content.res.Configuration) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         if (isInPictureInPictureMode) {
-            view.hideController()
+            hideControls()
+            overlay.visibility = View.GONE
         } else {
-            // 从画中画返回:恢复用户离开前的播放状态
+            showControls()
             if (shouldRestorePlay) player?.play()
         }
     }
 
     override fun onStop() {
         super.onStop()
-        // 画中画模式下 onStop 不保存为「离开」,避免覆盖进度逻辑误暂停
         if (!isInPictureInPictureMode) {
             player?.pause()
         }
@@ -449,6 +597,8 @@ class PlayerActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         handler.removeCallbacks(saveProgressRunnable)
+        handler.removeCallbacks(uiRunnable)
+        handler.removeCallbacks(hideControlsRunnable)
         player?.release()
         player = null
         super.onDestroy()

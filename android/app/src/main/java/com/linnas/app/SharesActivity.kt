@@ -102,7 +102,7 @@ class SharesActivity : AppCompatActivity() {
 
     private fun showShareDialog(s: Share, url: String) {
         val scroll = android.widget.ScrollView(this)
-        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(40, 8, 40, 0) }
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(4), dp(20), 0) }
         box.addView(TextView(this).apply {
             text = url
             setTextColor(ThemeColors.textDim(this@SharesActivity)); textSize = 12f
@@ -144,7 +144,7 @@ class SharesActivity : AppCompatActivity() {
         }
         val dl = CheckBox(this).apply { text = "允许下载" }
         val wrap = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; setPadding(40, 8, 40, 0)
+            orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(4), dp(20), 0)
             addView(vp); addView(hours); addView(pw); addView(dl)
         }
         AlertDialog.Builder(this).setTitle("新建分享链接")
@@ -197,6 +197,8 @@ class SharesActivity : AppCompatActivity() {
         .format(java.util.Date(unix * 1000))
 
     private fun canWrite(): Boolean = ServerConfig.sessionRole != "viewer"
+
+    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     private fun toast(msg: String) = android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_SHORT).show()
 }

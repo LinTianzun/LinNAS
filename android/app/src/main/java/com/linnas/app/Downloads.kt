@@ -11,13 +11,15 @@ object Downloads {
 
     data class DTask(val id: Long, val name: String, val done: Long, val total: Long, val status: Int)
 
-    fun enqueue(ctx: Context, url: String, fileName: String): Long {
+    fun enqueue(ctx: Context, url: String, fileName: String, subDir: String = ""): Long {
         val dm = ctx.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
         val safe = fileName.replace('/', '_').replace('\\', '_')
+        val dir = if (subDir.isBlank()) Environment.DIRECTORY_DOWNLOADS
+        else Environment.DIRECTORY_DOWNLOADS + "/" + subDir.replace('/', '_').replace('\\', '_')
         val req = DownloadManager.Request(Uri.parse(url))
             .setTitle(safe)
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .setDestinationInExternalFilesDir(ctx, Environment.DIRECTORY_DOWNLOADS, safe)
+            .setDestinationInExternalFilesDir(ctx, dir, safe)
         val id = dm.enqueue(req)
         val sp = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
         val set = sp.getStringSet("ids", HashSet())?.toMutableSet() ?: mutableSetOf()

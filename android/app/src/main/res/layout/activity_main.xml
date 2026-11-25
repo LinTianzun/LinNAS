@@ -392,6 +392,21 @@
                             <LinearLayout
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:gravity="end"
+                                android:orientation="horizontal">
+
+                                <com.google.android.material.button.MaterialButton
+                                    android:id="@+id/btnBackupDir"
+                                    style="@style/ChipButton"
+                                    android:minHeight="44dp"
+                                    android:text="在媒体库中选择文件夹"
+                                    android:textColor="?attr/lPrimary" />
+                            </LinearLayout>
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
                                 android:orientation="horizontal"
                                 android:gravity="center_vertical"
                                 android:layout_marginTop="8dp">
@@ -514,6 +529,49 @@
                         android:text="下载" />
 
                     <LinearLayout
+                        android:id="@+id/btnDownloadDir"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:background="?attr/selectableItemBackground"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:gravity="center_vertical"
+                        android:minHeight="48dp"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:contentDescription="下载位置"
+                            android:src="@drawable/ic_download"
+                            android:tint="?attr/lTextDim" />
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:layout_weight="1"
+                            android:text="下载保存位置"
+                            android:textColor="?attr/lText"
+                            android:textSize="14sp" />
+
+                        <TextView
+                            android:id="@+id/setDownloadDir"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:maxLines="1"
+                            android:ellipsize="end"
+                            android:textColor="?attr/lTextDim"
+                            android:textSize="13sp" />
+
+                        <ImageView
+                            style="@style/RowChevron"
+                            android:contentDescription="设置"
+                            android:src="@drawable/ic_chevron" />
+                    </LinearLayout>
+
+                    <LinearLayout
                         android:id="@+id/downloadList"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -543,299 +601,462 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:paddingStart="16dp"
+                    android:paddingTop="8dp"
+                    android:paddingEnd="16dp"
+                    android:paddingBottom="28dp">
 
                     <TextView
-                        style="@style/TextLabel"
+                        style="@style/TextTitle"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
+                        android:text="设置" />
+
+                    <TextView
+                        style="@style/TextMeta"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="3dp"
+                        android:text="服务器、账号与外观" />
+
+                    <!-- ========== 连接 ========== -->
+                    <TextView
+                        style="@style/TextSection"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="24dp"
+                        android:layout_marginBottom="10dp"
                         android:text="连接" />
 
                     <com.google.android.material.card.MaterialCardView
+                        style="@style/CardGroup"
                         android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
-                        app:cardBackgroundColor="?attr/lSurface"
-                        app:cardCornerRadius="16dp"
-                        app:cardElevation="0dp"
-                        app:strokeColor="?attr/lOutline"
-                        app:strokeWidth="1dp">
+                        android:layout_height="wrap_content">
 
                         <LinearLayout
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:orientation="vertical"
-                            android:padding="16dp">
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="当前服务器"
-                                android:textColor="?attr/lTextDim"
-                                android:textSize="12sp" />
-
-                            <TextView
-                                android:id="@+id/setServer"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="4dp"
-                                android:text="未连接"
-                                android:textColor="?attr/lText"
-                                android:textSize="16sp" />
-
-                            <TextView
-                                android:id="@+id/setToken"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="2dp"
-                                android:textColor="?attr/lTextDim"
-                                android:textSize="12sp" />
+                            android:orientation="vertical">
 
                             <LinearLayout
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
-                                android:layout_marginTop="14dp">
+                                android:gravity="center_vertical"
+                                android:orientation="horizontal"
+                                android:paddingStart="16dp"
+                                android:paddingTop="16dp"
+                                android:paddingEnd="16dp"
+                                android:paddingBottom="14dp">
 
-                                <com.google.android.material.button.MaterialButton
-                                    android:id="@+id/btnScan"
-                                    style="@style/Widget.Material3.Button.TonalButton"
+                                <ImageView
+                                    style="@style/RowIcon"
+                                    android:contentDescription="服务器"
+                                    android:src="@drawable/ic_server" />
+
+                                <LinearLayout
                                     android:layout_width="0dp"
                                     android:layout_height="wrap_content"
+                                    android:layout_marginStart="14dp"
                                     android:layout_weight="1"
+                                    android:orientation="vertical">
+
+                                    <TextView
+                                        style="@style/TextMeta"
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:text="当前服务器" />
+
+                                    <TextView
+                                        android:id="@+id/setServer"
+                                        android:layout_width="match_parent"
+                                        android:layout_height="wrap_content"
+                                        android:layout_marginTop="3dp"
+                                        android:ellipsize="end"
+                                        android:maxLines="1"
+                                        android:text="未连接"
+                                        android:textColor="?attr/lText"
+                                        android:textSize="16sp"
+                                        android:textStyle="bold" />
+
+                                    <TextView
+                                        android:id="@+id/setToken"
+                                        style="@style/TextMeta"
+                                        android:layout_width="match_parent"
+                                        android:layout_height="wrap_content"
+                                        android:layout_marginTop="2dp" />
+                                </LinearLayout>
+                            </LinearLayout>
+
+                            <View style="@style/RowDivider" android:layout_marginStart="16dp" />
+
+                            <LinearLayout
+                                android:id="@+id/btnScan"
+                                style="@style/RowItem">
+
+                                <ImageView
+                                    style="@style/RowIcon"
+                                    android:contentDescription="扫描"
+                                    android:src="@drawable/ic_wifi" />
+
+                                <TextView
+                                    style="@style/RowTitle"
                                     android:text="扫描局域网" />
 
-                                <com.google.android.material.button.MaterialButton
-                                    android:id="@+id/btnManual"
-                                    style="@style/Widget.Material3.Button.OutlinedButton"
-                                    android:layout_width="0dp"
-                                    android:layout_height="wrap_content"
-                                    android:layout_weight="1"
-                                    android:layout_marginStart="8dp"
-                                    android:text="手动输入" />
+                                <ImageView
+                                    style="@style/RowChevron"
+                                    android:contentDescription="进入"
+                                    android:src="@drawable/ic_chevron" />
+                            </LinearLayout>
+
+                            <View style="@style/RowDivider" />
+
+                            <LinearLayout
+                                android:id="@+id/btnManual"
+                                style="@style/RowItem">
+
+                                <ImageView
+                                    style="@style/RowIcon"
+                                    android:contentDescription="手动"
+                                    android:src="@drawable/ic_link" />
+
+                                <TextView
+                                    style="@style/RowTitle"
+                                    android:text="手动输入地址" />
+
+                                <ImageView
+                                    style="@style/RowChevron"
+                                    android:contentDescription="进入"
+                                    android:src="@drawable/ic_chevron" />
                             </LinearLayout>
                         </LinearLayout>
                     </com.google.android.material.card.MaterialCardView>
 
+                    <!-- ========== 账号 ========== -->
                     <TextView
-                        style="@style/TextLabel"
+                        style="@style/TextSection"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="26dp"
-                        android:text="服务器" />
+                        android:layout_marginTop="24dp"
+                        android:layout_marginBottom="10dp"
+                        android:text="账号" />
 
                     <com.google.android.material.card.MaterialCardView
+                        style="@style/CardGroup"
                         android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
-                        app:cardBackgroundColor="?attr/lSurface"
-                        app:cardCornerRadius="16dp"
-                        app:cardElevation="0dp"
-                        app:strokeColor="?attr/lOutline"
-                        app:strokeWidth="1dp">
+                        android:layout_height="wrap_content">
 
                         <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:orientation="vertical"
-                            android:padding="16dp">
+                            style="@style/RowItem"
+                            android:clickable="false"
+                            android:focusable="false">
+
+                            <ImageView
+                                style="@style/RowIcon"
+                                android:contentDescription="账号"
+                                android:src="@drawable/ic_user" />
 
                             <LinearLayout
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content">
-
-                                <com.google.android.material.button.MaterialButton
-                                    android:id="@+id/btnChangeToken"
-                                    style="@style/Widget.Material3.Button.TonalButton"
-                                    android:layout_width="0dp"
-                                    android:layout_height="wrap_content"
-                                    android:layout_weight="1"
-                                    android:text="改访问口令" />
-
-                                <com.google.android.material.button.MaterialButton
-                                    android:id="@+id/btnSysInfo"
-                                    style="@style/Widget.Material3.Button.OutlinedButton"
-                                    android:layout_width="0dp"
-                                    android:layout_height="wrap_content"
-                                    android:layout_weight="1"
-                                    android:layout_marginStart="8dp"
-                                    android:text="系统信息" />
-                            </LinearLayout>
-
-                            <LinearLayout
-                                android:layout_width="match_parent"
+                                android:layout_width="0dp"
                                 android:layout_height="wrap_content"
-                                android:layout_marginTop="8dp">
+                                android:layout_marginStart="14dp"
+                                android:layout_weight="1"
+                                android:orientation="vertical">
 
-                                <com.google.android.material.button.MaterialButton
-                                    android:id="@+id/btnDevices"
-                                    style="@style/Widget.Material3.Button.OutlinedButton"
-                                    android:layout_width="0dp"
+                                <TextView
+                                    style="@style/TextItem"
+                                    android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
-                                    android:layout_weight="1"
-                                    android:text="设备管理" />
+                                    android:text="登录状态" />
 
-                                <com.google.android.material.button.MaterialButton
-                                    android:id="@+id/btnVault"
-                                    style="@style/Widget.Material3.Button.OutlinedButton"
-                                    android:layout_width="0dp"
+                                <TextView
+                                    android:id="@+id/setLoginUser"
+                                    style="@style/TextMeta"
+                                    android:layout_width="match_parent"
                                     android:layout_height="wrap_content"
-                                    android:layout_weight="1"
-                                    android:layout_marginStart="8dp"
-                                    android:text="保险箱" />
-                            </LinearLayout>
-
-                            <LinearLayout
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="8dp">
-
-                                <com.google.android.material.button.MaterialButton
-                                    android:id="@+id/btnTrash"
-                                    style="@style/Widget.Material3.Button.OutlinedButton"
-                                    android:layout_width="0dp"
-                                    android:layout_height="wrap_content"
-                                    android:layout_weight="1"
-                                    android:text="回收站" />
-
-                                <com.google.android.material.button.MaterialButton
-                                    android:id="@+id/btnShares"
-                                    style="@style/Widget.Material3.Button.OutlinedButton"
-                                    android:layout_width="0dp"
-                                    android:layout_height="wrap_content"
-                                    android:layout_weight="1"
-                                    android:layout_marginStart="8dp"
-                                    android:text="分享管理" />
-                            </LinearLayout>
-
-                            <TextView
-                                android:id="@+id/setLoginUser"
-                                style="@style/TextMeta"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="8dp"
-                                android:text="未登录(口令访问)" />
-
-                            <LinearLayout
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="8dp">
-
-                                <com.google.android.material.button.MaterialButton
-                                    android:id="@+id/btnLogin"
-                                    style="@style/Widget.Material3.Button.OutlinedButton"
-                                    android:layout_width="0dp"
-                                    android:layout_height="wrap_content"
-                                    android:layout_weight="1"
-                                    android:text="登录账号" />
-
-                                <com.google.android.material.button.MaterialButton
-                                    android:id="@+id/btnLogout"
-                                    style="@style/Widget.Material3.Button.OutlinedButton"
-                                    android:layout_width="0dp"
-                                    android:layout_height="wrap_content"
-                                    android:layout_weight="1"
-                                    android:layout_marginStart="8dp"
-                                    android:text="退出登录"
-                                    android:visibility="gone" />
-                            </LinearLayout>
-
-                            <LinearLayout
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="8dp">
-
-                                <com.google.android.material.button.MaterialButton
-                                    android:id="@+id/btnAudit"
-                                    style="@style/Widget.Material3.Button.OutlinedButton"
-                                    android:layout_width="0dp"
-                                    android:layout_height="wrap_content"
-                                    android:layout_weight="1"
-                                    android:text="操作日志" />
-
-                                <View
-                                    android:layout_width="0dp"
-                                    android:layout_height="wrap_content"
-                                    android:layout_weight="1"
-                                    android:layout_marginStart="8dp" />
+                                    android:layout_marginTop="2dp"
+                                    android:text="未登录(口令访问)" />
                             </LinearLayout>
 
                             <com.google.android.material.button.MaterialButton
-                                android:id="@+id/btnAddLib"
-                                style="@style/Widget.Material3.Button.OutlinedButton"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="8dp"
-                                android:text="添加存储库" />
+                                android:id="@+id/btnLogin"
+                                style="@style/ChipButton"
+                                android:text="登录"
+                                android:textColor="?attr/lPrimary" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnLogout"
+                                style="@style/ChipButton"
+                                android:text="退出"
+                                android:textColor="?attr/lTextDim"
+                                android:visibility="gone" />
                         </LinearLayout>
                     </com.google.android.material.card.MaterialCardView>
+
+                    <!-- ========== 服务器管理 ========== -->
                     <TextView
-                        style="@style/TextLabel"
+                        style="@style/TextSection"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="26dp"
-                        android:text="主题" />
+                        android:layout_marginTop="24dp"
+                        android:layout_marginBottom="10dp"
+                        android:text="服务器管理" />
 
-                    <com.google.android.material.button.MaterialButtonToggleGroup
-                        android:id="@+id/themeToggle"
+                    <com.google.android.material.card.MaterialCardView
+                        style="@style/CardGroup"
                         android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
-                        app:selectionRequired="true"
-                        app:singleSelection="true">
+                        android:layout_height="wrap_content">
 
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btnTheme0"
-                            style="@style/Widget.Material3.Button.OutlinedButton"
-                            android:layout_width="0dp"
+                        <LinearLayout
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:minWidth="0dp"
-                            android:text="墨蓝" />
+                            android:orientation="vertical">
 
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btnTheme1"
-                            style="@style/Widget.Material3.Button.OutlinedButton"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:minWidth="0dp"
-                            android:text="墨绿" />
+                            <LinearLayout
+                                android:id="@+id/btnChangeToken"
+                                style="@style/RowItem">
 
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btnTheme2"
-                            style="@style/Widget.Material3.Button.OutlinedButton"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:minWidth="0dp"
-                            android:text="琥珀" />
+                                <ImageView
+                                    style="@style/RowIcon"
+                                    android:contentDescription="口令"
+                                    android:src="@drawable/ic_gear" />
 
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btnTheme3"
-                            style="@style/Widget.Material3.Button.OutlinedButton"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:minWidth="0dp"
-                            android:text="纯黑" />
-                    </com.google.android.material.button.MaterialButtonToggleGroup>
+                                <TextView
+                                    style="@style/RowTitle"
+                                    android:text="改访问口令" />
 
+                                <ImageView
+                                    style="@style/RowChevron"
+                                    android:contentDescription="进入"
+                                    android:src="@drawable/ic_chevron" />
+                            </LinearLayout>
+
+                            <View style="@style/RowDivider" />
+
+                            <LinearLayout
+                                android:id="@+id/btnSysInfo"
+                                style="@style/RowItem">
+
+                                <ImageView
+                                    style="@style/RowIcon"
+                                    android:contentDescription="系统"
+                                    android:src="@drawable/ic_info" />
+
+                                <TextView
+                                    style="@style/RowTitle"
+                                    android:text="系统信息" />
+
+                                <ImageView
+                                    style="@style/RowChevron"
+                                    android:contentDescription="进入"
+                                    android:src="@drawable/ic_chevron" />
+                            </LinearLayout>
+
+                            <View style="@style/RowDivider" />
+
+                            <LinearLayout
+                                android:id="@+id/btnDevices"
+                                style="@style/RowItem">
+
+                                <ImageView
+                                    style="@style/RowIcon"
+                                    android:contentDescription="设备"
+                                    android:src="@drawable/ic_devices" />
+
+                                <TextView
+                                    style="@style/RowTitle"
+                                    android:text="设备管理" />
+
+                                <ImageView
+                                    style="@style/RowChevron"
+                                    android:contentDescription="进入"
+                                    android:src="@drawable/ic_chevron" />
+                            </LinearLayout>
+
+                            <View style="@style/RowDivider" />
+
+                            <LinearLayout
+                                android:id="@+id/btnVault"
+                                style="@style/RowItem">
+
+                                <ImageView
+                                    style="@style/RowIcon"
+                                    android:contentDescription="保险箱"
+                                    android:src="@drawable/ic_lock" />
+
+                                <TextView
+                                    style="@style/RowTitle"
+                                    android:text="保险箱" />
+
+                                <ImageView
+                                    style="@style/RowChevron"
+                                    android:contentDescription="进入"
+                                    android:src="@drawable/ic_chevron" />
+                            </LinearLayout>
+
+                            <View style="@style/RowDivider" />
+
+                            <LinearLayout
+                                android:id="@+id/btnTrash"
+                                style="@style/RowItem">
+
+                                <ImageView
+                                    style="@style/RowIcon"
+                                    android:contentDescription="回收站"
+                                    android:src="@drawable/ic_trash_bin" />
+
+                                <TextView
+                                    style="@style/RowTitle"
+                                    android:text="回收站" />
+
+                                <ImageView
+                                    style="@style/RowChevron"
+                                    android:contentDescription="进入"
+                                    android:src="@drawable/ic_chevron" />
+                            </LinearLayout>
+
+                            <View style="@style/RowDivider" />
+
+                            <LinearLayout
+                                android:id="@+id/btnShares"
+                                style="@style/RowItem">
+
+                                <ImageView
+                                    style="@style/RowIcon"
+                                    android:contentDescription="分享"
+                                    android:src="@drawable/ic_link" />
+
+                                <TextView
+                                    style="@style/RowTitle"
+                                    android:text="分享管理" />
+
+                                <ImageView
+                                    style="@style/RowChevron"
+                                    android:contentDescription="进入"
+                                    android:src="@drawable/ic_chevron" />
+                            </LinearLayout>
+
+                            <View style="@style/RowDivider" />
+
+                            <LinearLayout
+                                android:id="@+id/btnAudit"
+                                style="@style/RowItem">
+
+                                <ImageView
+                                    style="@style/RowIcon"
+                                    android:contentDescription="日志"
+                                    android:src="@drawable/ic_history" />
+
+                                <TextView
+                                    style="@style/RowTitle"
+                                    android:text="操作日志" />
+
+                                <ImageView
+                                    style="@style/RowChevron"
+                                    android:contentDescription="进入"
+                                    android:src="@drawable/ic_chevron" />
+                            </LinearLayout>
+
+                            <View style="@style/RowDivider" />
+
+                            <LinearLayout
+                                android:id="@+id/btnAddLib"
+                                style="@style/RowItem">
+
+                                <ImageView
+                                    style="@style/RowIcon"
+                                    android:contentDescription="存储库"
+                                    android:src="@drawable/ic_folder" />
+
+                                <TextView
+                                    style="@style/RowTitle"
+                                    android:text="添加存储库" />
+
+                                <ImageView
+                                    style="@style/RowChevron"
+                                    android:contentDescription="进入"
+                                    android:src="@drawable/ic_chevron" />
+                            </LinearLayout>
+                        </LinearLayout>
+                    </com.google.android.material.card.MaterialCardView>
+
+                    <!-- ========== 外观 ========== -->
                     <TextView
-                        style="@style/TextLabel"
+                        style="@style/TextSection"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="26dp"
+                        android:layout_marginTop="24dp"
+                        android:layout_marginBottom="10dp"
+                        android:text="外观" />
+
+                    <com.google.android.material.card.MaterialCardView
+                        style="@style/CardGroup"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:paddingStart="16dp"
+                            android:paddingTop="16dp"
+                            android:paddingEnd="16dp"
+                            android:paddingBottom="18dp">
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:gravity="center_vertical"
+                                android:orientation="horizontal">
+
+                                <ImageView
+                                    style="@style/RowIcon"
+                                    android:contentDescription="主题"
+                                    android:src="@drawable/ic_theme" />
+
+                                <LinearLayout
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginStart="14dp"
+                                    android:layout_weight="1"
+                                    android:orientation="vertical">
+
+                                    <TextView
+                                        style="@style/TextItem"
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:text="配色方案" />
+
+                                    <TextView
+                                        style="@style/TextMeta"
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:layout_marginTop="2dp"
+                                        android:text="深色 4 套 · 浅色 2 套" />
+                                </LinearLayout>
+                            </LinearLayout>
+
+                            <LinearLayout
+                                android:id="@+id/themeGrid"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="14dp"
+                                android:orientation="vertical" />
+                        </LinearLayout>
+                    </com.google.android.material.card.MaterialCardView>
+
+                    <!-- ========== 关于 ========== -->
+                    <TextView
+                        style="@style/TextSection"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="24dp"
+                        android:layout_marginBottom="10dp"
                         android:text="关于" />
 
                     <com.google.android.material.card.MaterialCardView
+                        style="@style/CardGroup"
                         android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
-                        app:cardBackgroundColor="?attr/lSurface"
-                        app:cardCornerRadius="16dp"
-                        app:cardElevation="0dp"
-                        app:strokeColor="?attr/lOutline"
-                        app:strokeWidth="1dp">
+                        android:layout_height="wrap_content">
 
                         <LinearLayout
                             android:layout_width="match_parent"
@@ -843,25 +1064,47 @@
                             android:orientation="vertical"
                             android:padding="16dp">
 
-                            <TextView
-                                android:layout_width="wrap_content"
+                            <LinearLayout
+                                android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
-                                android:text="linNas App v0.7.0"
-                                android:textColor="?attr/lText"
-                                android:textSize="15sp" />
+                                android:gravity="center_vertical"
+                                android:orientation="horizontal">
+
+                                <ImageView
+                                    style="@style/RowIcon"
+                                    android:contentDescription="应用"
+                                    android:src="@drawable/ic_cloud" />
+
+                                <LinearLayout
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginStart="14dp"
+                                    android:layout_weight="1"
+                                    android:orientation="vertical">
+
+                                    <TextView
+                                        android:id="@+id/setAppVersion"
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:text="linNas App"
+                                        android:textColor="?attr/lText"
+                                        android:textSize="15sp"
+                                        android:textStyle="bold" />
+
+                                    <TextView
+                                        android:id="@+id/setServerVersion"
+                                        style="@style/TextMeta"
+                                        android:layout_width="match_parent"
+                                        android:layout_height="wrap_content"
+                                        android:layout_marginTop="2dp" />
+                                </LinearLayout>
+                            </LinearLayout>
 
                             <TextView
-                                android:id="@+id/setServerVersion"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="4dp"
-                                android:textColor="?attr/lTextDim"
-                                android:textSize="12sp" />
-
-                            <TextView
-                                android:layout_width="wrap_content"
+                                android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="12dp"
+                                android:lineSpacingExtra="3dp"
                                 android:text="手机与电脑连同一 WiFi 即可自动发现服务器,首次连接后会记住。"
                                 android:textColor="?attr/lTextDim"
                                 android:textSize="12sp" />
@@ -882,15 +1125,17 @@
             app:menu="@menu/nav_main" />
     </LinearLayout>
 
-    <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
-        android:id="@+id/fabUpload"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom|end"
-        android:layout_marginEnd="20dp"
-        android:layout_marginBottom="84dp"
-        android:text="上传"
-        app:backgroundTint="?attr/lPrimary"
-        app:icon="@drawable/ic_upload"
-        app:iconTint="?attr/lOnPrimary" />
+        <com.google.android.material.floatingactionbutton.FloatingActionButton
+            android:id="@+id/fabUpload"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_marginEnd="18dp"
+            android:layout_marginBottom="78dp"
+            android:contentDescription="上传"
+            app:backgroundTint="?attr/lPrimary"
+            app:borderWidth="0dp"
+            app:elevation="4dp"
+            app:srcCompat="@drawable/ic_upload"
+            app:tint="?attr/lOnPrimary" />
 </FrameLayout>

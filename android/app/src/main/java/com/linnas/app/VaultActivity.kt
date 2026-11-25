@@ -26,6 +26,9 @@ class VaultActivity : AppCompatActivity() {
     private var vt: String? = null
     private lateinit var list: LinearLayout
     private lateinit var hint: TextView
+    private lateinit var lockedPanel: View
+    private lateinit var unlockedPanel: View
+    private lateinit var emptyView: View
 
     private val pickFile = registerForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         val token = vt ?: return@registerForActivityResult
@@ -55,8 +58,13 @@ class VaultActivity : AppCompatActivity() {
         list = findViewById(R.id.vaultList)
         hint = findViewById(R.id.vaultHint)
 
+        lockedPanel = findViewById(R.id.vaultLocked)
+        unlockedPanel = findViewById(R.id.vaultUnlocked)
+        emptyView = findViewById(R.id.vaultEmpty)
+
         findViewById<View>(R.id.btnVaultBack).setOnClickListener { finish() }
         findViewById<View>(R.id.btnVaultLock).setOnClickListener { lockNow() }
+        findViewById<View>(R.id.btnVaultUnlock).setOnClickListener { promptUnlock() }
         findViewById<View>(R.id.btnVaultUpload).setOnClickListener {
             if (vt == null) toast("请先解锁") else pickFile.launch("*/*")
         }
@@ -71,6 +79,17 @@ class VaultActivity : AppCompatActivity() {
         enter()
     }
 
+    private fun showLocked() {
+        lockedPanel.visibility = View.VISIBLE
+        unlockedPanel.visibility = View.GONE
+        hint.text = ""
+    }
+
+    private fun showUnlocked() {
+        lockedPanel.visibility = View.GONE
+        unlockedPanel.visibility = View.VISIBLE
+    }
+
     private fun enter() {
         lifecycleScope.launch {
             val st = try { withContext(Dispatchers.IO) { client.vaultStatus() } } catch (e: Exception) {
@@ -82,9 +101,13 @@ class VaultActivity : AppCompatActivity() {
     }
 
     private fun promptSetup() {
-        val pw = EditText(this).apply { hint = "设置保险箱密码(至少 4 位)"; inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD }
-        val pw2 = EditText(this).apply { hint = "再次输入密码"; inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD }
-        val wrap = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(48, 24, 48, 0); addView(pw); addView(pw2) }
+        val dlgView = layoutInflater.inflate(R.layout.dialog_password, null)
+        dlgView.findViewById<TextView>(R.id.dlgHint).text =
+            "设置一个至少 4 位的密码。忘记密码将无法恢复保险箱里的文件。"
+        dlgView.findViewById<View>(R.id.pwWrap2).visibility = View.VISIBLE
+        val pw = dlgView.findViewById<EditText>(R.id.etPassword)
+        val pw2 = dlgView.findViewById<EditText>(R.id.etPassword2)
+        val wrap = dlgView
         AlertDialog.Builder(this).setTitle("创建保险箱").setView(wrap)
             .setPositiveButton("创建") { _, _ ->
                 val a = pw.text.toString(); val b = pw2.text.toString()
@@ -103,9 +126,11 @@ class VaultActivity : AppCompatActivity() {
     }
 
     private fun promptUnlock() {
-        hint.text = "输入密码解锁保险箱"
-        val pw = EditText(this).apply { hint = "保险箱密码"; inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD }
-        AlertDialog.Builder(this).setTitle("解锁保险箱").setView(pw)
+        showLocked()
+        val dlgView = layoutInflater.inflate(R.layout.dialog_password, null)
+        dlgView.findViewById<TextView>(R.id.dlgHint).text = "输入保险箱密码后,文件在手机上即可浏览与播放。"
+        val pw = dlgView.findViewById<EditText>(R.id.etPassword)
+        AlertDialog.Builder(this).setTitle("解锁保险箱").setView(dlgView)
             .setPositiveButton("解锁") { _, _ ->
                 lifecycleScope.launch {
                     try {
@@ -113,6 +138,7 @@ class VaultActivity : AppCompatActivity() {
                         if (tok.isBlank()) { toast("密码错误"); promptUnlock(); return@launch }
                         vt = tok
                         hint.text = "已解锁 · 文件在服务端加密存储"
+                        showUnlocked()
                         loadList()
                     } catch (e: Exception) { toast("解锁失败: ${e.message}") }
                 }
@@ -128,6 +154,8 @@ class VaultActivity : AppCompatActivity() {
             try { withContext(Dispatchers.IO) { client.vaultLock(token) } } catch (_: Exception) { }
             vt = null
             list.removeAllViews()
+            emptyView.visibility = View.GONE
+            showLocked()
             promptUnlock()
         }
     }
@@ -137,11 +165,12 @@ class VaultActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val entries = try { withContext(Dispatchers.IO) { client.vaultList(token) } } catch (e: Exception) { toast("读取失败: ${e.message}"); return@launch }
             list.removeAllViews()
+            emptyView.visibility = if (entries.isEmpty()) View.VISIBLE else View.GONE
             if (entries.isEmpty()) {
-                hint.text = "保险箱是空的 · 点下方上传私密文件"
+                hint.text = "保险箱是空的"
                 return@launch
             }
-            hint.text = "共 ${entries.size} 个文件(服务端加密存储)"
+            hint.text = "共 ${entries.size} 个文件 · 服务端加密存储"
             for (e in entries) {
                 val row = layoutInflater.inflate(R.layout.item_file, list, false)
                 row.findViewById<ImageView>(R.id.ficon).setImageResource(R.drawable.ic_file)
@@ -232,12 +261,12 @@ class VaultActivity : AppCompatActivity() {
     private fun pickLibrary(selectDirs: Boolean, onDir: ((String) -> Unit)?, onFile: ((String) -> Unit)?) {
         val wrap = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(40, 8, 40, 0)
+            setPadding(dp(20), dp(4), dp(20), 0)
         }
         val crumb = TextView(this).apply { setTextColor(ThemeColors.textDim(this@VaultActivity)); textSize = 12f }
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val scroll = android.widget.ScrollView(this).apply { addView(box) }
-        wrap.addView(crumb); wrap.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 900))
+        wrap.addView(crumb); wrap.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(340)))
 
         val dlg = AlertDialog.Builder(this).setTitle(if (selectDirs) "选择导出目录" else "选择要导入的文件").setView(wrap)
             .setPositiveButton(if (selectDirs) "选这里" else "关闭", null).setNegativeButton("取消", null).create()
@@ -249,12 +278,34 @@ class VaultActivity : AppCompatActivity() {
         }
         dlg.show()
 
-        fun row(label: String, onClick: () -> Unit) {
-            val tv = TextView(this).apply {
-                text = label; setTextColor(ThemeColors.text(this@VaultActivity)); textSize = 14f
-                setPadding(10, 24, 10, 24); setOnClickListener { onClick() }
+        fun row(label: String, isDir: Boolean, onClick: () -> Unit) {
+            val item = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                minimumHeight = (52 * resources.displayMetrics.density).toInt()
+                setPadding(4, 6, 4, 6)
+                isClickable = true
+                isFocusable = true
+                val ta = theme.obtainStyledAttributes(intArrayOf(android.R.attr.selectableItemBackground))
+                background = ta.getDrawable(0)
+                ta.recycle()
+                setOnClickListener { onClick() }
             }
-            box.addView(tv)
+            val ic = ImageView(this).apply {
+                setImageResource(if (isDir) R.drawable.ic_folder else R.drawable.ic_file)
+                imageTintList = ThemeColors.csl(this@VaultActivity, if (isDir) R.attr.lPrimary else R.attr.lTextDim)
+            }
+            item.addView(ic, LinearLayout.LayoutParams((20 * resources.displayMetrics.density).toInt(), (20 * resources.displayMetrics.density).toInt()))
+            val tv = TextView(this).apply {
+                text = label
+                setTextColor(ThemeColors.text(this@VaultActivity))
+                textSize = 14f
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
+                setPadding((12 * resources.displayMetrics.density).toInt(), 0, 0, 0)
+            }
+            item.addView(tv, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            box.addView(item, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
         fun load(vp: String) {
             currentPath = vp
@@ -263,17 +314,17 @@ class VaultActivity : AppCompatActivity() {
             if (vp.isEmpty()) {
                 lifecycleScope.launch {
                     val libs = try { withContext(Dispatchers.IO) { client.libs() } } catch (_: Exception) { emptyList() }
-                    libs.forEach { l -> row(l.name) { load("/" + l.id) } }
+                    libs.forEach { l -> row(l.name, true) { load("/" + l.id) } }
                 }
                 return
             }
-            row(".. 返回上级") { load(if (vp.count { it == '/' } <= 1) "" else vp.substringBeforeLast('/')) }
+            row(".. 返回上级", true) { load(if (vp.count { it == '/' } <= 1) "" else vp.substringBeforeLast('/')) }
             lifecycleScope.launch {
                 val resp = try { withContext(Dispatchers.IO) { client.ls(vp) } } catch (_: Exception) { null }
                 resp?.entries?.forEach { e ->
                     val child = vp.trimEnd('/') + "/" + e.name
-                    if (e.isDir) row("[目录] " + e.name) { load(child) }
-                    else if (!selectDirs) row("[文件] " + e.name) { dlg.dismiss(); onFile?.invoke(child) }
+                    if (e.isDir) row(e.name, true) { load(child) }
+                    else if (!selectDirs) row(e.name, false) { dlg.dismiss(); onFile?.invoke(child) }
                 }
             }
         }
@@ -291,6 +342,8 @@ class VaultActivity : AppCompatActivity() {
         val i = c.getColumnIndex(OpenableColumns.SIZE)
         if (i >= 0 && c.moveToFirst()) c.getLong(i) else 0L
     } ?: 0L
+
+    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     private fun toast(msg: String) = android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_SHORT).show()
 }

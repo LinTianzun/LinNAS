@@ -2,7 +2,7 @@
 
 局域网内的「本地云盘 / NAS」方案：一台 Windows PC 挂载外置硬盘跑服务端，手机在家连同一 WiFi 即可像云盘一样上传、浏览、下载，并在线播放视频。全程局域网直连；可选通过 Tailscale 远程访问，不需要公网 IP 或端口映射。
 
-> 当前组件版本：Windows 服务端 **1.6.0**；Android 客户端 **1.4.0**（`versionCode` 6）。组件独立演进，版本号不要求一致。发布说明见 [RELEASING.md](RELEASING.md)。
+> 当前组件版本：Windows 服务端 **1.6.0**；Android 客户端 **1.5.0**（`versionCode` 7）。组件独立演进，版本号不要求一致。发布说明见 [RELEASING.md](RELEASING.md)。
 
 ## 组成
 
@@ -56,7 +56,7 @@ go build -o linNas-server.exe .
 ## 当前状态
 
 - **Windows 服务端 1.6.0**：文件管理、媒体索引、播放/转码、多用户与分享、Tailscale 远程访问、WebDAV。
-- **Android 1.4.0**：文件/媒体/传输/设置、扫码配对、离线缓存、相册备份、保险箱、回收站、分享与多用户登录、操作日志、播放列表连播、画中画。
+- **Android 1.5.0**：文件/媒体/传输/设置、扫码配对、离线缓存、相册备份、保险箱、回收站、分享与多用户登录、操作日志、播放列表连播、画中画；6 套主题（4 深 + 2 浅）、重做的播放器控制层与设置页、备份/下载位置可选。
 - **仍未实现**：无。
 
 详细历史与路线图见 [PLAN.md](PLAN.md)；构建发布见 [RELEASING.md](RELEASING.md)；应用数据备份与恢复见 [DATA_BACKUP.md](DATA_BACKUP.md)。

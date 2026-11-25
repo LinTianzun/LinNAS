@@ -4,6 +4,8 @@
     <color name="mint">#79E2B6</color>
     <color name="amber">#F2C879</color>
     <color name="danger">#FF7A7A</color>
+    <color name="danger_light">#C62828</color>
+    <color name="mint_light">#1B7D5A</color>
     <color name="text_dim">#98A2B3</color>
     <color name="text">#E9EDF5</color>
     <color name="primary">#6EA8FE</color>
@@ -53,4 +55,37 @@
     <color name="t_mono_text_dim">#9A9AA3</color>
     <color name="t_mono_primary">#9EC5FF</color>
     <color name="t_mono_on_primary">#05101F</color>
+
+    <!-- 主题 5:云白(浅色) -->
+    <color name="t_light_ink">#F4F6FA</color>
+    <color name="t_light_surface">#FFFFFF</color>
+    <color name="t_light_surface_high">#ECEFF5</color>
+    <color name="t_light_outline">#DCE1EA</color>
+    <color name="t_light_text">#12161C</color>
+    <color name="t_light_text_dim">#5A6472</color>
+    <color name="t_light_primary">#2F6BEA</color>
+    <color name="t_light_on_primary">#FFFFFF</color>
+
+    <!-- 主题 6:暖沙(浅色) -->
+    <color name="t_warm_ink">#FAF6F1</color>
+    <color name="t_warm_surface">#FFFFFF</color>
+    <color name="t_warm_surface_high">#F1EADF</color>
+    <color name="t_warm_outline">#E3D8C8</color>
+    <color name="t_warm_text">#1B1712</color>
+    <color name="t_warm_text_dim">#6B6157</color>
+    <color name="t_warm_primary">#B4652B</color>
+    <color name="t_warm_on_primary">#FFFFFF</color>
+
+    <!-- 主题预览色块(设置页主题选择器) -->
+    <color name="sw_blue">#0B0D11</color>
+    <color name="sw_green">#06100C</color>
+    <color name="sw_amber">#100D08</color>
+    <color name="sw_mono">#000000</color>
+    <color name="sw_light">#FFFFFF</color>
+    <color name="sw_warm">#FAF6F1</color>
+
+    <!-- 播放器遮罩 -->
+    <color name="scrim_top">#B3000000</color>
+    <color name="scrim_bottom">#CC000000</color>
+    <color name="scrim_none">#00000000</color>
 </resources>
