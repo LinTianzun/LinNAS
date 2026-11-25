@@ -10,28 +10,34 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/net/webdav"
 )
 
 // Server ties config and handlers together.
 type Server struct {
-	cfg     *Config
-	mux     *http.ServeMux
-	index   *Index
-	devices *deviceRegistry
-	auth    *authStore
-	audit   *auditLog
-	shares  *shareStore
+	cfg      *Config
+	mux      *http.ServeMux
+	index    *Index
+	uploads  *uploadSessionStore
+	davLocks webdav.LockSystem
+	devices  *deviceRegistry
+	auth     *authStore
+	audit    *auditLog
+	shares   *shareStore
 }
 
 // NewServer creates the HTTP mux with all routes registered.
 func NewServer(cfg *Config) *Server {
 	s := &Server{
-		cfg:     cfg,
-		mux:     http.NewServeMux(),
-		devices: newDeviceRegistry(),
-		auth:    newAuthStore(cfg.DataDir, cfg.IdleLockMinutes),
-		audit:   newAuditLog(cfg.DataDir),
-		shares:  newShareStore(cfg.DataDir),
+		cfg:      cfg,
+		mux:      http.NewServeMux(),
+		uploads:  newUploadSessionStore(),
+		davLocks: webdav.NewMemLS(),
+		devices:  newDeviceRegistry(),
+		auth:     newAuthStore(cfg.DataDir, cfg.IdleLockMinutes),
+		audit:    newAuditLog(cfg.DataDir),
+		shares:   newShareStore(cfg.DataDir),
 	}
 
 	api := http.NewServeMux()
@@ -117,6 +123,7 @@ func NewServer(cfg *Config) *Server {
 	api.HandleFunc("POST /api/trash/empty", s.handleTrashEmpty)
 
 	s.mux.Handle("/api/", s.withToken(s.auditLog(s.recordDevice(s.logRequests(api)))))
+	s.mux.Handle("/dav/", s.withWebDAVAuth(s.auditWebDAV(s.recordDevice(s.logRequests(http.HandlerFunc(s.handleWebDAV))))))
 	// 分享链接公开访问(免登录),更具体的路径优先于 /api/
 	s.mux.HandleFunc("GET /api/share/{id}", s.handleShareInfo)
 	s.mux.HandleFunc("GET /api/share/{id}/raw", s.handleShareRaw)

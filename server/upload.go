@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -18,6 +20,7 @@ const chunkSize = 5 << 20
 
 // uploadSession tracks one in-flight resumable upload.
 type uploadSession struct {
+	mu        sync.Mutex
 	ID        string
 	LibID     string
 	DestAbs   string
@@ -26,9 +29,88 @@ type uploadSession struct {
 	StartedAt int64
 }
 
-// uploadSessions is in-memory state; good enough for M1 (lost on restart,
-// client re-inits and the .part file lets it resume by byte offset).
-var uploadSessions = map[string]*uploadSession{}
+type uploadSessionStore struct {
+	mu       sync.RWMutex
+	sessions map[string]*uploadSession
+}
+
+func newUploadSessionStore() *uploadSessionStore {
+	return &uploadSessionStore{sessions: make(map[string]*uploadSession)}
+}
+
+func (us *uploadSessionStore) reserve(libID, dir, name string, size int64) (*uploadSession, error) {
+	us.mu.Lock()
+	defer us.mu.Unlock()
+
+	for suffix := 0; ; suffix++ {
+		candidateName := name
+		if suffix > 0 {
+			ext := filepath.Ext(name)
+			base := strings.TrimSuffix(name, ext)
+			candidateName = fmt.Sprintf("%s (%d)%s", base, suffix, ext)
+		}
+		dest := filepath.Join(dir, candidateName)
+
+		if _, err := os.Stat(dest); err == nil {
+			continue
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+
+		inUse := false
+		for _, active := range us.sessions {
+			if strings.EqualFold(filepath.Clean(active.DestAbs), filepath.Clean(dest)) {
+				inUse = true
+				break
+			}
+		}
+		if inUse {
+			continue
+		}
+
+		received := int64(0)
+		if st, err := os.Stat(dest + ".part"); err == nil {
+			received = st.Size()
+			if size > 0 && received > size {
+				return nil, fmt.Errorf("已有临时文件大小超过本次上传声明")
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+
+		sess := &uploadSession{
+			ID:        newUploadID(),
+			LibID:     libID,
+			DestAbs:   dest,
+			Size:      size,
+			Received:  received,
+			StartedAt: time.Now().Unix(),
+		}
+		us.sessions[sess.ID] = sess
+		return sess, nil
+	}
+}
+
+func (us *uploadSessionStore) get(id string) (*uploadSession, bool) {
+	us.mu.RLock()
+	defer us.mu.RUnlock()
+	sess, ok := us.sessions[id]
+	return sess, ok
+}
+
+func (us *uploadSessionStore) isCurrent(sess *uploadSession) bool {
+	us.mu.RLock()
+	defer us.mu.RUnlock()
+	return us.sessions[sess.ID] == sess
+}
+
+func (us *uploadSessionStore) remove(sess *uploadSession) {
+	us.mu.Lock()
+	defer us.mu.Unlock()
+	if us.sessions[sess.ID] == sess {
+		delete(us.sessions, sess.ID)
+	}
+}
 
 // ---- handlers ----
 
@@ -43,6 +125,10 @@ func (s *Server) handleUploadInit(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeErr(w, 400, "请求格式错误")
+		return
+	}
+	if req.Size < 0 {
+		writeErr(w, 400, "文件大小不能为负数")
 		return
 	}
 	if !SafeName(req.Name) {
@@ -66,24 +152,11 @@ func (s *Server) handleUploadInit(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "目标目录不存在")
 		return
 	}
-	dst := filepath.Join(dirAbs, req.Name)
-	if _, err := os.Stat(dst); err == nil {
-		dst = uniqueName(dirAbs, req.Name) // 已存在则自动加 (1) 后缀
+	sess, err := s.uploads.reserve(lib.ID, dirAbs, req.Name, req.Size)
+	if err != nil {
+		writeErr(w, 500, "准备上传失败: "+err.Error())
+		return
 	}
-	// 断点续传:已有 .part 就按它的字节数续传
-	received := int64(0)
-	if st, err := os.Stat(dst + ".part"); err == nil {
-		received = st.Size()
-	}
-	sess := &uploadSession{
-		ID:        newUploadID(),
-		LibID:     lib.ID,
-		DestAbs:   dst,
-		Size:      req.Size,
-		Received:  received,
-		StartedAt: time.Now().Unix(),
-	}
-	uploadSessions[sess.ID] = sess
 	writeJSON(w, 200, map[string]any{
 		"uploadId":  sess.ID,
 		"received":  sess.Received,
@@ -93,8 +166,14 @@ func (s *Server) handleUploadInit(w http.ResponseWriter, r *http.Request) {
 
 // handleUploadStatus reports progress for resume.
 func (s *Server) handleUploadStatus(w http.ResponseWriter, r *http.Request) {
-	sess, ok := uploadSessions[r.URL.Query().Get("id")]
+	sess, ok := s.uploads.get(r.URL.Query().Get("id"))
 	if !ok {
+		writeErr(w, 404, "上传会话不存在")
+		return
+	}
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+	if !s.uploads.isCurrent(sess) {
 		writeErr(w, 404, "上传会话不存在")
 		return
 	}
@@ -114,8 +193,14 @@ func (s *Server) handleUploadChunk(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "offset 无效")
 		return
 	}
-	sess, ok := uploadSessions[id]
+	sess, ok := s.uploads.get(id)
 	if !ok {
+		writeErr(w, 404, "上传会话不存在")
+		return
+	}
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+	if !s.uploads.isCurrent(sess) {
 		writeErr(w, 404, "上传会话不存在")
 		return
 	}
@@ -123,19 +208,76 @@ func (s *Server) handleUploadChunk(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 409, fmt.Sprintf("offset 不匹配,期望 %d,收到 %d", sess.Received, offset))
 		return
 	}
-	f, err := os.OpenFile(sess.DestAbs+".part", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	maxChunk := int64(chunkSize)
+	if sess.Size > 0 {
+		remaining := sess.Size - sess.Received
+		if remaining <= 0 {
+			writeErr(w, 409, "上传数据已达到声明大小")
+			return
+		}
+		if remaining < maxChunk {
+			maxChunk = remaining
+		}
+	}
+	if r.ContentLength > maxChunk {
+		writeErr(w, http.StatusRequestEntityTooLarge, "分块超过允许大小")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxChunk)
+
+	f, err := os.OpenFile(sess.DestAbs+".part", os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		writeErr(w, 500, "写文件失败: "+err.Error())
 		return
 	}
+	start := sess.Received
+	if err := f.Truncate(start); err != nil {
+		if closeErr := f.Close(); closeErr != nil {
+			writeErr(w, 500, "准备临时文件失败: "+err.Error()+"; 关闭文件失败: "+closeErr.Error())
+			return
+		}
+		writeErr(w, 500, "准备临时文件失败: "+err.Error())
+		return
+	}
+	if _, err := f.Seek(start, io.SeekStart); err != nil {
+		if closeErr := f.Close(); closeErr != nil {
+			writeErr(w, 500, "定位临时文件失败: "+err.Error()+"; 关闭文件失败: "+closeErr.Error())
+			return
+		}
+		writeErr(w, 500, "定位临时文件失败: "+err.Error())
+		return
+	}
 	n, copyErr := io.Copy(f, r.Body)
-	closeErr := f.Close()
 	if copyErr != nil {
+		truncateErr := f.Truncate(start)
+		closeErr := f.Close()
+		if truncateErr != nil {
+			writeErr(w, 500, "回滚不完整分块失败: "+truncateErr.Error())
+			return
+		}
+		if closeErr != nil {
+			writeErr(w, 500, "关闭临时文件失败: "+closeErr.Error())
+			return
+		}
+		var maxErr *http.MaxBytesError
+		if errors.As(copyErr, &maxErr) {
+			writeErr(w, http.StatusRequestEntityTooLarge, "分块超过允许大小")
+			return
+		}
 		writeErr(w, 500, "接收数据失败: "+copyErr.Error())
 		return
 	}
+	closeErr := f.Close()
 	if closeErr != nil {
+		if truncateErr := os.Truncate(sess.DestAbs+".part", start); truncateErr != nil {
+			writeErr(w, 500, "关闭文件失败: "+closeErr.Error()+"; 回滚临时文件失败: "+truncateErr.Error())
+			return
+		}
 		writeErr(w, 500, "关闭文件失败: "+closeErr.Error())
+		return
+	}
+	if n == 0 {
+		writeErr(w, 400, "上传分块不能为空")
 		return
 	}
 	sess.Received += n
@@ -151,25 +293,31 @@ func (s *Server) handleUploadComplete(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "请求格式错误")
 		return
 	}
-	sess, ok := uploadSessions[req.UploadID]
+	sess, ok := s.uploads.get(req.UploadID)
 	if !ok {
 		writeErr(w, 404, "上传会话不存在")
 		return
 	}
-	if sess.Size > 0 && sess.Received < sess.Size {
-		writeErr(w, 409, fmt.Sprintf("还差 %d 字节", sess.Size-sess.Received))
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+	if !s.uploads.isCurrent(sess) {
+		writeErr(w, 404, "上传会话不存在")
+		return
+	}
+	if sess.Size > 0 && sess.Received != sess.Size {
+		writeErr(w, 409, fmt.Sprintf("已接收 %d 字节,声明大小为 %d 字节", sess.Received, sess.Size))
+		return
+	}
+	lib := s.cfg.LibraryByID(sess.LibID)
+	if lib == nil {
+		writeErr(w, 500, "存储库已移除")
 		return
 	}
 	if err := os.Rename(sess.DestAbs+".part", sess.DestAbs); err != nil {
 		writeErr(w, 500, "完成失败: "+err.Error())
 		return
 	}
-	delete(uploadSessions, sess.ID)
-	lib := s.cfg.LibraryByID(sess.LibID)
-	if lib == nil {
-		writeErr(w, 500, "存储库已移除")
-		return
-	}
+	s.uploads.remove(sess)
 	writeJSON(w, 200, map[string]string{
 		"vpath": VirtualPath(lib, sess.DestAbs),
 		"name":  filepath.Base(sess.DestAbs),
@@ -186,13 +334,22 @@ func (s *Server) handleUploadAbort(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "请求格式错误")
 		return
 	}
-	sess, ok := uploadSessions[req.UploadID]
+	sess, ok := s.uploads.get(req.UploadID)
 	if !ok {
 		writeErr(w, 404, "上传会话不存在")
 		return
 	}
-	_ = os.Remove(sess.DestAbs + ".part")
-	delete(uploadSessions, sess.ID)
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+	if !s.uploads.isCurrent(sess) {
+		writeErr(w, 404, "上传会话不存在")
+		return
+	}
+	if err := os.Remove(sess.DestAbs + ".part"); err != nil && !errors.Is(err, os.ErrNotExist) {
+		writeErr(w, 500, "清理临时文件失败: "+err.Error())
+		return
+	}
+	s.uploads.remove(sess)
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 

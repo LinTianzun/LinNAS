@@ -4,7 +4,7 @@
 
 方案与里程碑见 [PLAN.md](../PLAN.md)。
 
-> 当前服务端版本：**1.5.0**（`config.go` 中的 `Version`）。服务端与 Android 客户端独立版本化。Windows 构建和发布步骤见根目录 [RELEASING.md](../RELEASING.md)。
+> 当前服务端版本：**1.6.0**（`config.go` 中的 `Version`）。服务端与 Android 客户端独立版本化。Windows 构建和发布步骤见根目录 [RELEASING.md](../RELEASING.md)。
 
 ## 一键启动(推荐)
 
@@ -23,7 +23,7 @@
 3. 「添加目录」注册 `H:\NAS`、`I:\NAS`(可设只读)
 4. 手机连同一 WiFi,浏览器访问启动日志里打印的 `http://<电脑IP>:52700/`
 
-## Web UI 功能概览（v1.5.0）
+## Web UI 功能概览（v1.6.0）
 
 - **主页**:存储库总览,容量条、剩余空间、只读/离线状态;每个库可「设置」(改名/换路径/只读)或移除
 - **添加目录**:点「选择…」用内置**服务器目录选择器**(盘符 + 逐级目录),无需手写路径
@@ -158,6 +158,8 @@ UI 是纯静态文件(`ui/dist/`),改完需重新 `go build` 才会嵌进 exe。
 
 虚拟路径规则:`/库名/子路径`,库根即注册目录;所有路径解析防 `..` 穿越。
 
+WebDAV 不属于 `/api` 路由：使用 `http://服务器地址:52700/dav/<库ID>/` 挂载单个存储库，支持常见的 PROPFIND、GET、PUT、MKCOL、DELETE、MOVE、COPY 与锁请求。已有多用户模式使用账号密码；配置全局访问口令时，可在 WebDAV 客户端使用用户名 `token`、密码为该口令。无认证配置时沿用当前局域网开放访问模式。只读角色和只读存储库不能写入；删除会进入服务端回收站；保险箱、回收站、排除目录、未完成上传文件及库外符号链接不可访问。HTTP Basic 凭据本身不加密，请只在可信局域网中使用，或通过已配置 TLS 的 Tailscale Serve 访问。
+
 ## 配置
 
 `config.json` 在 exe 旁的 `linnas-data/` 目录(或环境变量 `LINNAS_DATA` 指定):
@@ -194,7 +196,6 @@ UI 是纯静态文件(`ui/dist/`),改完需重新 `go build` 才会嵌进 exe。
 - 上传会话在内存中,服务重启后客户端需重新 init(已传的 .part 字节仍可续传)
 - 首次播放转码文件时边转边发,该次转码不支持 Range 拖动;转码缓存生成后可 Range 拖动
 - 索引为全量重建(暂未做 mtime 增量);目录浏览仍实时读盘,索引只用于搜索/媒体库
-- WebDAV 挂载尚未实现
 
 ## v1.1.1 PC 端「手机连接」入口
 - ui/dist/index.html 侧栏「更多」里新增 #btn-pair(文字「手机连接」,图标 smartphone);ui/dist/app.js 增加其点击处理:请求 GET /api/pair,把 ips[0] 传给 GET /api/pair/qr?size=320&ip= 设为弹窗内二维码,并把 urls 逐一列出;#dlg-pair-close 关闭弹窗。
@@ -222,4 +223,10 @@ UI 是纯静态文件(`ui/dist/`),改完需重新 `go build` 才会嵌进 exe。
 - **远程访问**:Web UI「远程访问」页显示本机 Tailscale 安装/连接状态与地址,并可启停 Tailscale Serve。需要用户自行安装并登录 Tailscale;不需要配置公网 IP 或路由器端口映射。
 - **后台运行**:托盘模式与开机自启设置;可从托盘打开管理页或退出服务。
 - 新增接口:`GET /api/remote`、`POST /api/remote/serve`、`GET/POST /api/autostart`。
-- WebDAV 挂载仍未实现。
+
+## v1.6.0 新增 — WebDAV 与可靠性改进
+- **WebDAV**:以 `/dav/<库ID>/` 挂载存储库，支持标准文件浏览、上传、建目录、删除、移动、复制及锁操作；继承账号/口令和只读权限。删除会移入回收站。
+- **安全边界**:隐藏保险箱、回收站、排除目录和 `.part` 文件；拒绝访问存储库外的符号链接目标；WebDAV 写操作记入审计日志。
+- **服务可靠性**:上传会话按会话加锁并校验偏移/大小；索引扫描以事务替换单库数据，扫描失败保留旧索引。
+- **数据维护**:仓库根目录新增 `scripts/backup-data.ps1` 与 `scripts/restore-data.ps1`，支持带 SHA-256 清单的应用数据备份/验证恢复；详见根目录 [DATA_BACKUP.md](../DATA_BACKUP.md)。
+- **自动化检查**:新增 Go 上传/索引/WebDAV 回归测试与 GitHub Actions 构建检查。

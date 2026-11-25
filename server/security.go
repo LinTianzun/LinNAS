@@ -257,14 +257,29 @@ func (a *authStore) List() []map[string]any {
 func (a *authStore) Login(username, pw string) (*Session, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	u := a.findByName(username)
-	if u == nil || u.Disabled || !checkPassword(u, pw) {
+	s, ok := a.authenticateLocked(username, pw)
+	if !ok {
 		return nil, fmt.Errorf("用户名或密码错误")
 	}
-	tok := randHex(24)
-	s := &Session{Token: tok, UserID: u.ID, Username: u.Username, Role: u.Role, Created: time.Now().Unix(), LastSeen: time.Now().Unix()}
-	a.sessions[tok] = s
+	s.Token = randHex(24)
+	s.Created = time.Now().Unix()
+	s.LastSeen = s.Created
+	a.sessions[s.Token] = s
 	return s, nil
+}
+
+func (a *authStore) Authenticate(username, pw string) (*Session, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.authenticateLocked(username, pw)
+}
+
+func (a *authStore) authenticateLocked(username, pw string) (*Session, bool) {
+	u := a.findByName(username)
+	if u == nil || u.Disabled || !checkPassword(u, pw) {
+		return nil, false
+	}
+	return &Session{UserID: u.ID, Username: u.Username, Role: u.Role}, true
 }
 
 func (a *authStore) Get(tok string) *Session {

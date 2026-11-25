@@ -19,7 +19,6 @@ import (
 // for huge libraries; directory listings still read the disk for correctness).
 type Index struct {
 	db *sql.DB
-	cfg *Config
 
 	mu        sync.Mutex
 	scanning  bool
@@ -74,7 +73,10 @@ func OpenIndex(dataDir string) (*Index, error) {
 		}
 	}
 	ix := &Index{db: db}
-	ix.refreshCount()
+	if err := ix.refreshCount(); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	// 恢复上次扫描时间(用于判断启动时是否需要重扫)
 	var last string
 	if err := db.QueryRow(`SELECT v FROM meta WHERE k = 'last_scan'`).Scan(&last); err == nil {
@@ -105,18 +107,26 @@ func (ix *Index) lastScanText() string {
 func (ix *Index) Close() error { return ix.db.Close() }
 
 // refreshCount recomputes non-dir file count.
-func (ix *Index) refreshCount() {
+func (ix *Index) refreshCount() error {
 	var n int
-	_ = ix.db.QueryRow(`SELECT COUNT(*) FROM files WHERE is_dir = 0`).Scan(&n)
+	if err := ix.db.QueryRow(`SELECT COUNT(*) FROM files WHERE is_dir = 0`).Scan(&n); err != nil {
+		return err
+	}
 	ix.mu.Lock()
 	ix.fileCount = n
 	ix.mu.Unlock()
+	return nil
 }
 
 // ScanAll rescans every enabled library in the background (non-blocking).
 func (ix *Index) ScanAll(cfg *Config) {
+	cfgSnapshot := *cfg
+	cfgSnapshot.Libraries = append([]Library(nil), cfg.Libraries...)
+	for i := range cfgSnapshot.Libraries {
+		cfgSnapshot.Libraries[i].Exclude = append([]string(nil), cfgSnapshot.Libraries[i].Exclude...)
+	}
+
 	ix.mu.Lock()
-	ix.cfg = cfg
 	if ix.scanning {
 		ix.mu.Unlock()
 		return
@@ -127,85 +137,157 @@ func (ix *Index) ScanAll(cfg *Config) {
 
 	go func() {
 		start := time.Now()
-		vaultDir := vaultDirForConfig(cfg)
-		for _, lib := range cfg.Libraries {
+		vaultDir := vaultDirForConfig(&cfgSnapshot)
+		var scanErrors []string
+		scannedLibs := make(map[string]bool)
+		for _, lib := range cfgSnapshot.Libraries {
 			if !lib.Enabled {
 				continue
 			}
 			if _, err := os.Stat(lib.Path); err != nil {
-				continue // 离线盘跳过
+				scanErrors = append(scanErrors, fmt.Sprintf("%s: 存储库不可用: %v", lib.Name, err))
+				log.Printf("库 %s 不可用,保留旧索引: %v", lib.Name, err)
+				continue
 			}
-			ix.scanLib(lib, vaultDir)
+			if err := ix.scanLib(&cfgSnapshot, lib, vaultDir); err != nil {
+				scanErrors = append(scanErrors, fmt.Sprintf("%s: %v", lib.Name, err))
+				log.Printf("库 %s 索引扫描失败,保留旧索引: %v", lib.Name, err)
+				continue
+			}
+			scannedLibs[lib.ID] = true
 		}
-		ix.refreshCount()
-		_, _ = ix.db.Exec(`INSERT OR REPLACE INTO meta(k, v) VALUES ('last_scan', ?)`,
-			strconv.FormatInt(time.Now().Unix(), 10))
+		if len(scanErrors) == 0 {
+			if err := ix.removeUnconfiguredLibraries(scannedLibs); err != nil {
+				scanErrors = append(scanErrors, "清理已移除存储库索引失败: "+err.Error())
+			}
+		}
+		if err := ix.refreshCount(); err != nil {
+			scanErrors = append(scanErrors, "统计索引失败: "+err.Error())
+		}
+		scanFinished := time.Now()
+		if len(scanErrors) == 0 {
+			if _, err := ix.db.Exec(`INSERT OR REPLACE INTO meta(k, v) VALUES ('last_scan', ?)`,
+				strconv.FormatInt(scanFinished.Unix(), 10)); err != nil {
+				scanErrors = append(scanErrors, "保存扫描时间失败: "+err.Error())
+			}
+		}
 		ix.mu.Lock()
 		ix.scanning = false
-		ix.lastScan = time.Now()
-		ix.scanNote = fmt.Sprintf("完成,共 %d 个文件,用时 %s", ix.fileCount, time.Since(start).Round(time.Second))
+		if len(scanErrors) == 0 {
+			ix.lastScan = scanFinished
+			ix.scanNote = fmt.Sprintf("完成,共 %d 个文件,用时 %s", ix.fileCount, time.Since(start).Round(time.Second))
+		} else {
+			ix.scanNote = "部分失败: " + strings.Join(scanErrors, "; ")
+		}
+		note := ix.scanNote
 		ix.mu.Unlock()
-		log.Printf("索引扫描完成: %d 文件, %s", ix.fileCount, time.Since(start).Round(time.Second))
+		log.Printf("索引扫描结束: %s (用时 %s)", note, time.Since(start).Round(time.Second))
 	}()
 }
 
-// scanLib replaces all rows of one library.
-func (ix *Index) scanLib(lib Library, vaultDir string) {
-	cfg := ix.cfg
-	if cfg == nil {
-		return
+func (ix *Index) removeUnconfiguredLibraries(enabled map[string]bool) error {
+	tx, err := ix.db.Begin()
+	if err != nil {
+		return err
 	}
-	// 清空旧行
-	if _, err := ix.db.Exec(`DELETE FROM files WHERE lib_id = ?`, lib.ID); err != nil {
-		log.Printf("清空索引失败(%s): %v", lib.ID, err)
-		return
+	defer func() { _ = tx.Rollback() }()
+
+	rows, err := tx.Query(`SELECT DISTINCT lib_id FROM files`)
+	if err != nil {
+		return err
 	}
+	var stale []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if !enabled[id] {
+			stale = append(stale, id)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, id := range stale {
+		if _, err := tx.Exec(`DELETE FROM files WHERE lib_id = ?`, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// scanLib replaces one library's rows atomically; failed walks keep the old index.
+func (ix *Index) scanLib(cfg *Config, lib Library, vaultDir string) error {
+	tx, err := ix.db.Begin()
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	if _, err := tx.Exec(`DELETE FROM files WHERE lib_id = ?`, lib.ID); err != nil {
+		return err
+	}
+	stmt, err := tx.Prepare(`INSERT OR REPLACE INTO files
+		(lib_id,path,parent,name,is_dir,size,mod_time,kind) VALUES (?,?,?,?,?,?,?,?)`)
+	if err != nil {
+		return err
+	}
+	stmtClosed := false
+	defer func() {
+		if !stmtClosed {
+			_ = stmt.Close()
+		}
+	}()
+
 	type row struct {
 		path, parent, name, kind string
 		isDir                    bool
 		size, modTime            int64
 	}
 	batch := make([]row, 0, 2000)
-	flush := func() {
+	flush := func() error {
 		if len(batch) == 0 {
-			return
-		}
-		tx, err := ix.db.Begin()
-		if err != nil {
-			log.Printf("索引事务失败: %v", err)
-			return
-		}
-		stmt, err := tx.Prepare(`INSERT OR REPLACE INTO files
-			(lib_id,path,parent,name,is_dir,size,mod_time,kind) VALUES (?,?,?,?,?,?,?,?)`)
-		if err != nil {
-			_ = tx.Rollback()
-			return
+			return nil
 		}
 		for _, r := range batch {
 			id := 0
 			if r.isDir {
 				id = 1
 			}
-			_, _ = stmt.Exec(lib.ID, r.path, r.parent, r.name, id, r.size, r.modTime, r.kind)
+			if _, err := stmt.Exec(lib.ID, r.path, r.parent, r.name, id, r.size, r.modTime, r.kind); err != nil {
+				return err
+			}
 		}
-		_ = stmt.Close()
-		_ = tx.Commit()
 		batch = batch[:0]
+		return nil
 	}
 
 	count := 0
-	_ = filepath.WalkDir(lib.Path, func(p string, d fs.DirEntry, err error) error {
+	walkErr := filepath.WalkDir(lib.Path, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return nil // 跳过无权限目录
+			return err
 		}
 		if vaultDir != "" && withinRoot(vaultDir, p) {
-			if d.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
+			return skipIndexedPath(d)
+		}
+		if withinRoot(trashDirFor(&lib), p) {
+			return skipIndexedPath(d)
 		}
 		if d.IsDir() && cfg.ExcludedAbs(&lib, p) {
 			return filepath.SkipDir // 排除的子目录:不索引
+		}
+		if !d.IsDir() && strings.HasSuffix(strings.ToLower(d.Name()), ".part") {
+			return nil
 		}
 		if p == filepath.Clean(lib.Path) {
 			return nil
@@ -213,11 +295,11 @@ func (ix *Index) scanLib(lib Library, vaultDir string) {
 		vpath := VirtualPath(&lib, p)
 		parentV := DirVirtual(vpath)
 		info, ierr := d.Info()
-		var size, mt int64
-		if ierr == nil {
-			size = info.Size()
-			mt = info.ModTime().Unix()
+		if ierr != nil {
+			return ierr
 		}
+		size := info.Size()
+		mt := info.ModTime().Unix()
 		kind := "other"
 		if d.IsDir() {
 			kind = "dir"
@@ -227,15 +309,38 @@ func (ix *Index) scanLib(lib Library, vaultDir string) {
 		batch = append(batch, row{vpath, parentV, d.Name(), kind, d.IsDir(), size, mt})
 		count++
 		if len(batch) >= 2000 {
-			flush()
+			if err := flush(); err != nil {
+				return err
+			}
 			ix.mu.Lock()
 			ix.scanNote = fmt.Sprintf("扫描 %s: 已处理 %d…", lib.Name, count)
 			ix.mu.Unlock()
 		}
 		return nil
 	})
-	flush()
+	if walkErr != nil {
+		return walkErr
+	}
+	if err := flush(); err != nil {
+		return err
+	}
+	if err := stmt.Close(); err != nil {
+		return err
+	}
+	stmtClosed = true
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	committed = true
 	log.Printf("库 %s 索引完成: %d 项", lib.Name, count)
+	return nil
+}
+
+func skipIndexedPath(d fs.DirEntry) error {
+	if d.IsDir() {
+		return filepath.SkipDir
+	}
+	return nil
 }
 
 func kindForExt(ext string) string {
