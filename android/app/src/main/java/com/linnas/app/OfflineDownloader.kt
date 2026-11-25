@@ -32,6 +32,7 @@ import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.coroutineContext
+import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 /** 离线下载调度:使用唯一 WorkManager 任务避免重复缓存同一文件。 */
@@ -182,14 +183,6 @@ class OfflineDownloadWorker(
         .writeTimeout(60, TimeUnit.SECONDS)
         .build()
 
-    @Volatile
-    private var activeCall: Call? = null
-
-    override fun onStopped() {
-        activeCall?.cancel()
-        super.onStopped()
-    }
-
     override suspend fun doWork(): Result {
         val vpath = inputData.getString(KEY_VPATH)?.takeIf { it.isNotBlank() }
             ?: return Result.failure()
@@ -284,9 +277,7 @@ class OfflineDownloadWorker(
             }
             .build()
         val call = http.newCall(request)
-        activeCall = call
-        try {
-            call.awaitResponse().use { response ->
+        call.awaitResponse().use { response ->
                 val body = response.body ?: throw IOException("服务器返回空响应")
                 if (response.code == 401) throw IOException("登录已失效，请重新登录后重试")
                 val plan = planDownloadResponse(
@@ -367,9 +358,6 @@ class OfflineDownloadWorker(
                     throw CancellationException("下载任务已取消")
                 }
                 updateNotification(name, 100, ongoing = false)
-            }
-        } finally {
-            if (activeCall === call) activeCall = null
         }
     }
 
@@ -433,7 +421,7 @@ class OfflineDownloadWorker(
 
                 override fun onResponse(call: Call, response: Response) {
                     if (continuation.isActive) {
-                        continuation.resumeWith(Result.success(response))
+                        continuation.resume(response)
                     } else {
                         response.close()
                     }
