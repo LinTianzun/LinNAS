@@ -14,9 +14,7 @@ object PlaybackStore {
 
     /** 保存进度(毫秒)。 */
     fun save(ctx: Context, key: String, positionMs: Long, durationMs: Long) {
-        if (key.isBlank() || durationMs <= 0) return
-        val remaining = durationMs - positionMs
-        if (positionMs < 10_000 || remaining < 30_000) {
+        if (!PlaybackProgressPolicy.shouldSave(key, positionMs, durationMs)) {
             sp(ctx).edit().remove(key).apply()
             return
         }
@@ -34,7 +32,7 @@ object PlaybackStore {
             val o = JSONObject(raw)
             val pos = o.optLong("pos")
             val dur = o.optLong("dur")
-            if (dur > 0 && dur - pos < 30_000) 0 else pos
+            PlaybackProgressPolicy.resumePosition(pos, dur)
         } catch (_: Exception) {
             0
         }
@@ -45,8 +43,10 @@ object PlaybackStore {
         val raw = sp(ctx).getString(key, null) ?: return 0
         return try {
             val o = JSONObject(raw)
-            val dur = o.optLong("dur") - o.optLong("pos")
-            if (dur <= 0) 0 else ((dur / 60000) + 1).toInt()
+            val duration = o.optLong("dur")
+            val position = PlaybackProgressPolicy.resumePosition(o.optLong("pos"), duration)
+            val remaining = duration - position
+            if (position <= 0 || remaining <= 0) 0 else ((remaining / 60000) + 1).toInt()
         } catch (_: Exception) {
             0
         }

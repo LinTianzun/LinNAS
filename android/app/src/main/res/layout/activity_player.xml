@@ -183,6 +183,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
+                    android:contentDescription="播放进度"
                     android:maxHeight="3dp"
                     android:minHeight="3dp"
                     android:paddingStart="0dp"

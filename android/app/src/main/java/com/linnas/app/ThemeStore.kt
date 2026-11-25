@@ -22,7 +22,8 @@ object ThemeStore {
 
     fun index(ctx: Context): Int = sp(ctx).getInt("theme", 0).coerceIn(0, all.lastIndex)
     fun styleRes(ctx: Context): Int = all[index(ctx)].style
-    fun setIndex(ctx: Context, i: Int) = sp(ctx).edit().putInt("theme", i).apply()
+    fun setIndex(ctx: Context, i: Int) =
+        sp(ctx).edit().putInt("theme", i.coerceIn(0, all.lastIndex)).apply()
 
     /** 供 Java/代码创建视图时判断浅色(状态栏图标反色等)。 */
     fun isDark(ctx: Context): Boolean = all[index(ctx)].dark
@@ -42,8 +43,16 @@ object UiPrefs {
     fun setSortAsc(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("sort_asc", v).apply()
 
     /** 上次停留的底部导航页(切换主题 recreate 后恢复,避免跳回文件页)。 */
-    fun lastTab(ctx: Context): Int = sp(ctx).getInt("last_tab", R.id.tab_files)
-    fun setLastTab(ctx: Context, id: Int) = sp(ctx).edit().putInt("last_tab", id).apply()
+    fun lastTab(ctx: Context): Int {
+        val saved = sp(ctx).getInt("last_tab", R.id.tab_files)
+        return if (saved in tabIds) saved else R.id.tab_files
+    }
+
+    fun setLastTab(ctx: Context, id: Int) {
+        if (id in tabIds) sp(ctx).edit().putInt("last_tab", id).apply()
+    }
+
+    private val tabIds = setOf(R.id.tab_files, R.id.tab_media, R.id.tab_transfers, R.id.tab_settings)
 
     /** 下载保存位置:系统下载目录下的子文件夹名(空 = 直接存下载目录)。 */
     fun downloadDir(ctx: Context): String = sp(ctx).getString("download_dir", "linNas") ?: ""

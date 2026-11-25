@@ -63,7 +63,7 @@
     <color name="t_light_outline">#DCE1EA</color>
     <color name="t_light_text">#12161C</color>
     <color name="t_light_text_dim">#5A6472</color>
-    <color name="t_light_primary">#2F6BEA</color>
+    <color name="t_light_primary">#285BC8</color>
     <color name="t_light_on_primary">#FFFFFF</color>
 
     <!-- 主题 6:暖沙(浅色) -->
@@ -73,7 +73,7 @@
     <color name="t_warm_outline">#E3D8C8</color>
     <color name="t_warm_text">#1B1712</color>
     <color name="t_warm_text_dim">#6B6157</color>
-    <color name="t_warm_primary">#B4652B</color>
+    <color name="t_warm_primary">#A0521B</color>
     <color name="t_warm_on_primary">#FFFFFF</color>
 
     <!-- 主题预览色块(设置页主题选择器) -->

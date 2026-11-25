@@ -1,7 +1,9 @@
 package com.linnas.app
 
 import android.annotation.SuppressLint
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.media.AudioManager
 import android.os.Build
@@ -20,6 +22,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -83,6 +86,9 @@ class PlayerActivity : AppCompatActivity() {
     private var brightness = -1f
     private var startPosition = 0L
     private var subtitleUrl: String? = null
+    private var currentMediaUrl = ""
+    private var currentSubtitleUrl: String? = null
+    private var errorDialog: AlertDialog? = null
     private var locked = false
     private var lastResumeSave = 0L
     private var shouldRestorePlay = true
@@ -106,6 +112,8 @@ class PlayerActivity : AppCompatActivity() {
         val vpath = intent.getStringExtra(EXTRA_VPATH) ?: url
         playbackKey = vpath
         subtitleUrl = intent.getStringExtra(EXTRA_SUB)
+        currentMediaUrl = url
+        currentSubtitleUrl = subtitleUrl
 
         findViewById<TextView>(R.id.player_title).text = title
         hintView = findViewById(R.id.gestureHint)
@@ -133,6 +141,13 @@ class PlayerActivity : AppCompatActivity() {
         val p = ExoPlayer.Builder(this).build()
         player = p
         view.player = p
+        p.setAudioAttributes(
+            AudioAttributes.Builder()
+                .setUsage(C.USAGE_MEDIA)
+                .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                .build(),
+            true,
+        )
         p.setHandleAudioBecomingNoisy(true)
         p.setMediaItem(buildMediaItem(url, subtitleUrl))
         p.prepare()
@@ -141,11 +156,7 @@ class PlayerActivity : AppCompatActivity() {
 
         p.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
-                Toast.makeText(
-                    this@PlayerActivity,
-                    "播放出错:${error.errorCodeName},可尝试用系统播放器打开",
-                    Toast.LENGTH_LONG,
-                ).show()
+                showPlaybackError(error)
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -172,8 +183,6 @@ class PlayerActivity : AppCompatActivity() {
         setupSeekBar(p)
 
         showControls()
-        handler.postDelayed(saveProgressRunnable, 5000)
-        handler.post(uiRunnable)
     }
 
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -196,6 +205,59 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private val hideControlsRunnable = Runnable { if (player?.isPlaying == true) hideControls() }
+
+    override fun onStart() {
+        super.onStart()
+        if (player != null) {
+            handler.post(uiRunnable)
+            handler.postDelayed(saveProgressRunnable, 5000)
+            if (!isInPictureInPictureMode) showControls()
+        }
+    }
+
+    private fun showPlaybackError(error: PlaybackException) {
+        if (isFinishing || isDestroyed) return
+        showControls()
+        player?.let {
+            PlaybackStore.save(this, playbackKey, it.currentPosition, it.duration)
+        }
+        errorDialog?.dismiss()
+        errorDialog = AlertDialog.Builder(this)
+            .setTitle("播放失败")
+            .setMessage("${error.errorCodeName}。可重试，或改用其他播放器打开。")
+            .setPositiveButton("重试") { _, _ -> retryPlayback() }
+            .setNeutralButton("其他播放器") { _, _ -> openExternalPlayer() }
+            .setNegativeButton("关闭", null)
+            .setOnDismissListener { errorDialog = null }
+            .show()
+    }
+
+    private fun retryPlayback() {
+        val p = player ?: return
+        val url = currentMediaUrl
+        if (url.isBlank()) return
+        val position = p.currentPosition.coerceAtLeast(0)
+        p.setMediaItem(buildMediaItem(url, currentSubtitleUrl), position)
+        p.prepare()
+        p.playWhenReady = true
+        showControls()
+    }
+
+    private fun openExternalPlayer() {
+        if (currentMediaUrl.isBlank()) return
+        val uri = android.net.Uri.parse(currentMediaUrl)
+        val extension = uri.lastPathSegment?.substringAfterLast('.', "")?.lowercase()
+        val mime = if (extension in setOf("mp3", "m4a", "aac", "flac", "wav", "ogg")) {
+            "audio/*"
+        } else {
+            "video/*"
+        }
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime))
+        } catch (_: ActivityNotFoundException) {
+            toast("没有可用的外部播放器")
+        }
+    }
 
     // ---------- 控制层显隐 ----------
 
@@ -349,6 +411,8 @@ class PlayerActivity : AppCompatActivity() {
                     else client.rawUrl(vp)
                 u to findSubFor(vp)
             }
+            currentMediaUrl = url
+            currentSubtitleUrl = sub
             p.setMediaItem(buildMediaItem(url, sub))
             p.prepare()
             val resume = PlaybackStore.position(this@PlayerActivity, vp)
@@ -589,13 +653,21 @@ class PlayerActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
+        handler.removeCallbacks(uiRunnable)
+        handler.removeCallbacks(hideControlsRunnable)
         if (!isInPictureInPictureMode) {
+            handler.removeCallbacks(saveProgressRunnable)
             player?.pause()
+        } else {
+            handler.removeCallbacks(saveProgressRunnable)
+            handler.postDelayed(saveProgressRunnable, 5000)
         }
         player?.let { PlaybackStore.save(this, playbackKey, it.currentPosition, it.duration) }
     }
 
     override fun onDestroy() {
+        errorDialog?.dismiss()
+        player?.let { PlaybackStore.save(this, playbackKey, it.currentPosition, it.duration) }
         handler.removeCallbacks(saveProgressRunnable)
         handler.removeCallbacks(uiRunnable)
         handler.removeCallbacks(hideControlsRunnable)

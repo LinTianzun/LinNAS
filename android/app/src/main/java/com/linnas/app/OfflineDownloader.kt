@@ -3,145 +3,441 @@ package com.linnas.app
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.StatFs
 import androidx.core.app.NotificationCompat
-import kotlinx.coroutines.CoroutineScope
+import androidx.work.Constraints
+import androidx.work.CoroutineWorker
+import androidx.work.Data
+import androidx.work.ExistingWorkPolicy
+import androidx.work.ForegroundInfo
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.WorkerParameters
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
+import java.io.File
 import java.io.FileOutputStream
-import java.util.concurrent.ConcurrentHashMap
+import java.io.IOException
+import java.util.UUID
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.coroutineContext
+import kotlin.coroutines.resumeWithException
 
+/** 离线下载调度:使用唯一 WorkManager 任务避免重复缓存同一文件。 */
 object OfflineDownloader {
-    private const val CHANNEL_ID = "offline_dl"
-    private var notifId = 2000
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val scheduleLock = Any()
+    private fun workName(vpath: String) = "offline-${OfflineStore.stableId(vpath)}"
+
+    suspend fun start(ctx: Context, vpath: String, name: String, size: Long): Boolean =
+        withContext(Dispatchers.IO) { schedule(ctx, vpath, name, size, force = false) }
+
+    private fun schedule(ctx: Context, vpath: String, name: String, size: Long, force: Boolean): Boolean {
+        return synchronized(scheduleLock) {
+            val app = ctx.applicationContext
+            val previous = OfflineStore.get(app, vpath)
+            if (previous?.status == OfflineStore.ST_DONE && OfflineStore.localFile(app, vpath) != null) {
+                return@synchronized true
+            }
+            if (!force && previous?.status == OfflineStore.ST_DOWNLOADING && previous.taskId.isNotBlank()) {
+                return@synchronized true
+            }
+            val totalSize = size.takeIf { it > 0 } ?: (previous?.size ?: 0L)
+            val taskId = UUID.randomUUID().toString()
+            val item = OfflineStore.Item(
+                vpath, name, totalSize, previous?.bytes ?: 0,
+                OfflineStore.ST_DOWNLOADING, taskId = taskId,
+            )
+            if (!OfflineStore.putDurable(app, item)) {
+                OfflineStore.put(app, item.copy(status = OfflineStore.ST_FAILED, msg = "无法保存下载任务"))
+                return@synchronized false
+            }
+            val request = OneTimeWorkRequestBuilder<OfflineDownloadWorker>()
+                .setInputData(
+                    Data.Builder()
+                        .putString(OfflineDownloadWorker.KEY_VPATH, vpath)
+                        .putString(OfflineDownloadWorker.KEY_NAME, name)
+                        .putLong(OfflineDownloadWorker.KEY_SIZE, totalSize)
+                        .putString(OfflineDownloadWorker.KEY_TASK_ID, taskId)
+                        .build(),
+                )
+                .setConstraints(
+                    Constraints.Builder()
+                        .setRequiredNetworkType(NetworkType.CONNECTED)
+                        .build(),
+                )
+                .build()
+            try {
+                WorkManager.getInstance(app).enqueueUniqueWork(
+                    workName(vpath),
+                    ExistingWorkPolicy.APPEND_OR_REPLACE,
+                    request,
+                )
+            } catch (e: IllegalStateException) {
+                markScheduleFailure(app, item, taskId, e)
+                return@synchronized false
+            } catch (e: IllegalArgumentException) {
+                markScheduleFailure(app, item, taskId, e)
+                return@synchronized false
+            } catch (e: SecurityException) {
+                markScheduleFailure(app, item, taskId, e)
+                return@synchronized false
+            }
+            true
+        }
+    }
+
+    private fun markScheduleFailure(ctx: Context, item: OfflineStore.Item, taskId: String, error: Exception) {
+        OfflineStore.updateIfStatus(
+            ctx,
+            item.copy(status = OfflineStore.ST_FAILED, msg = error.message ?: "下载任务无法启动"),
+            OfflineStore.ST_DOWNLOADING,
+            taskId,
+        )
+    }
+
+    suspend fun recoverInterrupted(ctx: Context) = withContext(Dispatchers.IO) {
+        val app = ctx.applicationContext
+        for (item in OfflineStore.all(app)) {
+            if (item.status != OfflineStore.ST_DOWNLOADING) continue
+            if (item.taskId.isBlank()) {
+                OfflineStore.updateIfStatus(
+                    app,
+                    item.copy(status = OfflineStore.ST_FAILED, msg = "下载任务已中断，请重试"),
+                    OfflineStore.ST_DOWNLOADING,
+                    "",
+                )
+                continue
+            }
+            val workInfos = WorkManager.getInstance(app)
+                .getWorkInfosForUniqueWork(workName(item.vpath))
+                .get(5, TimeUnit.SECONDS)
+            if (workInfos.isEmpty()) {
+                schedule(app, item.vpath, item.name, item.size, force = true)
+            } else if (workInfos.all { it.state.isFinished }) {
+                OfflineStore.updateIfStatus(
+                    app,
+                    item.copy(status = OfflineStore.ST_FAILED, msg = "下载任务已中断，请重试"),
+                    OfflineStore.ST_DOWNLOADING,
+                    item.taskId,
+                )
+            }
+        }
+    }
+
+    fun pause(ctx: Context, vpath: String) {
+        val app = ctx.applicationContext
+        synchronized(scheduleLock) {
+            OfflineStore.get(app, vpath)
+                ?.takeIf { it.status == OfflineStore.ST_DOWNLOADING }
+                ?.let {
+                    OfflineStore.put(app, it.copy(status = OfflineStore.ST_PAUSED, msg = "已暂停"))
+                }
+            WorkManager.getInstance(app).cancelUniqueWork(workName(vpath))
+        }
+    }
+
+    fun cancel(ctx: Context, vpath: String) {
+        val app = ctx.applicationContext
+        synchronized(scheduleLock) {
+            WorkManager.getInstance(app).cancelUniqueWork(workName(vpath))
+            OfflineStore.remove(app, vpath)
+        }
+    }
+
+    suspend fun resume(ctx: Context, vpath: String, name: String, size: Long): Boolean =
+        withContext(Dispatchers.IO) {
+            val item = OfflineStore.get(ctx, vpath)
+            schedule(ctx, vpath, name, if (size > 0) size else (item?.size ?: 0L), force = false)
+        }
+}
+
+class OfflineDownloadWorker(
+    appContext: Context,
+    params: WorkerParameters,
+) : CoroutineWorker(appContext, params) {
+    companion object {
+        const val KEY_VPATH = "vpath"
+        const val KEY_NAME = "name"
+        const val KEY_SIZE = "size"
+        const val KEY_TASK_ID = "taskId"
+
+        private const val CHANNEL_ID = "offline_dl"
+        private const val NOTIFICATION_ID_BASE = 2000
+    }
+
     private val http = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
         .build()
-    private val jobs = ConcurrentHashMap<String, Job>()
-    private val canceled = ConcurrentHashMap<String, Boolean>()
 
-    fun active(): Set<String> = jobs.keys
+    @Volatile
+    private var activeCall: Call? = null
 
-    fun start(ctx: Context, vpath: String, name: String, size: Long) {
-        if (jobs.containsKey(vpath)) return
-        canceled.remove(vpath)
-        val app = ctx.applicationContext
-        val job = scope.launch { runDownload(app, vpath, name, size) }
-        jobs[vpath] = job
-        job.invokeOnCompletion { jobs.remove(vpath) }
+    override fun onStopped() {
+        activeCall?.cancel()
+        super.onStopped()
     }
 
-    fun pause(ctx: Context, vpath: String) {
-        canceled[vpath] = true
-        jobs.remove(vpath)?.cancel()
-        OfflineStore.get(ctx, vpath)?.let {
-            OfflineStore.put(ctx, it.copy(status = OfflineStore.ST_PAUSED, msg = "paused"))
+    override suspend fun doWork(): Result {
+        val vpath = inputData.getString(KEY_VPATH)?.takeIf { it.isNotBlank() }
+            ?: return Result.failure()
+        val name = inputData.getString(KEY_NAME)?.takeIf { it.isNotBlank() }
+            ?: vpath.substringAfterLast('/')
+        val taskId = inputData.getString(KEY_TASK_ID)?.takeIf { it.isNotBlank() }
+            ?: return Result.failure()
+        val declaredSize = inputData.getLong(KEY_SIZE, 0).coerceAtLeast(0)
+        val item = OfflineStore.get(applicationContext, vpath) ?: return Result.failure()
+        if (item.taskId != taskId || item.status != OfflineStore.ST_DOWNLOADING) return Result.failure()
+        val part = try {
+            OfflineStore.partFor(applicationContext, vpath)
+        } catch (e: IllegalStateException) {
+            markFailed(item, 0, e, taskId)
+            return Result.failure()
+        } catch (e: SecurityException) {
+            markFailed(item, 0, e, taskId)
+            return Result.failure()
         }
-    }
 
-    fun cancel(ctx: Context, vpath: String) {
-        canceled[vpath] = true
-        jobs.remove(vpath)?.cancel()
-        OfflineStore.remove(ctx, vpath)
-    }
-
-    fun resume(ctx: Context, vpath: String, name: String, size: Long) {
-        val it = OfflineStore.get(ctx, vpath)
-        start(ctx, vpath, name, if (size > 0) size else (it?.size ?: 0L))
-    }
-
-    private fun notify(ctx: Context, title: String, pct: Int, ongoing: Boolean) {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val nm = ctx.getSystemService(NotificationManager::class.java)
-                nm.createNotificationChannel(
-                    NotificationChannel(CHANNEL_ID, "offline", NotificationManager.IMPORTANCE_LOW))
-                nm.notify(notifId, NotificationCompat.Builder(ctx, CHANNEL_ID)
-                    .setSmallIcon(android.R.drawable.stat_sys_download)
-                    .setContentTitle(title)
-                    .setProgress(100, pct, false)
-                    .setOngoing(ongoing)
-                    .build())
+        var wasCancelled = false
+        return try {
+            setForeground(foregroundInfo(name, 0))
+            download(vpath, name, declaredSize, item, part, taskId)
+            Result.success()
+        } catch (e: CancellationException) {
+            wasCancelled = true
+            throw e
+        } catch (e: IOException) {
+            markFailed(item, part.length(), e, taskId)
+            Result.failure()
+        } catch (e: IllegalArgumentException) {
+            markFailed(item, part.length(), e, taskId)
+            Result.failure()
+        } catch (e: IllegalStateException) {
+            markFailed(item, part.length(), e, taskId)
+            Result.failure()
+        } catch (e: SecurityException) {
+            markFailed(item, part.length(), e, taskId)
+            Result.failure()
+        } finally {
+            if (!wasCancelled) {
+                val current = OfflineStore.get(applicationContext, vpath)
+                if (current == null) {
+                    part.delete()
+                } else if (current.status == OfflineStore.ST_DOWNLOADING && current.taskId == taskId) {
+                    markFailed(current, part.length(), IOException("下载任务已中断"), taskId)
+                }
             }
-        } catch (_: Exception) {
         }
     }
 
-    private suspend fun runDownload(ctx: Context, vpath: String, name: String, size: Long) {
-        val part = OfflineStore.partFor(ctx, vpath)
-        val target = OfflineStore.fileFor(ctx, vpath)
-        part.parentFile?.mkdirs()
-        val existing = if (part.exists()) part.length() else 0L
-        val old = OfflineStore.get(ctx, vpath)
-        val total0 = if (size > 0) size else (old?.size ?: 0L)
-        OfflineStore.put(ctx, OfflineStore.Item(vpath, name, total0, existing,
-            OfflineStore.ST_DOWNLOADING, ""))
-        try {
-            val req = Request.Builder().url(LinNasClient().rawUrl(vpath, true)).apply {
+    private fun markFailed(item: OfflineStore.Item, bytes: Long, error: Exception, taskId: String) {
+        OfflineStore.updateIfStatus(
+            applicationContext,
+            item.copy(
+                bytes = bytes.coerceAtLeast(0),
+                status = OfflineStore.ST_FAILED,
+                msg = error.message ?: "下载失败",
+            ),
+            OfflineStore.ST_DOWNLOADING,
+            taskId,
+        )
+    }
+
+    private suspend fun download(
+        vpath: String,
+        name: String,
+        declaredSize: Long,
+        oldItem: OfflineStore.Item,
+        part: File,
+        taskId: String,
+    ) {
+        val parent = part.parentFile
+        if (parent != null && !parent.exists() && !parent.mkdirs()) {
+            throw IOException("无法创建离线缓存目录")
+        }
+        var existing = if (part.exists()) part.length() else 0L
+        if (declaredSize > 0 && existing >= declaredSize) {
+            if (!part.delete() && part.exists()) throw IOException("无法重置不完整的缓存文件")
+            existing = 0
+        }
+        if (declaredSize > 0) {
+            val availableBytes = StatFs(parent?.absolutePath ?: applicationContext.filesDir.absolutePath).availableBytes
+            if (availableBytes < declaredSize - existing) throw IOException("手机存储空间不足")
+        }
+
+        val request = Request.Builder()
+            .url(LinNasClient().rawUrl(vpath, true))
+            .apply {
                 if (existing > 0) header("Range", "bytes=$existing-")
-            }.build()
-            http.newCall(req).execute().use { resp ->
-                if (resp.code == 401) throw ApiException("token invalid")
-                if (!resp.isSuccessful && resp.code != 206) {
-                    throw ApiException("download failed HTTP ${resp.code}")
-                }
-                val append = resp.code == 206 && existing > 0
-                val cr = resp.header("Content-Range")?.substringAfter('/')?.toLongOrNull() ?: 0L
-                val bodyLen = resp.body?.contentLength() ?: -1L
-                val total = when {
-                    resp.code == 206 -> existing + cr
-                    bodyLen > 0 -> bodyLen
-                    else -> total0
-                }
-                var written = if (append) existing else 0L
-                val body = resp.body ?: throw ApiException("empty body")
-                FileOutputStream(part, append).use { out ->
-                    val buf = ByteArray(65536)
+            }
+            .build()
+        val call = http.newCall(request)
+        activeCall = call
+        try {
+            call.awaitResponse().use { response ->
+                val body = response.body ?: throw IOException("服务器返回空响应")
+                if (response.code == 401) throw IOException("登录已失效，请重新登录后重试")
+                val plan = planDownloadResponse(
+                    statusCode = response.code,
+                    contentRangeHeader = response.header("Content-Range"),
+                    contentLength = body.contentLength(),
+                    existingBytes = existing,
+                    declaredSize = declaredSize,
+                )
+                val total = plan.totalBytes ?: declaredSize
+                OfflineStore.updateIfStatus(
+                    applicationContext,
+                    oldItem.copy(
+                        size = total,
+                        bytes = plan.offset,
+                        status = OfflineStore.ST_DOWNLOADING,
+                        msg = "",
+                    ),
+                    OfflineStore.ST_DOWNLOADING,
+                    taskId,
+                )
+
+                var received = 0L
+                var lastUpdate = 0L
+                FileOutputStream(part, plan.append).use { output ->
                     val stream = body.byteStream()
-                    var last = 0L
+                    val buffer = ByteArray(64 * 1024)
                     while (true) {
-                        if (canceled[vpath] == true) return
-                        val n = stream.read(buf)
-                        if (n <= 0) break
-                        out.write(buf, 0, n)
-                        written += n
+                        coroutineContext.ensureActive()
+                        val count = stream.read(buffer)
+                        if (count < 0) break
+                        if (count == 0) continue
+                        if (plan.expectedBytes != null && received + count > plan.expectedBytes) {
+                            throw IOException("服务器发送的数据超过声明范围")
+                        }
+                        output.write(buffer, 0, count)
+                        received += count
                         val now = System.currentTimeMillis()
-                        if (now - last > 400) {
-                            last = now
-                            OfflineStore.put(ctx, OfflineStore.Item(vpath, name, total, written,
-                                OfflineStore.ST_DOWNLOADING, ""))
-                            val pct = if (total > 0) ((written * 100) / total).toInt() else 0
-                            notify(ctx, "offline $name $pct%", pct, true)
+                        if (now - lastUpdate >= 400) {
+                            lastUpdate = now
+                            publishProgress(vpath, name, plan.offset + received, total, taskId)
                         }
                     }
-                    out.flush()
+                    output.fd.sync()
                 }
-                if (canceled[vpath] == true) return
-                if (target.exists()) target.delete()
-                if (!part.renameTo(target)) {
-                    part.copyTo(target, true)
-                    part.delete()
+
+                if (plan.expectedBytes != null && received != plan.expectedBytes) {
+                    throw IOException("下载数据不完整，可继续重试")
                 }
-                OfflineStore.put(ctx, OfflineStore.Item(vpath, name, total, written,
-                    OfflineStore.ST_DONE, ""))
-                notify(ctx, "cached $name", 100, false)
+                if (!plan.isFinalRange) {
+                    throw IOException("服务器仅返回部分内容，可继续重试")
+                }
+                val finalSize = part.length()
+                if (total > 0 && finalSize != total) {
+                    throw IOException("文件大小校验失败: 预期 $total 字节,实际 $finalSize 字节")
+                }
+                coroutineContext.ensureActive()
+                val target = OfflineStore.fileFor(applicationContext, vpath)
+                try {
+                    android.system.Os.rename(part.absolutePath, target.absolutePath)
+                } catch (e: android.system.ErrnoException) {
+                    throw IOException("无法安全完成离线缓存: ${e.message}", e)
+                }
+                val saved = OfflineStore.updateIfStatus(
+                    applicationContext,
+                    OfflineStore.Item(
+                        vpath = vpath,
+                        name = name,
+                        size = finalSize,
+                        bytes = finalSize,
+                        status = OfflineStore.ST_DONE,
+                    ),
+                    OfflineStore.ST_DOWNLOADING,
+                    taskId,
+                )
+                if (!saved) {
+                    target.delete()
+                    throw CancellationException("下载任务已取消")
+                }
+                updateNotification(name, 100, ongoing = false)
             }
-        } catch (e: Exception) {
-            if (canceled[vpath] == true) return
-            val msg = e.message ?: e.javaClass.simpleName
-            OfflineStore.put(ctx, OfflineStore.Item(vpath, name, total0, existing,
-                OfflineStore.ST_FAILED, msg))
-            notify(ctx, "failed $name: $msg", 0, false)
         } finally {
-            canceled.remove(vpath)
+            if (activeCall === call) activeCall = null
         }
     }
+
+    private fun publishProgress(vpath: String, name: String, bytes: Long, total: Long, taskId: String) {
+        val current = OfflineStore.get(applicationContext, vpath) ?: return
+        if (current.status != OfflineStore.ST_DOWNLOADING) return
+        OfflineStore.updateIfStatus(
+            applicationContext,
+            current.copy(size = total, bytes = bytes, msg = ""),
+            OfflineStore.ST_DOWNLOADING,
+            taskId,
+        )
+        val percent = if (total > 0) ((bytes.toDouble() / total) * 100).toInt().coerceIn(0, 100) else 0
+        updateNotification(name, percent, ongoing = true)
+    }
+
+    private fun foregroundInfo(name: String, percent: Int): ForegroundInfo {
+        ensureNotificationChannel()
+        val notification = buildNotification(name, percent, ongoing = true)
+        val id = notificationId()
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ForegroundInfo(id, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        } else {
+            ForegroundInfo(id, notification)
+        }
+    }
+
+    private fun updateNotification(name: String, percent: Int, ongoing: Boolean) {
+        val manager = applicationContext.getSystemService(NotificationManager::class.java)
+        ensureNotificationChannel()
+        manager.notify(notificationId(), buildNotification(name, percent, ongoing))
+    }
+
+    private fun ensureNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            applicationContext.getSystemService(NotificationManager::class.java).createNotificationChannel(
+                NotificationChannel(CHANNEL_ID, "离线缓存", NotificationManager.IMPORTANCE_LOW),
+            )
+        }
+    }
+
+    private fun buildNotification(name: String, percent: Int, ongoing: Boolean) =
+        NotificationCompat.Builder(applicationContext, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setContentTitle(if (ongoing) "正在缓存: $name" else "缓存完成: $name")
+            .setProgress(100, percent, false)
+            .setOngoing(ongoing)
+            .setOnlyAlertOnce(true)
+            .build()
+
+    private fun notificationId(): Int =
+        NOTIFICATION_ID_BASE + (inputData.getString(KEY_VPATH).orEmpty().hashCode() and 0x3fffffff)
+
+    private suspend fun Call.awaitResponse(): Response =
+        suspendCancellableCoroutine { continuation ->
+            continuation.invokeOnCancellation { cancel() }
+            enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    if (continuation.isActive) continuation.resumeWithException(e)
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    if (continuation.isActive) {
+                        continuation.resumeWith(Result.success(response))
+                    } else {
+                        response.close()
+                    }
+                }
+            })
+        }
 }

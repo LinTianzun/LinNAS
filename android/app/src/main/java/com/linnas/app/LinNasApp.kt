@@ -15,6 +15,7 @@ class LinNasApp : Application() {
     override fun onCreate() {
         instance = this
         super.onCreate()
+        Prefs.init(applicationContext)
         val prev = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { t, e ->
             try {

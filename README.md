@@ -23,6 +23,7 @@ release/    各版本 APK 与版本化服务端构建产物
 PLAN.md     方案与里程碑
 RELEASING.md Windows 构建、校验与发布流程
 DATA_BACKUP.md 应用数据备份与恢复
+ANDROID_TESTING.md Android 测试与真机验收
 ```
 
 ## 核心特性
@@ -59,4 +60,4 @@ go build -o linNas-server.exe .
 - **Android 1.5.0**：文件/媒体/传输/设置、扫码配对、离线缓存、相册备份、保险箱、回收站、分享与多用户登录、操作日志、播放列表连播、画中画；6 套主题（4 深 + 2 浅）、重做的播放器控制层与设置页、备份/下载位置可选。
 - **仍未实现**：无。
 
-详细历史与路线图见 [PLAN.md](PLAN.md)；构建发布见 [RELEASING.md](RELEASING.md)；应用数据备份与恢复见 [DATA_BACKUP.md](DATA_BACKUP.md)。
+详细历史与路线图见 [PLAN.md](PLAN.md)；构建发布见 [RELEASING.md](RELEASING.md)；应用数据备份与恢复见 [DATA_BACKUP.md](DATA_BACKUP.md)；Android 自动化测试与真机验收见 [ANDROID_TESTING.md](ANDROID_TESTING.md)。

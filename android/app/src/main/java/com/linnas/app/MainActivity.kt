@@ -148,6 +148,15 @@ class MainActivity : AppCompatActivity() {
         setTheme(ThemeStore.styleRes(this))
         super.onCreate(savedInstanceState)
         Prefs.init(applicationContext)
+        lifecycleScope.launch {
+            try {
+                OfflineDownloader.recoverInterrupted(this@MainActivity)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                toast("检查离线下载状态失败:${e.message ?: "未知错误"}")
+            }
+        }
         setContentView(R.layout.activity_main)
         viewMode = UiPrefs.viewMode(this)
         sortKey = UiPrefs.sortKey(this)
@@ -580,9 +589,14 @@ class MainActivity : AppCompatActivity() {
                 selectTab(2)
             }
             else -> {
-                OfflineDownloader.start(this, vp, e.name, e.size)
-                toast("开始离线缓存:${e.name}")
-                selectTab(2)
+                lifecycleScope.launch {
+                    if (OfflineDownloader.start(this@MainActivity, vp, e.name, e.size)) {
+                        toast("开始离线缓存:${e.name}")
+                        selectTab(2)
+                    } else {
+                        toast("无法启动离线缓存，请重试")
+                    }
+                }
             }
         }
     }
@@ -907,14 +921,23 @@ class MainActivity : AppCompatActivity() {
             bar.setProgressCompat(if (o.status == OfflineStore.ST_DONE) 100 else pct, true)
             val btn = v.findViewById<com.google.android.material.button.MaterialButton>(R.id.tact)
             btn.visibility = if (o.status == OfflineStore.ST_DONE) View.GONE else View.VISIBLE
-            btn.text = if (o.status == OfflineStore.ST_PAUSED) "继续" else "暂停"
+            btn.text = when (o.status) {
+                OfflineStore.ST_PAUSED -> "继续"
+                OfflineStore.ST_FAILED -> "重试"
+                else -> "暂停"
+            }
             btn.setOnClickListener {
-                if (o.status == OfflineStore.ST_PAUSED) {
-                    OfflineDownloader.resume(this, o.vpath, o.name, o.size)
+                if (o.status == OfflineStore.ST_PAUSED || o.status == OfflineStore.ST_FAILED) {
+                    lifecycleScope.launch {
+                        if (!OfflineDownloader.resume(this@MainActivity, o.vpath, o.name, o.size)) {
+                            toast("无法恢复离线缓存，请重试")
+                        }
+                        refreshTransfers()
+                    }
                 } else {
                     OfflineDownloader.pause(this, o.vpath)
+                    refreshTransfers()
                 }
-                refreshTransfers()
             }
             val clear = v.findViewById<com.google.android.material.button.MaterialButton>(R.id.tclear)
             clear.visibility = View.VISIBLE
@@ -1459,10 +1482,13 @@ class MainActivity : AppCompatActivity() {
             gravity = Gravity.CENTER_HORIZONTAL
             isClickable = true
             isFocusable = true
+            isSelected = selected
+            contentDescription = if (selected) "主题：${t.label}，已选择" else "主题：${t.label}"
             setPadding(dp(4), dp(6), dp(4), dp(6))
             background = ripple
         }
         val swatch = View(this).apply {
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = dp(14).toFloat()
@@ -1477,7 +1503,7 @@ class MainActivity : AppCompatActivity() {
         cell.addView(swatch, LinearLayout.LayoutParams(dp(72), dp(46)))
         cell.addView(TextView(this).apply {
             text = t.label
-            textSize = 12f
+            textSize = 14f
             gravity = Gravity.CENTER
             setPadding(0, dp(6), 0, 0)
             setTextColor(

@@ -13,6 +13,7 @@ android {
         targetSdk = 34
         versionCode = 7
         versionName = "1.5.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
@@ -50,4 +51,10 @@ dependencies {
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     // 分享链接二维码生成(M7)
     implementation("com.google.zxing:core:3.5.3")
+
+    testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:core:1.6.1")
+    androidTestImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 }
