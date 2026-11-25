@@ -103,6 +103,8 @@ const ICONS = {
   key: { d: '<circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3L20 3l1.5 1.5L19 6l1.5 1.5L19 9l1 1-8.3 8.3"/>' },
   list: { d: '<path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/>' },
   link: { d: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>' },
+  globe: { d: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/>' },
+  wifi: { d: '<path d="M5 12.5a10 10 0 0 1 14 0"/><path d="M8.5 16a5 5 0 0 1 7 0"/><path d="M12 19.5h.01"/>' },
 };
 
 function svgIcon(name, cls = "ic") {
@@ -338,6 +340,7 @@ function renderSidebar() {
   $("#btn-trash").classList.toggle("active", state.view === "trash");
   $("#btn-audit").classList.toggle("active", state.view === "audit");
   $("#btn-shares").classList.toggle("active", state.view === "shares");
+  $("#btn-remote").classList.toggle("active", state.view === "remote");
   // v1.4.0:按角色显示管理入口
   const isAdm = isAdmin();
   const logged = !!state.auth.username;
@@ -420,7 +423,7 @@ function emptyState(icon, title, hint, withAdd) {
 }
 
 /* ============================================================ 视图切换 */
-const VIEWS = ["view-home", "view-browse", "view-vault", "view-media", "view-search", "view-devices", "view-trash", "view-audit", "view-shares"];
+const VIEWS = ["view-home", "view-browse", "view-vault", "view-media", "view-search", "view-devices", "view-trash", "view-audit", "view-shares", "view-remote"];
 function showView(target) {
   VIEWS.forEach((v) => { const el = document.getElementById(v); if (el) el.hidden = v !== target; });
 }
@@ -1850,6 +1853,15 @@ async function openSettings() {
     row("自动锁定", idleWrap),
     row("管理", secWrap),
   ]);
+
+  // v1.5.0 远程访问
+  const rmBtn = document.createElement("button"); rmBtn.className = "btn"; rmBtn.textContent = "远程访问设置";
+  rmBtn.onclick = () => { $("#dlg-settings").close(); showRemote(); };
+  group("远程访问", [
+    row("Tailscale", "出门在外用 Tailscale 地址访问,不用公网 IP"),
+    row("托盘常驻", "开机自启后以托盘方式后台运行,随时双击图标打开"),
+    row("打开", rmBtn),
+  ]);
 }
 
 /* ============================================================ 存入保险箱 / 批量导入 */
@@ -2452,6 +2464,152 @@ $("#btn-share-ok").onclick = async () => {
 $("#btn-share-copy").onclick = () => copyText($("#share-url").value);
 $("#btn-share-done-ok").onclick = () => $("#dlg-share-done").close();
 
+/* ---------- 远程访问(Tailscale / 托盘) ---------- */
+function showRemote() { state.view = "remote"; showView("view-remote"); renderSidebar(); loadRemote(); }
+$("#btn-remote").onclick = showRemote;
+$("#btn-remote-refresh").onclick = () => loadRemote(true);
+
+function setRow(container, key, valueNode) {
+  const rows = container.querySelectorAll(".set-row");
+  let row = null;
+  for (const r of rows) {
+    const k = r.querySelector(".k");
+    if (k && k.textContent === key) { row = r; break; }
+  }
+  if (!row) {
+    row = document.createElement("div"); row.className = "set-row";
+    const kk = document.createElement("span"); kk.className = "k"; kk.textContent = key;
+    const vv = document.createElement("span"); vv.className = "v";
+    row.appendChild(kk); row.appendChild(vv);
+    container.appendChild(row);
+  }
+  const vv = row.querySelector(".v");
+  vv.innerHTML = "";
+  if (typeof valueNode === "string") vv.textContent = valueNode; else vv.appendChild(valueNode);
+  return row;
+}
+
+function linkBtn(text, url) {
+  const b = document.createElement("button");
+  b.className = "btn small";
+  b.textContent = text;
+  b.onclick = () => copyText(url);
+  return b;
+}
+
+async function loadRemote(force) {
+  const st = $("#remote-status"), tsBox = $("#remote-ts"), lanBox = $("#remote-lan"), trayBox = $("#remote-tray");
+  st.innerHTML = "<h4>连接状态</h4>";
+  setRow(st, "正在检测…", "…");
+  let info;
+  try { info = await api("/api/remote" + (force ? "?refresh=1" : "")); }
+  catch (e) {
+    st.innerHTML = "<h4>连接状态</h4>";
+    setRow(st, "检测失败", e.message);
+    return;
+  }
+
+  // 状态总览
+  st.innerHTML = "<h4>连接状态</h4>";
+  const ts = info.tailscale || {};
+  setRow(st, "Tailscale", ts.ready ? "已连接" : (ts.installed ? "已安装,未连接" : "未安装"));
+  setRow(st, "托盘常驻", info.tray ? "运行中(点右下角托盘图标)" : "未启用(可从「启动 linNas.bat」或托盘菜单开启)");
+  setRow(st, "开机自启", info.autostart ? "已开启(开机自动启动)" : "未开启");
+
+  // Tailscale 区块
+  tsBox.innerHTML = "<h4>Tailscale(外网访问)</h4>";
+  if (!ts.installed) {
+    setRow(tsBox, "状态", "本机还没有安装 Tailscale");
+    setRow(tsBox, "怎么用", "安装 Tailscale 并用同一账号登录后,回到这里点「刷新」,就能拿到你的专属外网地址。");
+    const a = document.createElement("a");
+    a.className = "btn small"; a.textContent = "前往 tailscale.com/download";
+    a.href = "https://tailscale.com/download"; a.target = "_blank"; a.rel = "noreferrer";
+    setRow(tsBox, "下载地址", a);
+  } else {
+    setRow(tsBox, "状态", ts.state + (ts.version ? `(v${ts.version})` : ""));
+    if (ts.host) setRow(tsBox, "设备名", ts.host);
+    if (ts.tailnetName) setRow(tsBox, "网络", ts.tailnetName);
+    if (ts.ips && ts.ips.length) setRow(tsBox, "Tailscale IP", ts.ips.join(", "));
+    if (ts.dnsName) {
+      const wrap = document.createElement("div");
+      wrap.appendChild(linkBtn("复制地址", ts.dnsUrl));
+      const a = document.createElement("a");
+      a.className = "btn small"; a.textContent = "打开"; a.href = ts.dnsUrl; a.target = "_blank"; a.rel = "noreferrer";
+      wrap.appendChild(a);
+      setRow(tsBox, "MagicDNS 地址", wrap);
+    }
+    if (ts.url) {
+      const wrap = document.createElement("div");
+      wrap.appendChild(linkBtn("复制地址", ts.url));
+      const a = document.createElement("a");
+      a.className = "btn small"; a.textContent = "打开"; a.href = ts.url; a.target = "_blank"; a.rel = "noreferrer";
+      wrap.appendChild(a);
+      setRow(tsBox, "外网访问", wrap);
+    }
+    if (ts.hint) setRow(tsBox, "提示", ts.hint);
+    if (ts.error) setRow(tsBox, "错误", ts.error);
+
+    // tailscale serve(HTTPS 发布)
+    if (ts.ready) {
+      const wrap = document.createElement("div");
+      const btn = document.createElement("button");
+      btn.className = "btn small" + (ts.serveOn ? " primary" : "");
+      btn.textContent = ts.serveOn ? "关闭 HTTPS 发布" : "开启 HTTPS 发布";
+      btn.onclick = async () => {
+        try {
+          const r = await api("/api/remote/serve", { method: "POST", body: { enable: !ts.serveOn } });
+          toast(ts.serveOn ? "已关闭 HTTPS 发布" : "已开启:" + (r.url || ""));
+          loadRemote(true);
+        } catch (e) { toast("失败: " + e.message); }
+      };
+      wrap.appendChild(btn);
+      if (ts.serveOn && ts.serveUrl) {
+        const a = document.createElement("a");
+        a.className = "btn small"; a.textContent = "打开"; a.href = ts.serveUrl; a.target = "_blank"; a.rel = "noreferrer";
+        wrap.appendChild(a);
+        wrap.appendChild(linkBtn("复制", ts.serveUrl));
+      }
+      setRow(tsBox, "HTTPS 发布", wrap);
+    }
+  }
+
+  // 局域网地址
+  lanBox.innerHTML = "<h4>局域网地址</h4>";
+  const lanUrls = info.lanUrls || [];
+  if (!lanUrls.length) setRow(lanBox, "地址", "未获取到局域网地址");
+  for (const u of lanUrls) {
+    const wrap = document.createElement("div");
+    wrap.appendChild(linkBtn("复制", u));
+    const a = document.createElement("a");
+    a.className = "btn small"; a.textContent = "打开"; a.href = u; a.target = "_blank"; a.rel = "noreferrer";
+    wrap.appendChild(a);
+    setRow(lanBox, u.replace("http://", "").replace("/ui/", ""), wrap);
+  }
+
+  // 本机常驻
+  trayBox.innerHTML = "<h4>本机常驻</h4>";
+  setRow(trayBox, "托盘模式", info.tray ? "运行中" : "未运行(用带 -tray 参数启动即可后台常驻)");
+  const adm = isAdmin();
+  if (adm) {
+    let autoOn = info.autostart;
+    const autoBtn = document.createElement("button");
+    autoBtn.className = "btn small" + (autoOn ? "" : " primary");
+    autoBtn.textContent = autoOn ? "关闭开机自启" : "开启开机自启";
+    autoBtn.onclick = async () => {
+      try {
+        const r = await api("/api/autostart", { method: "POST", body: { enable: !autoOn } });
+        autoOn = !!r.enabled;
+        toast(autoOn ? "已开启开机自启" : "已关闭开机自启");
+        loadRemote();
+      } catch (e) { toast("失败: " + e.message); }
+    };
+    setRow(trayBox, "开机自启", autoBtn);
+    setRow(trayBox, "说明", "开机自启会在登录 Windows 后以托盘方式启动 linNas,不弹黑窗口。");
+  } else {
+    setRow(trayBox, "开机自启", "仅管理员可设置");
+  }
+}
+
 /* ---------- 视图切换 ---------- */
 function showAudit() { state.view = "audit"; showView("view-audit"); renderSidebar(); loadAudit(); }
 function showShares() { state.view = "shares"; showView("view-shares"); renderSidebar(); loadShares(); }
@@ -2488,5 +2646,7 @@ $("#btn-shares").onclick = showShares;
   renderHome();
   renderUserMenu();
   updateRoleUI();
+  // 托盘菜单「远程访问…」会打开 /ui/#remote;按锚点直达对应页面。
+  if (location.hash === "#remote") showRemote();
   setInterval(checkHealth, 15000);
 })();

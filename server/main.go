@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -32,11 +33,21 @@ func init() {
 
 func main() {
 	// -no-browser disables auto-opening the admin page on start.
+	// -tray runs the server with a system tray icon (no console window).
 	openBrowser := true
+	trayMode := false
 	for _, arg := range os.Args[1:] {
 		if arg == "-no-browser" {
 			openBrowser = false
 		}
+		if arg == "-tray" {
+			trayMode = true
+			openBrowser = false
+		}
+	}
+	if trayMode && !traySupported() {
+		log.Printf("当前系统不支持托盘,忽略 -tray")
+		trayMode = false
 	}
 
 	// Defaults: config lives next to the exe in a "linnas-data" folder,
@@ -131,6 +142,9 @@ func main() {
 		log.Printf("正在打开管理界面: %s", url)
 		go openInBrowser(url)
 	}
+	if trayMode {
+		hideConsoleWindow()
+	}
 
 	go func() {
 		if err := httpSrv.Serve(ln); err != nil && err != http.ErrServerClosed {
@@ -140,6 +154,30 @@ func main() {
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
+	if trayMode {
+		// 托盘模式:主线程跑 systray 的消息循环(Win32 要求),HTTP 服务跑在后台
+		// goroutine 里;托盘菜单点「退出」或收到系统信号都通过 shutdown 通道收尾。
+		shutdown := make(chan struct{})
+		var once sync.Once
+		finish := func() { once.Do(func() { close(shutdown) }) }
+		go func() {
+			<-stop
+			finish()
+		}()
+		runTray(trayOptions{
+			URL:      "http://127.0.0.1:" + strconv.Itoa(cfg.Port) + "/ui/",
+			DataDir:  dataDir,
+			Version:  Version,
+			Port:     cfg.Port,
+			Shutdown: finish,
+		})
+		<-shutdown
+		log.Printf("正在关闭...")
+		_ = httpSrv.Close()
+		return
+	}
+
 	<-stop
 	log.Printf("正在关闭...")
 	_ = httpSrv.Close()

@@ -104,6 +104,12 @@ func NewServer(cfg *Config) *Server {
 	api.HandleFunc("GET /api/shares", s.handleSharesList)
 	api.HandleFunc("DELETE /api/shares", s.handleSharesDelete)
 
+	// 远程访问(Tailscale)与开机自启
+	api.HandleFunc("GET /api/remote", s.handleRemoteInfo)
+	api.HandleFunc("POST /api/remote/serve", s.handleRemoteServe)
+	api.HandleFunc("GET /api/autostart", s.handleAutostartGet)
+	api.HandleFunc("POST /api/autostart", s.handleAutostartSet)
+
 	// 回收站
 	api.HandleFunc("GET /api/trash", s.handleTrashList)
 	api.HandleFunc("POST /api/trash/restore", s.handleTrashRestore)
@@ -221,6 +227,10 @@ func (s *Server) authorize(sess *Session, r *http.Request) bool {
 		return false
 	}
 	if p == "/api/devices/clear" {
+		return false
+	}
+	// 远程访问与开机自启属于系统级设置,只有管理员能动
+	if (p == "/api/remote/serve" || p == "/api/autostart") && m != "GET" {
 		return false
 	}
 	// 只读角色禁止一切写操作(读、登录、退出、解锁除外)

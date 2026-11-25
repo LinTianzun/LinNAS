@@ -48,6 +48,7 @@
       <button class="lib-item" id="btn-trash"><span data-icon="trash"></span><span class="nm">回收站</span></button>
       <button class="lib-item" id="btn-vault"><span data-icon="lock"></span><span class="nm">隐私保险箱</span></button>
       <button class="lib-item" id="btn-pair"><span data-icon="smartphone"></span><span class="nm">手机连接</span></button>
+      <button class="lib-item" id="btn-remote"><span data-icon="globe"></span><span class="nm">远程访问</span></button>
       <button class="lib-item" id="btn-shares" hidden><span data-icon="link"></span><span class="nm">分享链接</span></button>
       <button class="lib-item" id="btn-audit" hidden><span data-icon="list"></span><span class="nm">操作日志</span></button>
     </nav>
@@ -209,6 +210,37 @@
       </div>
       <p class="page-sub">分享出去的链接,拿到链接的人无需登录即可访问(可设密码与有效期)。</p>
       <div id="share-list"></div>
+    </section>
+
+    <!-- 远程访问 -->
+    <section class="view" id="view-remote" hidden>
+      <div class="page-head">
+        <h1><span data-icon="globe" class="title-ic"></span>远程访问</h1>
+        <div class="btns">
+          <button class="btn" id="btn-remote-refresh"><span data-icon="refresh"></span>刷新</button>
+        </div>
+      </div>
+      <p class="page-sub">在家用局域网地址直接访问;出门在外用 Tailscale 的地址,不用公网 IP、不用端口映射。</p>
+
+      <div class="set-group" id="remote-status">
+        <h4>连接状态</h4>
+        <div class="set-row"><span class="k">正在检测…</span></div>
+      </div>
+
+      <div class="set-group" id="remote-ts">
+        <h4>Tailscale(外网访问)</h4>
+        <div class="set-row"><span class="k">状态</span><span class="v">—</span></div>
+      </div>
+
+      <div class="set-group" id="remote-lan">
+        <h4>局域网地址</h4>
+        <div class="set-row"><span class="k">本机</span><span class="v">—</span></div>
+      </div>
+
+      <div class="set-group" id="remote-tray">
+        <h4>本机常驻</h4>
+        <div class="set-row"><span class="k">托盘模式</span><span class="v">—</span></div>
+      </div>
     </section>
 
     <!-- 回收站 -->

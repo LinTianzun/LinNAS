@@ -4,6 +4,8 @@
 
 方案与里程碑见 [PLAN.md](../PLAN.md)。
 
+> 当前服务端版本：**1.5.0**（`config.go` 中的 `Version`）。服务端与 Android 客户端独立版本化。Windows 构建和发布步骤见根目录 [RELEASING.md](../RELEASING.md)。
+
 ## 一键启动(推荐)
 
 双击 **`server/启动linNas.bat`** 即可:自动启动服务端,并自动在浏览器打开管理界面。
@@ -21,7 +23,7 @@
 3. 「添加目录」注册 `H:\NAS`、`I:\NAS`(可设只读)
 4. 手机连同一 WiFi,浏览器访问启动日志里打印的 `http://<电脑IP>:52700/`
 
-## Web UI 功能(v0.5.0)
+## Web UI 功能概览（v1.5.0）
 
 - **主页**:存储库总览,容量条、剩余空间、只读/离线状态;每个库可「设置」(改名/换路径/只读)或移除
 - **添加目录**:点「选择…」用内置**服务器目录选择器**(盘符 + 逐级目录),无需手写路径
@@ -187,12 +189,12 @@ UI 是纯静态文件(`ui/dist/`),改完需重新 `go build` 才会嵌进 exe。
 - v0.9.0:开机自启(安装后停服务→wscript 跑 vbs 自动拉起,health 正常)、存储库排除子目录(exclude=["skipme","sub2"] 生效:列表隐藏、/api/ls 与 /api/raw 直访均 403)、回收站(删除→列表含 origPath→恢复回原位置→彻底删除→清空 全通过)、上传队列增强(Fast 3G 下 3 并发上传、暂停变「已暂停」、继续后「完成」、取消「已取消」且 .part 已清理、慢速下第 4 个排队等空位)
 - v1.2.0:类型筛选(视频→只剩 b.mp4、仅文件夹→只剩 sub1)、升降序切换、底部状态栏「共 6 项(文件夹 1 · 文件 5) · 文件合计 474 B」、「计算本目录总大小」→「本目录合计 485 B · 文件 6 · 文件夹 1」、快捷键(Ctrl+A 全选 6、Esc 清空、Ctrl+C 复制、F2 打开改名并预填 a.txt)、跨库拖拽(Playwright 真实拖拽 b.mp4→ABDest 成功移动,toast「已移动到「lib4」」;Ctrl+拖拽 → 「已复制到「lib4」」且源文件保留)、操作进度条(批量执行中途面板可见、结束自动隐藏)
 
-## 已知限制
+## 当前限制
 
 - 上传会话在内存中,服务重启后客户端需重新 init(已传的 .part 字节仍可续传)
-- 转码为边转边发,不支持 Range 拖动(可用 `&t=秒` 从头转码);原生格式仍可完整拖动
+- 首次播放转码文件时边转边发,该次转码不支持 Range 拖动;转码缓存生成后可 Range 拖动
 - 索引为全量重建(暂未做 mtime 增量);目录浏览仍实时读盘,索引只用于搜索/媒体库
-- 无 mDNS 发现/扫码配对(App 仍需手输 IP)
+- WebDAV 挂载尚未实现
 
 ## v1.1.1 PC 端「手机连接」入口
 - ui/dist/index.html 侧栏「更多」里新增 #btn-pair(文字「手机连接」,图标 smartphone);ui/dist/app.js 增加其点击处理:请求 GET /api/pair,把 ips[0] 传给 GET /api/pair/qr?size=320&ip= 设为弹窗内二维码,并把 urls 逐一列出;#dlg-pair-close 关闭弹窗。
@@ -215,3 +217,9 @@ UI 是纯静态文件(`ui/dist/`),改完需重新 `go build` 才会嵌进 exe。
 - **数据文件**:`linnas-data/users.json`(账号)、`linnas-data/shares.json`(分享)、`linnas-data/audit.log`(日志)。删除 users.json 并重启服务即可回到“免登录访问”模式。
 - **验证**(2026-11-25):admin 登录显示“管理员”身份;只读用户 GET /api/ls 200、POST /api/mkdir 403、GET /api/users 403;会话失效自动锁屏并可用密码解锁;分享页免登录可访问、密码分享先校验密码;分享目录返回子文件列表;操作日志页显示登录/用户管理/分享记录。
 - 截图:`docs/screenshots/v14-01-shares.png`、`v14-02-share-page.png`、`v14-03-share-password.png`、`v14-04-audit.png`、`v14-05-users.png`、`v14-06-lockscreen.png`。
+
+## v1.5.0 新增 — Tailscale 远程访问与托盘运行
+- **远程访问**:Web UI「远程访问」页显示本机 Tailscale 安装/连接状态与地址,并可启停 Tailscale Serve。需要用户自行安装并登录 Tailscale;不需要配置公网 IP 或路由器端口映射。
+- **后台运行**:托盘模式与开机自启设置;可从托盘打开管理页或退出服务。
+- 新增接口:`GET /api/remote`、`POST /api/remote/serve`、`GET/POST /api/autostart`。
+- WebDAV 挂载仍未实现。
