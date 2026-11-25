@@ -47,6 +47,18 @@ class LoginActivity : AppCompatActivity() {
                     toast("欢迎,${resp.username}(${roleLabel(resp.role)})")
                     setResult(RESULT_OK)
                     finish()
+                } catch (e: LockoutException) {
+                    // 防爆破:429 + Retry-After,倒计时期间禁用登录按钮
+                    error.visibility = View.VISIBLE
+                    btnLogin.isEnabled = false
+                    var left = e.retryAfterSec
+                    while (left > 0) {
+                        error.text = "尝试次数过多,请在 $left 秒后重试"
+                        kotlinx.coroutines.delay(1000)
+                        left--
+                    }
+                    btnLogin.isEnabled = true
+                    error.text = "可以重新登录了"
                 } catch (e: Exception) {
                     btnLogin.isEnabled = true
                     error.visibility = View.VISIBLE

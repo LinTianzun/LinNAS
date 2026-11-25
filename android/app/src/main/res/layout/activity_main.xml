@@ -959,6 +959,111 @@
                             <View style="@style/RowDivider" />
 
                             <LinearLayout
+                                android:id="@+id/btnSessions"
+                                style="@style/RowItem">
+
+                                <ImageView
+                                    style="@style/RowIcon"
+                                    android:contentDescription="会话"
+                                    android:src="@drawable/ic_devices" />
+
+                                <TextView
+                                    style="@style/RowTitle"
+                                    android:text="会话管理" />
+
+                                <ImageView
+                                    style="@style/RowChevron"
+                                    android:contentDescription="进入"
+                                    android:src="@drawable/ic_chevron" />
+                            </LinearLayout>
+
+                            <View style="@style/RowDivider" />
+
+                            <LinearLayout
+                                android:id="@+id/btnUsers"
+                                style="@style/RowItem">
+
+                                <ImageView
+                                    style="@style/RowIcon"
+                                    android:contentDescription="用户"
+                                    android:src="@drawable/ic_gear" />
+
+                                <TextView
+                                    style="@style/RowTitle"
+                                    android:text="用户管理" />
+
+                                <ImageView
+                                    style="@style/RowChevron"
+                                    android:contentDescription="进入"
+                                    android:src="@drawable/ic_chevron" />
+                            </LinearLayout>
+
+                            <View style="@style/RowDivider" />
+
+                            <LinearLayout
+                                android:id="@+id/btnWol"
+                                style="@style/RowItem">
+
+                                <ImageView
+                                    style="@style/RowIcon"
+                                    android:contentDescription="唤醒"
+                                    android:src="@drawable/ic_link" />
+
+                                <TextView
+                                    style="@style/RowTitle"
+                                    android:text="网络唤醒" />
+
+                                <ImageView
+                                    style="@style/RowChevron"
+                                    android:contentDescription="进入"
+                                    android:src="@drawable/ic_chevron" />
+                            </LinearLayout>
+
+                            <View style="@style/RowDivider" />
+
+                            <LinearLayout
+                                android:id="@+id/btnMaintenance"
+                                style="@style/RowItem">
+
+                                <ImageView
+                                    style="@style/RowIcon"
+                                    android:contentDescription="维护"
+                                    android:src="@drawable/ic_history" />
+
+                                <TextView
+                                    style="@style/RowTitle"
+                                    android:text="维护与索引" />
+
+                                <ImageView
+                                    style="@style/RowChevron"
+                                    android:contentDescription="进入"
+                                    android:src="@drawable/ic_chevron" />
+                            </LinearLayout>
+
+                            <View style="@style/RowDivider" />
+
+                            <LinearLayout
+                                android:id="@+id/btnLibAdmin"
+                                style="@style/RowItem">
+
+                                <ImageView
+                                    style="@style/RowIcon"
+                                    android:contentDescription="存储库"
+                                    android:src="@drawable/ic_folder" />
+
+                                <TextView
+                                    style="@style/RowTitle"
+                                    android:text="存储库管理" />
+
+                                <ImageView
+                                    style="@style/RowChevron"
+                                    android:contentDescription="进入"
+                                    android:src="@drawable/ic_chevron" />
+                            </LinearLayout>
+
+                            <View style="@style/RowDivider" />
+
+                            <LinearLayout
                                 android:id="@+id/btnAddLib"
                                 style="@style/RowItem">
 

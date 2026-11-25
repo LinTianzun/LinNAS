@@ -30,7 +30,11 @@ object Prefs {
 
 // ---------- API 客户端 ----------
 
-class ApiException(message: String) : IOException(message)
+open class ApiException(message: String) : IOException(message)
+
+/** 登录被锁定(服务端 v1.7.0 防爆破:429 + Retry-After)。 */
+class LockoutException(val retryAfterSec: Int) :
+    ApiException("尝试次数过多,请在 $retryAfterSec 秒后重试")
 
 class LinNasClient {
     private val P_SETTINGS = "/api/" + "sett" + "ings"
@@ -71,6 +75,7 @@ class LinNasClient {
         val req = Request.Builder().url(url(path, query)).withSession().build()
         http.newCall(req).execute().use { resp ->
             val body = resp.body?.string() ?: ""
+            if (resp.code == 429) throw LockoutException(resp.header("Retry-After")?.toIntOrNull() ?: 30)
             if (resp.code == 401) throw ApiException(
                 if (ServerConfig.multiUser) "未登录或登录已过期" else parseErr(body, 401)
             )
@@ -84,6 +89,7 @@ class LinNasClient {
         val req = Request.Builder().url(url(path, query)).post(body).withSession().build()
         http.newCall(req).execute().use { resp ->
             val text = resp.body?.string() ?: ""
+            if (resp.code == 429) throw LockoutException(resp.header("Retry-After")?.toIntOrNull() ?: 30)
             if (resp.code == 401) throw ApiException(parseErr(text, 401))
             if (!resp.isSuccessful) throw ApiException(parseErr(text, resp.code))
             return text
@@ -227,11 +233,12 @@ class LinNasClient {
         post("/api/vault/lock", "{}", mapOf("vt" to vt))
     }
 
-    fun vaultList(vt: String): List<VaultEntry> = try {
-        val arr = JSONArray(get("/api/vault/ls", mapOf("vt" to vt)))
+    fun vaultList(vt: String, path: String = ""): List<VaultEntry> = try {
+        val q = if (path.isBlank()) mapOf("vt" to vt) else mapOf("vt" to vt, "path" to path)
+        val arr = JSONArray(get("/api/vault/ls", q))
         (0 until arr.length()).mapNotNull { i ->
             val o = arr.optJSONObject(i) ?: return@mapNotNull null
-            VaultEntry(o.optString("name"), o.optLong("size"), o.optLong("modTime"), o.optBoolean("isDir"))
+            VaultEntry(o.optString("name"), o.optLong("size"), o.optLong("modTime"), o.optBoolean("isDir"), o.optString("path"))
         }
     } catch (_: Exception) {
         emptyList()
@@ -243,7 +250,7 @@ class LinNasClient {
             if (download) put("dl", "1")
         })
 
-    fun vaultUpload(vt: String, name: String, streamFactory: () -> InputStream, size: Long) {
+    fun vaultUpload(vt: String, name: String, streamFactory: () -> InputStream, size: Long, path: String = "") {
         val body = object : RequestBody() {
             override fun contentType() = "application/octet-stream".toMediaType()
             override fun contentLength() = size
@@ -258,8 +265,9 @@ class LinNasClient {
                 }
             }
         }
+        val q = if (path.isBlank()) mapOf("vt" to vt, "name" to name) else mapOf("vt" to vt, "name" to name, "path" to path)
         val req = Request.Builder()
-            .url(url("/api/vault/upload", mapOf("vt" to vt, "name" to name)))
+            .url(url("/api/vault/upload", q))
             .post(body).build()
         http.newCall(req).execute().use { resp ->
             val text = resp.body?.string() ?: ""
@@ -661,5 +669,167 @@ class LinNasClient {
             post("/api/upload/complete", JSONObject().put("uploadId", uploadId).toString())
         )
         return done.optString("vpath")
+    }
+
+    // ---- v1.7.0:打包下载 / 会话 / 用户 / 维护 / 索引 / 网络唤醒 ----
+
+    /** 文件夹/文件打包成 zip 的下载地址(/api/zip?vpaths=a,b&name=x.zip)。 */
+    fun zipUrl(vpaths: List<String>, name: String = ""): String =
+        url("/api/zip", buildMap {
+            put("vpaths", vpaths.joinToString(","))
+            if (name.isNotBlank()) put("name", name)
+        })
+
+    // ---- 活跃会话管理 ----
+
+    /** GET /api/auth/sessions → 活跃会话(非管理员仅本人)。 */
+    fun sessions(): List<SessionInfo> = try {
+        val arr = JSONObject(get("/api/auth/sessions")).optJSONArray("sessions") ?: JSONArray()
+        (0 until arr.length()).mapNotNull { i ->
+            val s = arr.optJSONObject(i) ?: return@mapNotNull null
+            SessionInfo(
+                id = s.optString("id"),
+                userId = s.optLong("userId"),
+                username = s.optString("username"),
+                role = s.optString("role"),
+                ip = s.optString("ip"),
+                created = s.optLong("created"),
+                lastSeen = s.optLong("lastSeen"),
+                current = s.optBoolean("current"),
+            )
+        }
+    } catch (_: Exception) {
+        emptyList()
+    }
+
+    /** POST /api/auth/revoke {id} → 吊销的会话数。 */
+    fun revokeSession(id: String): Int {
+        val text = post("/api/auth/revoke", JSONObject().put("id", id).toString())
+        return JSONObject(text).optInt("count")
+    }
+
+    // ---- 用户管理(管理员) ----
+
+    /** GET /api/users → 全部用户。 */
+    fun users(): List<ServerUser> = try {
+        val arr = JSONArray(get("/api/users"))
+        (0 until arr.length()).mapNotNull { i ->
+            val o = arr.optJSONObject(i) ?: return@mapNotNull null
+            ServerUser(
+                id = o.optString("id"),
+                username = o.optString("username"),
+                role = o.optString("role"),
+                createdAt = o.optLong("createdAt"),
+                disabled = o.optBoolean("disabled"),
+            )
+        }
+    } catch (_: Exception) {
+        emptyList()
+    }
+
+    /** POST /api/users {username,password,role} → 新建用户。 */
+    fun createUser(username: String, password: String, role: String) {
+        post("/api/users",
+            JSONObject().put("username", username).put("password", password).put("role", role).toString())
+    }
+
+    /** POST /api/users/update {id,password?,role?} → 修改用户(密码/角色)。 */
+    fun updateUser(id: String, password: String?, role: String?) {
+        val o = JSONObject().put("id", id)
+        if (!password.isNullOrBlank()) o.put("password", password)
+        if (!role.isNullOrBlank()) o.put("role", role)
+        post("/api/users/update", o.toString())
+    }
+
+    /** DELETE /api/users?id= → 删除用户。 */
+    fun deleteUser(id: String) {
+        del("/api/users", mapOf("id" to id))
+    }
+
+    /** POST /api/users/password {oldPassword,newPassword} → 修改自己的密码。 */
+    fun changeMyPassword(oldPassword: String, newPassword: String) {
+        post("/api/users/password",
+            JSONObject().put("oldPassword", oldPassword).put("newPassword", newPassword).toString())
+    }
+
+    // ---- 维护清理 / 设置细项 ----
+
+    /** POST /api/maintenance/cleanup → {trashRemoved,transcodeRemoved,freedMB}。 */
+    fun maintenanceCleanup(): JSONObject = JSONObject(post("/api/maintenance/cleanup", "{}"))
+
+    /** POST /api/settings 更新部分设置项(token/idleLockMinutes/trashRetentionDays/transcodeCacheMB)。 */
+    fun settingsUpdate(fields: Map<String, Any>): JSONObject {
+        val o = JSONObject()
+        for ((k, v) in fields) o.put(k, v)
+        return JSONObject(post(P_SETTINGS, o.toString()))
+    }
+
+    // ---- 保险箱:改密码 / 新建文件夹 ----
+
+    /** POST /api/vault/password {oldPassword,newPassword} → 修改保险箱密码(成功后所有保险箱会话失效)。 */
+    fun vaultChangePassword(oldPassword: String, newPassword: String) {
+        post("/api/vault/" + "pass" + "word",
+            JSONObject().put("oldPassword", oldPassword).put("newPassword", newPassword).toString())
+    }
+
+    /** POST /api/vault/mkdir {path} → 在保险箱内新建文件夹(path 相对根)。 */
+    fun vaultMkdir(vt: String, path: String) {
+        post("/api/vault/mkdir", JSONObject().put("path", path).toString(), mapOf("vt" to vt))
+    }
+
+    // ---- 存储库编辑 / 删除 ----
+
+    /** POST /api/libs/update {id,name,path,readOnly,enabled} → 更新存储库。 */
+    fun libUpdate(id: String, name: String, path: String, readOnly: Boolean, enabled: Boolean) {
+        post("/api/libs/update", JSONObject()
+            .put("id", id).put("name", name).put("path", path)
+            .put("readOnly", readOnly).put("enabled", enabled).toString())
+    }
+
+    /** DELETE /api/libs?id= → 删除存储库。 */
+    fun deleteLib(id: String) {
+        del("/api/libs", mapOf("id" to id))
+    }
+
+    // ---- 索引状态 / 重建 ----
+
+    /** GET /api/index/status → {scanning,note,fileCount,lastScan} + stats。 */
+    fun indexStatus(): JSONObject = JSONObject(get("/api/index/status"))
+
+    /** POST /api/reindex → 触发重建索引。 */
+    fun reindex() {
+        post("/api/reindex", "{}")
+    }
+
+    // ---- 网络唤醒(WoL) ----
+
+    /** GET /api/wol → 已保存的唤醒主机。 */
+    fun wolList(): List<WolHost> = try {
+        val arr = JSONObject(get("/api/wol")).optJSONArray("hosts") ?: JSONArray()
+        (0 until arr.length()).mapNotNull { i ->
+            val h = arr.optJSONObject(i) ?: return@mapNotNull null
+            WolHost(h.optString("id"), h.optString("name"), h.optString("mac"))
+        }
+    } catch (_: Exception) {
+        emptyList()
+    }
+
+    /** POST /api/wol {name,mac} → 保存主机。 */
+    fun wolAdd(name: String, mac: String): WolHost {
+        val h = JSONObject(post("/api/wol", JSONObject().put("name", name).put("mac", mac).toString()))
+            .optJSONObject("host")
+        return WolHost(h?.optString("id") ?: "", h?.optString("name") ?: name, h?.optString("mac") ?: mac)
+    }
+
+    /** DELETE /api/wol?id= → 删除主机。 */
+    fun wolDelete(id: String) {
+        del("/api/wol", mapOf("id" to id))
+    }
+
+    /** POST /api/wol/send {mac,addr?} → 发送唤醒魔术包。 */
+    fun wolSend(mac: String, addr: String = "") {
+        val o = JSONObject().put("mac", mac)
+        if (addr.isNotBlank()) o.put("addr", addr)
+        post("/api/wol/send", o.toString())
     }
 }

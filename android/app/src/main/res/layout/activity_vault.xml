@@ -33,6 +33,22 @@
             android:text="保险箱" />
 
         <ImageButton
+            android:id="@+id/btnVaultMkdir"
+            style="@style/HeaderIconButton"
+            android:contentDescription="新建文件夹"
+            android:src="@drawable/ic_folder"
+            android:tint="?attr/lTextDim"
+            android:visibility="gone" />
+
+        <ImageButton
+            android:id="@+id/btnVaultPw"
+            style="@style/HeaderIconButton"
+            android:contentDescription="修改密码"
+            android:src="@drawable/ic_gear"
+            android:tint="?attr/lTextDim"
+            android:visibility="gone" />
+
+        <ImageButton
             android:id="@+id/btnVaultLock"
             style="@style/HeaderIconButton"
             android:contentDescription="锁定"

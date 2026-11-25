@@ -60,6 +60,31 @@
             android:name=".AuditActivity"
             android:exported="false"
             android:configChanges="orientation|screenSize|keyboardHidden" />
+        <!-- v1.7.0 活跃会话管理 -->
+        <activity
+            android:name=".SessionsActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+        <!-- v1.7.0 用户管理(管理员) -->
+        <activity
+            android:name=".UserAdminActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+        <!-- v1.7.0 维护与索引(管理员) -->
+        <activity
+            android:name=".MaintenanceActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+        <!-- v1.7.0 网络唤醒 -->
+        <activity
+            android:name=".WolActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+        <!-- v1.7.0 存储库管理(管理员) -->
+        <activity
+            android:name=".LibraryAdminActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
         <!-- M3 内置播放器页;P1 支持画中画 -->
         <activity
             android:name=".PlayerActivity"

@@ -54,6 +54,7 @@ data class VaultEntry(
     val size: Long,
     val modTime: Long,
     val isDir: Boolean,
+    val path: String = "",
 )
 
 /** 磁盘/存储库剩余空间(/api/disks)。 */
@@ -90,6 +91,25 @@ data class ServerUser(
     val role: String,
     val createdAt: Long,
     val disabled: Boolean,
+)
+
+/** 活跃会话(/api/auth/sessions);id 为 token 前 6 位。 */
+data class SessionInfo(
+    val id: String,
+    val userId: Long,
+    val username: String,
+    val role: String,
+    val ip: String,
+    val created: Long,
+    val lastSeen: Long,
+    val current: Boolean,
+)
+
+/** 网络唤醒主机(/api/wol)。 */
+data class WolHost(
+    val id: String,
+    val name: String,
+    val mac: String,
 )
 
 /** 回收站条目(/api/trash)。 */

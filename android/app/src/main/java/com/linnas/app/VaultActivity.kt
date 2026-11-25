@@ -24,6 +24,7 @@ class VaultActivity : AppCompatActivity() {
 
     private val client = LinNasClient()
     private var vt: String? = null
+    private var vaultPath: String = ""   // 当前所在子目录(相对保险箱根,""=根)
     private lateinit var list: LinearLayout
     private lateinit var hint: TextView
     private lateinit var lockedPanel: View
@@ -39,7 +40,7 @@ class VaultActivity : AppCompatActivity() {
                     val name = queryName(uri) ?: "vault_${System.currentTimeMillis()}"
                     val size = querySize(uri)
                     withContext(Dispatchers.IO) {
-                        client.vaultUpload(token, name, { contentResolver.openInputStream(uri)!! }, size)
+                        client.vaultUpload(token, name, { contentResolver.openInputStream(uri)!! }, size, vaultPath)
                     }
                     toast("已上传 $name")
                 } catch (e: Exception) {
@@ -76,6 +77,14 @@ class VaultActivity : AppCompatActivity() {
             if (vt == null) { toast("请先解锁"); return@setOnClickListener }
             toast("在文件右侧「⋯」菜单里选择「导出到…」")
         }
+        findViewById<View>(R.id.btnVaultMkdir).setOnClickListener {
+            if (vt == null) { toast("请先解锁"); return@setOnClickListener }
+            showMkdir()
+        }
+        findViewById<View>(R.id.btnVaultPw).setOnClickListener {
+            if (vt == null) { toast("请先解锁"); return@setOnClickListener }
+            showChangePassword()
+        }
         enter()
     }
 
@@ -83,11 +92,15 @@ class VaultActivity : AppCompatActivity() {
         lockedPanel.visibility = View.VISIBLE
         unlockedPanel.visibility = View.GONE
         hint.text = ""
+        findViewById<View>(R.id.btnVaultMkdir).visibility = View.GONE
+        findViewById<View>(R.id.btnVaultPw).visibility = View.GONE
     }
 
     private fun showUnlocked() {
         lockedPanel.visibility = View.GONE
         unlockedPanel.visibility = View.VISIBLE
+        findViewById<View>(R.id.btnVaultMkdir).visibility = View.VISIBLE
+        findViewById<View>(R.id.btnVaultPw).visibility = View.VISIBLE
     }
 
     private fun enter() {
@@ -153,6 +166,7 @@ class VaultActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try { withContext(Dispatchers.IO) { client.vaultLock(token) } } catch (_: Exception) { }
             vt = null
+            vaultPath = ""
             list.removeAllViews()
             emptyView.visibility = View.GONE
             showLocked()
@@ -163,44 +177,112 @@ class VaultActivity : AppCompatActivity() {
     private fun loadList() {
         val token = vt ?: return
         lifecycleScope.launch {
-            val entries = try { withContext(Dispatchers.IO) { client.vaultList(token) } } catch (e: Exception) { toast("读取失败: ${e.message}"); return@launch }
+            val entries = try { withContext(Dispatchers.IO) { client.vaultList(token, vaultPath) } } catch (e: Exception) { toast("读取失败: ${e.message}"); return@launch }
             list.removeAllViews()
-            emptyView.visibility = if (entries.isEmpty()) View.VISIBLE else View.GONE
-            if (entries.isEmpty()) {
-                hint.text = "保险箱是空的"
-                return@launch
+            // 面包屑/当前位置
+            hint.text = if (vaultPath.isBlank()) "保险箱根目录 · 服务端加密存储" else "位置: /$vaultPath"
+            // 返回上级
+            if (vaultPath.isNotBlank()) {
+                val up = layoutInflater.inflate(R.layout.item_file, list, false)
+                up.findViewById<ImageView>(R.id.ficon).setImageResource(R.drawable.ic_folder)
+                up.findViewById<ImageView>(R.id.ficon).imageTintList = ThemeColors.csl(this@VaultActivity, R.attr.lTextDim)
+                up.findViewById<TextView>(R.id.fname).text = ".. 返回上级"
+                up.findViewById<TextView>(R.id.fmeta).text = ""
+                up.findViewById<View>(R.id.fmore).visibility = View.GONE
+                up.setOnClickListener {
+                    vaultPath = if (vaultPath.contains('/')) vaultPath.substringBeforeLast('/') else ""
+                    loadList()
+                }
+                list.addView(up)
             }
-            hint.text = "共 ${entries.size} 个文件 · 服务端加密存储"
+            emptyView.visibility = if (entries.isEmpty() && vaultPath.isBlank()) View.VISIBLE else View.GONE
+            if (entries.isEmpty() && vaultPath.isBlank()) { hint.text = "保险箱是空的"; return@launch }
             for (e in entries) {
+                val rel = e.path.ifBlank { vaultJoin(vaultPath, e.name) }
                 val row = layoutInflater.inflate(R.layout.item_file, list, false)
-                row.findViewById<ImageView>(R.id.ficon).setImageResource(R.drawable.ic_file)
+                row.findViewById<ImageView>(R.id.ficon).setImageResource(if (e.isDir) R.drawable.ic_folder else R.drawable.ic_file)
                 row.findViewById<ImageView>(R.id.ficon).imageTintList = ThemeColors.csl(this@VaultActivity, R.attr.lPrimary)
                 row.findViewById<TextView>(R.id.fname).text = e.name
                 row.findViewById<TextView>(R.id.fmeta).text =
-                    FileListAdapter.fmtSize(e.size) + if (e.modTime > 0) "  ·  " + FileListAdapter.fmtDate(e.modTime) else ""
+                    if (e.isDir) ""
+                    else FileListAdapter.fmtSize(e.size) + if (e.modTime > 0) "  ·  " + FileListAdapter.fmtDate(e.modTime) else ""
                 row.findViewById<View>(R.id.fmore).setOnClickListener { anchor ->
                     val popup = android.widget.PopupMenu(this@VaultActivity, anchor)
-                    popup.menu.add(0, 1, 0, "导出到存储库…")
+                    if (!e.isDir) popup.menu.add(0, 1, 0, "导出到存储库…")
                     popup.menu.add(0, 2, 1, "删除")
                     popup.setOnMenuItemClickListener { mi ->
                         when (mi.itemId) {
-                            1 -> exportEntry(e)
-                            2 -> confirmDelete(e)
+                            1 -> exportEntry(e, rel)
+                            2 -> confirmDelete(e, rel)
                         }
                         true
                     }
                     popup.show()
                 }
-                row.setOnClickListener { openEntry(e) }
+                row.setOnClickListener {
+                    if (e.isDir) { vaultPath = rel; loadList() } else openEntry(e, rel)
+                }
                 list.addView(row)
             }
         }
     }
 
-    private fun openEntry(e: VaultEntry) {
+    private fun vaultJoin(dir: String, name: String) =
+        if (dir.isBlank()) name else dir.trimEnd('/') + "/" + name
+
+    /** 在保险箱内新建文件夹(当前目录下)。 */
+    private fun showMkdir() {
+        val token = vt ?: return
+        val et = EditText(this).apply { hint = "文件夹名称"; setSingleLine() }
+        AlertDialog.Builder(this).setTitle("新建文件夹").setView(et)
+            .setPositiveButton("创建") { _, _ ->
+                val nm = et.text.toString().trim()
+                if (nm.isBlank()) { toast("请输入名称"); return@setPositiveButton }
+                lifecycleScope.launch {
+                    try {
+                        withContext(Dispatchers.IO) { client.vaultMkdir(token, vaultJoin(vaultPath, nm)) }
+                        toast("已创建 $nm")
+                        loadList()
+                    } catch (e: Exception) { toast("创建失败: ${e.message}") }
+                }
+            }
+            .setNegativeButton("取消", null).show()
+    }
+
+    /** 修改保险箱密码(成功后所有保险箱会话失效,需重新解锁)。 */
+    private fun showChangePassword() {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), 0)
+        }
+        val etOld = EditText(this).apply { hint = "当前密码"; setSingleLine() }
+        val etNew = EditText(this).apply { hint = "新密码(至少 4 位)"; setSingleLine() }
+        box.addView(etOld); box.addView(etNew)
+        AlertDialog.Builder(this).setTitle("修改保险箱密码").setView(box)
+            .setPositiveButton("修改") { _, _ ->
+                val old = etOld.text.toString()
+                val nw = etNew.text.toString()
+                if (old.isBlank() || nw.length < 4) { toast("请填写当前密码,新密码至少 4 位"); return@setPositiveButton }
+                lifecycleScope.launch {
+                    try {
+                        withContext(Dispatchers.IO) { client.vaultChangePassword(old, nw) }
+                        toast("密码已修改,请重新解锁")
+                        vt = null
+                        vaultPath = ""
+                        list.removeAllViews()
+                        emptyView.visibility = View.GONE
+                        showLocked()
+                        promptUnlock()
+                    } catch (e: Exception) { toast("修改失败: ${e.message}") }
+                }
+            }
+            .setNegativeButton("取消", null).show()
+    }
+
+    private fun openEntry(e: VaultEntry, rel: String) {
         val token = vt ?: return
         val ext = e.name.substringAfterLast('.', "").lowercase()
-        val url = client.vaultRawUrl(token, e.name)
+        val url = client.vaultRawUrl(token, rel)
         if (ext in FileListAdapter.VIDEO || ext in FileListAdapter.AUDIO) {
             startActivity(Intent(this, PlayerActivity::class.java).apply {
                 putExtra(PlayerActivity.EXTRA_URL, url)
@@ -212,13 +294,13 @@ class VaultActivity : AppCompatActivity() {
         }
     }
 
-    private fun confirmDelete(e: VaultEntry) {
+    private fun confirmDelete(e: VaultEntry, rel: String) {
         val token = vt ?: return
         AlertDialog.Builder(this).setTitle("删除").setMessage("从保险箱删除「${e.name}」?")
             .setPositiveButton("删除") { _, _ ->
                 lifecycleScope.launch {
                     try {
-                        withContext(Dispatchers.IO) { client.vaultDelete(token, listOf(e.name)) }
+                        withContext(Dispatchers.IO) { client.vaultDelete(token, listOf(rel)) }
                         loadList()
                     } catch (ex: Exception) { toast("失败: ${ex.message}") }
                 }
@@ -232,19 +314,19 @@ class VaultActivity : AppCompatActivity() {
         val token = vt ?: return
         lifecycleScope.launch {
             try {
-                withContext(Dispatchers.IO) { client.vaultImport(token, listOf(vpath), "") }
+                withContext(Dispatchers.IO) { client.vaultImport(token, listOf(vpath), vaultPath) }
                 toast("已移入保险箱:$vpath")
                 loadList()
             } catch (e: Exception) { toast("导入失败: ${e.message}") }
         }
     }
 
-    private fun exportEntry(e: VaultEntry) {
+    private fun exportEntry(e: VaultEntry, rel: String) {
         pickLibraryDir { dest ->
             val token = vt ?: return@pickLibraryDir
             lifecycleScope.launch {
                 try {
-                    withContext(Dispatchers.IO) { client.vaultExport(token, listOf(e.name), dest) }
+                    withContext(Dispatchers.IO) { client.vaultExport(token, listOf(rel), dest) }
                     toast("已导出到 $dest")
                     loadList()
                 } catch (ex: Exception) { toast("导出失败: ${ex.message}") }

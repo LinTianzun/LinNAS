@@ -506,6 +506,7 @@ class MainActivity : AppCompatActivity() {
             popup.menu.add(0, 5, 4, "分享链接…")
         }
         popup.menu.add(0, 6, 5, "详情")
+        popup.menu.add(0, 8, 5, "打包下载(ZIP)")
         if (playable) {
             when (offline?.status) {
                 OfflineStore.ST_DONE -> popup.menu.add(0, 7, 6, "移除离线缓存")
@@ -525,10 +526,19 @@ class MainActivity : AppCompatActivity() {
                 })
                 6 -> showInfoDialog(vp, e)
                 7 -> toggleOffline(vp, e)
+                8 -> downloadZip(vp, e)
             }
             true
         }
         popup.show()
+    }
+
+    /** v1.7.0:把单个文件/文件夹打包成 zip 下载(/api/zip)。 */
+    private fun downloadZip(vp: String, e: Entry) {
+        val base = (if (e.isDir) e.name else e.name.substringBeforeLast('.')).ifBlank { "下载" }
+        val zipName = "$base.zip"
+        Downloads.enqueue(this, client.zipUrl(listOf(vp), zipName), zipName, UiPrefs.downloadDir(this))
+        toast("开始打包下载 $zipName")
     }
 
     /** P1:/api/info 详情弹窗(文件夹给递归统计,媒体给 ffprobe 技术信息)。 */
@@ -1016,6 +1026,22 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnAudit).setOnClickListener {
             startActivity(Intent(this, AuditActivity::class.java))
         }
+        // v1.7.0:活跃会话 / 用户管理 / 网络唤醒 / 维护与索引 / 存储库管理
+        findViewById<View>(R.id.btnSessions).setOnClickListener {
+            startActivity(Intent(this, SessionsActivity::class.java))
+        }
+        findViewById<View>(R.id.btnUsers).setOnClickListener {
+            startActivity(Intent(this, UserAdminActivity::class.java))
+        }
+        findViewById<View>(R.id.btnWol).setOnClickListener {
+            startActivity(Intent(this, WolActivity::class.java))
+        }
+        findViewById<View>(R.id.btnMaintenance).setOnClickListener {
+            startActivity(Intent(this, MaintenanceActivity::class.java))
+        }
+        findViewById<View>(R.id.btnLibAdmin).setOnClickListener {
+            startActivity(Intent(this, LibraryAdminActivity::class.java))
+        }
     }
 
     /** 服务端 /api/audit 仅管理员可用:口令模式视为管理员;多用户模式需 sessionRole==admin。 */
@@ -1133,6 +1159,11 @@ class MainActivity : AppCompatActivity() {
                     append("端口: ").append(o.optInt("port")).append('\n')
                     append("存储库: ").append(o.optInt("libCount")).append(" 个\n")
                     append("口令: ").append(if (o.optBoolean("tokenSet")) "已设置" else "未设置").append('\n')
+                    append("多用户: ").append(if (o.optBoolean("multiUser")) "已开启(${o.optInt("userCount")} 个用户)" else "未开启").append('\n')
+                    append("空闲锁屏: ").append(o.optInt("idleLockMinutes")).append(" 分钟\n")
+                    append("回收站保留: ").append(o.optInt("trashRetentionDays")).append(" 天\n")
+                    append("转码缓存上限: ").append(o.optInt("transcodeCacheMB")).append(" MB\n")
+                    append("保险箱: ").append(if (o.optBoolean("vaultExists")) "已创建" else "未创建").append('\n')
                     append("ffmpeg: ").append(if (o.optBoolean("ffmpeg")) "可用" else "未安装").append('\n')
                     if (idx != null) {
                         val stats = idx.optJSONObject("stats")
@@ -1189,6 +1220,11 @@ class MainActivity : AppCompatActivity() {
         who.text = if (loggedIn) "已登录:${ServerConfig.sessionUser}(${roleLabel(ServerConfig.sessionRole)})" else "未登录(口令访问)"
         // P2:操作日志仅管理员可见
         findViewById<View>(R.id.btnAudit).visibility = if (canAdmin()) View.VISIBLE else View.GONE
+        // v1.7.0:用户管理 / 维护与索引 / 存储库管理 仅管理员可见;会话与网络唤醒所有人可用
+        val adminVisible = if (canAdmin()) View.VISIBLE else View.GONE
+        findViewById<View>(R.id.btnUsers).visibility = adminVisible
+        findViewById<View>(R.id.btnMaintenance).visibility = adminVisible
+        findViewById<View>(R.id.btnLibAdmin).visibility = adminVisible
     }
 
     // ---------- 发现 / 手动连接 ----------
