@@ -37,6 +37,7 @@ const state = {
   mediaSort: "name",
   mediaOffset: 0,
   mediaItems: [],
+  mediaCollapsed: Object.create(null), // 分组模式下已收起的目录
   searchResults: [],
   devices: [],
   trash: [],
@@ -55,11 +56,13 @@ const enc = (s) => encodeURIComponent(s);
 const ICONS = {
   plus: { d: '<path d="M12 5v14M5 12h14"/>' },
   "chevron-left": { d: '<path d="M15 18l-6-6 6-6"/>' },
+  "chevron-right": { d: '<path d="M9 6l6 6-6 6"/>' },
   search: { d: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>' },
   x: { d: '<path d="M18 6L6 18M6 6l12 12"/>' },
   upload: { d: '<path d="M12 15V4M6 9l6-6 6 6"/><path d="M4 20h16"/>' },
   download: { d: '<path d="M12 4v11M6 11l6 6 6-6"/><path d="M4 20h16"/>' },
   play: { d: '<path d="M8 5v14l11-7z"/>', fill: true },
+  pause: { d: '<path d="M8 5h3v14H8zM13 5h3v14h-3z"/>', fill: true },
   edit: { d: '<path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13 7l4 4"/>' },
   trash: { d: '<path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 12h10l1-12"/><path d="M9 7V5h6v2"/>' },
   folder: { d: '<path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>' },
@@ -235,27 +238,31 @@ $("#dlg-token").addEventListener("cancel", (e) => { e.preventDefault(); settleTo
 
 let vaultPwResolver = null;
 let vaultPwWithConfirm = false;
-function askVaultPw({ title, hint, withConfirm }) {
+let vaultPwWithOld = false;
+function askVaultPw({ title, hint, withConfirm, withOld }) {
   return new Promise((resolve) => {
-    vaultPwResolver = resolve; vaultPwWithConfirm = !!withConfirm;
+    vaultPwResolver = resolve; vaultPwWithConfirm = !!withConfirm; vaultPwWithOld = !!withOld;
     $("#vaultpw-title").textContent = title;
     $("#vaultpw-hint").textContent = hint || "";
-    $("#in-vault-pw").value = ""; $("#in-vault-pw2").value = "";
+    $("#in-vault-pw").value = ""; $("#in-vault-pw2").value = ""; $("#in-vault-old").value = "";
     $("#vaultpw-pw2-wrap").hidden = !withConfirm;
-    $("#in-vault-pw").type = "password"; $("#in-vault-pw2").type = "password";
+    $("#vaultpw-old-wrap").hidden = !withOld;
+    $("#in-vault-pw").type = "password"; $("#in-vault-pw2").type = "password"; $("#in-vault-old").type = "password";
     $("#dlg-vaultpw").showModal();
-    setTimeout(() => $("#in-vault-pw").focus(), 30);
+    setTimeout(() => (withOld ? $("#in-vault-old") : $("#in-vault-pw")).focus(), 30);
   });
 }
 function settleVaultPw(v) { if (vaultPwResolver) { const r = vaultPwResolver; vaultPwResolver = null; r(v); } }
 $("#btn-vaultpw-ok").onclick = () => {
   const pw = $("#in-vault-pw").value;
+  const oldPw = $("#in-vault-old").value;
+  if (vaultPwWithOld && !oldPw) { toast("请输入原密码"); return; }
   if (vaultPwWithConfirm) {
     const pw2 = $("#in-vault-pw2").value;
     if (pw.length < 4) { toast("密码至少 4 位"); return; }
     if (pw !== pw2) { toast("两次输入的密码不一致"); return; }
   } else if (!pw) { toast("请输入密码"); return; }
-  settleVaultPw({ password: pw });
+  settleVaultPw({ password: pw, oldPassword: oldPw });
   $("#dlg-vaultpw").close();
 };
 $("#dlg-vaultpw-cancel").onclick = () => { settleVaultPw(null); $("#dlg-vaultpw").close(); };
@@ -428,6 +435,7 @@ function emptyState(icon, title, hint, withAdd) {
 const VIEWS = ["view-home", "view-browse", "view-vault", "view-media", "view-music", "view-search", "view-devices", "view-trash", "view-audit", "view-shares", "view-remote", "view-pair"];
 function showView(target) {
   VIEWS.forEach((v) => { const el = document.getElementById(v); if (el) el.hidden = v !== target; });
+  if (typeof updateMiniPlayer === "function") updateMiniPlayer();
 }
 function showHome() { state.view = "home"; showView("view-home"); renderSidebar(); renderHome(); }
 function showBrowse() { state.view = "browse"; showView("view-browse"); renderSidebar(); }
@@ -1488,6 +1496,10 @@ const HS_REASON = {
   "wifi-off": "无线网卡未开启:请先在系统里打开 Wi-Fi(或用笔记本的无线开关),再回来点「开启热点」。",
   "disabled": "这台电脑的无线网卡不支持或已关闭移动热点。",
   "no-internet": "当前没有可共享的上网连接(先连上网络再开热点)。",
+  "band-unavailable": "所选网络波段不可用(2.4GHz 与 5GHz 都尝试过)。请确认无线网卡支持热点,或先在 Windows「移动热点」里手动开一次。",
+  "op-operationinprogress": "热点正在切换中,请等几秒再点一次。",
+  "op-entitlementcheckfailure": "运营商/网络策略不允许开热点。",
+  "op-bluetoothdeviceoff": "请先打开蓝牙(系统要求蓝牙协处理器可用)。",
   "unknown": "无法识别热点能力。",
   "error": "热点功能暂不可用(可能是服务端版本较旧,重建后生效)。",
 };
@@ -1616,8 +1628,10 @@ function renderVault() {
   const up = document.createElement("button"); up.className = "btn primary"; up.innerHTML = svgIcon("upload") + " 上传"; up.onclick = () => $("#vault-file-input").click();
   const mk = document.createElement("button"); mk.className = "btn"; mk.innerHTML = svgIcon("folder-plus") + " 新建文件夹"; mk.onclick = vaultMkdir;
   const imp = document.createElement("button"); imp.className = "btn"; imp.innerHTML = svgIcon("folder") + " 导入文件"; imp.onclick = vaultImportFiles;
+  const chpw = document.createElement("button"); chpw.className = "btn"; chpw.innerHTML = svgIcon("key") + " 修改密码"; chpw.onclick = vaultChangePw;
+  const expAll = document.createElement("button"); expAll.className = "btn"; expAll.innerHTML = svgIcon("download") + " 导出全部"; expAll.onclick = vaultExportAll;
   const lock = document.createElement("button"); lock.className = "btn"; lock.innerHTML = svgIcon("logout") + " 锁定"; lock.onclick = vaultLock;
-  acts.appendChild(up); acts.appendChild(mk); acts.appendChild(imp); acts.appendChild(lock);
+  acts.appendChild(up); acts.appendChild(mk); acts.appendChild(imp); acts.appendChild(chpw); acts.appendChild(expAll); acts.appendChild(lock);
 
   // 面包屑
   const crumb = document.createElement("div");
@@ -1752,6 +1766,36 @@ function vaultExport(rel) {
       await loadVaultList(); renderVault();
     } catch (e) { toast("失败: " + e.message); }
   }, "/");
+}
+
+/* 导出当前文件夹的全部内容到存储库(导出后从保险箱移除,在普通浏览中可见) */
+function vaultExportAll() {
+  const ents = (state.vault.entries || []).filter((e) => e.path);
+  if (!ents.length) { toast("当前文件夹没有可导出的内容"); return; }
+  const paths = ents.map((e) => e.path);
+  openFolderPicker("导出全部到…", async (dest) => {
+    try {
+      const r = await api("/api/vault/export?vt=" + enc(state.vault.token), { method: "POST", body: { paths, dest } });
+      if (r.errors && r.errors.length) toast(`已导出 ${r.count} 项,${r.errors.length} 项失败: ` + r.errors[0]);
+      else toast(`已导出 ${r.count} 项到存储库`);
+      await loadVaultList(); renderVault();
+    } catch (e) { toast("失败: " + e.message); }
+  }, "/");
+}
+
+/* 修改保险箱密码:成功后服务端会清空所有解锁会话,需要用新密码重新解锁 */
+async function vaultChangePw() {
+  const r = await askVaultPw({
+    title: "修改保险箱密码",
+    hint: "输入原密码与新密码。新密码至少 4 位;修改后需用新密码重新解锁。",
+    withConfirm: true, withOld: true,
+  });
+  if (!r) return;
+  try {
+    await api("/api/vault/password", { method: "POST", body: { oldPassword: r.oldPassword, newPassword: r.password } });
+    toast("保险箱密码已更新");
+    await vaultUnlock(r.password);
+  } catch (e) { toast("修改失败: " + e.message); }
 }
 
 /* ---- 导入文件到保险箱:从存储库挑文件(可多选) ---- */
@@ -2129,7 +2173,7 @@ $("#btn-sel-vault").onclick = async () => {
 function vaultImport() { /* 兼容占位:改用 vaultImportFiles / 存入保险箱 */ }
 
 /* ============================================================ 音乐播放器 */
-const musicState = { list: [], index: -1, playing: false, rot: 0, timer: null };
+const musicState = { list: [], index: -1, playing: false, rot: 0, timer: null, miniClosed: false };
 
 function fmtClock(sec) {
   sec = Math.max(0, Math.floor(sec || 0));
@@ -2149,9 +2193,28 @@ function stopRotation() { if (musicState.timer) { clearInterval(musicState.timer
 
 function setMusicPlaying(playing) {
   musicState.playing = playing;
+  if (playing) musicState.miniClosed = false;
   const btn = $("#music-play");
   if (btn) btn.textContent = playing ? "⏸" : "▶";
   if (playing) startRotation(); else stopRotation();
+  updateMiniPlayer();
+}
+
+/* ---- 右下角迷你播放器 ---- */
+function updateMiniPlayer() {
+  const box = $("#mini-player");
+  if (!box) return;
+  const it = musicState.list[musicState.index];
+  const show = !!it && state.view !== "music" && !musicState.miniClosed;
+  box.hidden = !show;
+  if (!show) return;
+  const t = $("#mp-title");
+  if (t) t.textContent = it.name.replace(/\.[^.]+$/, "");
+  const pb = $("#mp-play");
+  if (pb) pb.innerHTML = svgIcon(musicState.playing ? "pause" : "play");
+  const a = musicAudio();
+  const bar = $("#mp-progress");
+  if (bar && a && isFinite(a.duration) && a.duration > 0) bar.style.width = ((a.currentTime / a.duration) * 100).toFixed(2) + "%";
 }
 
 async function loadMusic() {
@@ -2198,6 +2261,7 @@ function initMusicTrack() {
   $("#music-cur").textContent = "0:00";
   $("#music-dur").textContent = "0:00";
   renderMusicList();
+  updateMiniPlayer();
 }
 
 async function playMusic(i) {
@@ -2226,6 +2290,21 @@ $("#btn-music").onclick = () => { showMusic(); loadMusic(); };
 $("#music-play").onclick = toggleMusic;
 $("#music-prev").onclick = () => musicStep(-1);
 $("#music-next").onclick = () => musicStep(1);
+/* 迷你播放器控件 */
+$("#mp-prev").onclick = () => musicStep(-1);
+$("#mp-play").onclick = () => toggleMusic();
+$("#mp-next").onclick = () => musicStep(1);
+$("#mp-close").onclick = () => { const a = musicAudio(); if (a) a.pause(); setMusicPlaying(false); musicState.miniClosed = true; updateMiniPlayer(); };
+$("#mp-disc").onclick = () => { showMusic(); loadMusic(); };
+
+/* 媒体库里的音乐:点击即在音乐播放器中后台播放 */
+async function playMediaAudio(it) {
+  if (!musicState.list.length) await loadMusic();
+  let idx = musicState.list.findIndex((x) => x.path === it.path);
+  if (idx < 0) { musicState.list.push(it); idx = musicState.list.length - 1; renderMusicList(); }
+  musicState.miniClosed = false;
+  playMusic(idx);
+}
 (function bindMusicAudio() {
   const a = $("#music-audio");
   if (!a) return;
@@ -2239,6 +2318,7 @@ $("#music-next").onclick = () => musicStep(1);
       $("#music-seek").value = String(a.currentTime || 0);
       $("#music-cur").textContent = fmtClock(a.currentTime);
     }
+    if (!$("#mini-player").hidden) updateMiniPlayer();
   });
   a.addEventListener("ended", () => {
     if (musicState.list.length > 1) musicStep(1);
@@ -2314,12 +2394,13 @@ function renderMediaGrid() {
     meta.appendChild(nm); meta.appendChild(sb);
     const acts = document.createElement("div"); acts.className = "facts";
     const ab = (ic, t, fn) => { const b = document.createElement("button"); b.className = "btn icon-btn"; b.title = t; b.innerHTML = svgIcon(ic); b.onclick = (ev) => { ev.stopPropagation(); fn(); }; acts.appendChild(b); };
-    ab("play", "播放", () => openPreview(kind, it.path, it.name));
+    const openIt = () => (kind === "audio" ? playMediaAudio(it) : openPreview(kind, it.path, it.name));
+    ab("play", kind === "audio" ? "播放" : "预览", openIt);
     ab("info", "详情", () => showInfo(it.path));
     ab("download", "下载", () => { location.href = apiUrl("/api/raw?dl=1&vpath=" + enc(it.path)); });
     ab("folder", "打开所在文件夹", () => { openPath(it.path.replace(/\/[^/]*$/, "") || "/"); });
     row.appendChild(icon); row.appendChild(meta); row.appendChild(acts);
-    row.onclick = () => openPreview(kind, it.path, it.name);
+    row.onclick = () => (kind === "audio" ? playMediaAudio(it) : openPreview(kind, it.path, it.name));
     return row;
   };
   if (state.mediaGroup) {
@@ -2331,11 +2412,31 @@ function renderMediaGrid() {
     }
     const dirs = Array.from(groups.keys()).sort((a, b) => a.localeCompare(b));
     for (const d of dirs) {
-      const h = document.createElement("div"); h.className = "mgroup-head";
+      const collapsed = !!state.mediaCollapsed[d];
+      const h = document.createElement("div");
+      h.className = "mgroup-head" + (collapsed ? " collapsed" : "");
       const b = document.createElement("b"); b.textContent = d;
-      const c = document.createElement("span"); c.textContent = groups.get(d).length + " 项";
-      h.appendChild(b); h.appendChild(c); grid.appendChild(h);
-      groups.get(d).forEach((it) => grid.appendChild(mkRow(it)));
+      const c = document.createElement("span"); c.className = "mgroup-count"; c.textContent = groups.get(d).length + " 项";
+      const label = document.createElement("span"); label.className = "mgroup-label";
+      label.appendChild(b); label.appendChild(c);
+      const tg = document.createElement("button");
+      tg.className = "btn icon-btn mgroup-toggle";
+      tg.title = collapsed ? "展开该组" : "收起该组";
+      tg.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      tg.innerHTML = `<span class="mgroup-chev">${svgIcon("arrow-down")}</span>`;
+      const rows = [];
+      tg.onclick = (ev) => {
+        ev.stopPropagation();
+        state.mediaCollapsed[d] = !state.mediaCollapsed[d];
+        const now = !!state.mediaCollapsed[d];
+        h.classList.toggle("collapsed", now);
+        tg.title = now ? "展开该组" : "收起该组";
+        tg.setAttribute("aria-expanded", now ? "false" : "true");
+        rows.forEach((r) => { r.hidden = now; });
+      };
+      h.appendChild(label); h.appendChild(tg);
+      grid.appendChild(h);
+      groups.get(d).forEach((it) => { const r = mkRow(it); if (collapsed) r.hidden = true; rows.push(r); grid.appendChild(r); });
     }
     return;
   }
@@ -2573,6 +2674,7 @@ state.mediaGroup = false;
 $("#media-group").onclick = () => {
   state.mediaGroup = !state.mediaGroup;
   $("#media-group").classList.toggle("primary", state.mediaGroup);
+  if (!state.mediaGroup) state.mediaCollapsed = Object.create(null);
   renderMediaGrid();
 };
 

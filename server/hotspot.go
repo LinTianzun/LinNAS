@@ -32,10 +32,26 @@ try {
   [Windows.Networking.Connectivity.NetworkInformation,Windows.Networking.Connectivity,ContentType=WindowsRuntime] | Out-Null
 
   $asTaskOp = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -like 'IAsyncOperation*' })[0]
+  $asTaskAction = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncAction' })[0]
   function AwaitOp($op, $t) {
     $task = $asTaskOp.MakeGenericMethod($t).Invoke($null, @($op))
     $task.Wait(-1) | Out-Null
     return $task.Result
+  }
+  # NOTE: ConfigureAccessPointAsync returns IAsyncAction (not IAsyncOperation).
+  # Must await it with AsTask(IAsyncAction); the generic overload throws, which
+  # previously meant SSID/passphrase/band were never actually applied.
+  function ApplyApConfig($ssid, $password, $band) {
+    $ap = $mgr.GetCurrentAccessPointConfiguration()
+    if ($ssid -ne "") { $ap.Ssid = $ssid }
+    if ($password.Length -ge 8) { $ap.Passphrase = $password }
+    # band as int: 0=Auto 1=2.4GHz 2=5GHz 3=6GHz
+    $ap.Band = [Windows.Networking.NetworkOperators.TetheringWiFiBand]$band
+    try {
+      $t = $asTaskAction.Invoke($null, @($mgr.ConfigureAccessPointAsync($ap)))
+      $t.Wait(-1) | Out-Null
+      return "ok"
+    } catch { return "err: $($_.Exception.InnerException.Message)" }
   }
 
   $cp = [Windows.Networking.Connectivity.NetworkInformation]::GetInternetConnectionProfile()
@@ -46,17 +62,17 @@ try {
 
   $mgr = [Windows.Networking.NetworkOperators.NetworkOperatorTetheringManager]::CreateFromConnectionProfile($cp)
 
+  $cfg = ""
   if ($Action -eq "start") {
-    try {
-      if ($Ssid -ne "" -or $Password -ne "") {
-        $ap = $mgr.GetCurrentAccessPointConfiguration()
-        if ($Ssid -ne "") { $ap.Ssid = $Ssid }
-        if ($Password.Length -ge 8) { $ap.Passphrase = $Password }
-        AwaitOp ($mgr.ConfigureAccessPointAsync($ap)) ([Windows.Networking.NetworkOperators.NetworkOperatorTetheringOperationResult]) | Out-Null
-      }
-    } catch { }
-    $r = AwaitOp ($mgr.StartTetheringAsync()) ([Windows.Networking.NetworkOperators.NetworkOperatorTetheringOperationResult])
-    $result = "$($r.Status)"; $perr = "$($r.AdditionalErrorMessage)"
+    # try bands in order: Auto -> 2.4GHz -> 5GHz; keep switching only while
+    # the failure is SelectedNetworkBandNotAvailable
+    foreach ($band in @(0, 1, 2)) {
+      $cfg = ApplyApConfig $Ssid $Password $band
+      $r = AwaitOp ($mgr.StartTetheringAsync()) ([Windows.Networking.NetworkOperators.NetworkOperatorTetheringOperationResult])
+      $result = "$($r.Status)"; $perr = "$($r.AdditionalErrorMessage)"
+      if ($result -eq "Success" -or $result -eq "AlreadyOn") { break }
+      if ($result -ne "SelectedNetworkBandNotAvailable") { break }
+    }
   } elseif ($Action -eq "stop") {
     $r = AwaitOp ($mgr.StopTetheringAsync()) ([Windows.Networking.NetworkOperators.NetworkOperatorTetheringOperationResult])
     $result = "$($r.Status)"; $perr = "$($r.AdditionalErrorMessage)"
@@ -78,6 +94,7 @@ try {
     clients = $clients
     action = $Action
     result = $result
+    configure = $cfg
     error = $perr
   }
 } catch {
@@ -106,7 +123,7 @@ func runHotspotScript(action, ssid, password string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	args := []string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", p, "-Action", action}
@@ -177,6 +194,8 @@ func normalizeHotspot(raw map[string]any) map[string]any {
 			reason = "wifi-off"
 		case "NetworkLimitedConnectivity", "NetworkConnectivityFailure":
 			reason = "no-internet"
+		case "SelectedNetworkBandNotAvailable":
+			reason = "band-unavailable"
 		case "AlreadyOn":
 			reason = ""
 		default:
@@ -195,6 +214,7 @@ func normalizeHotspot(raw map[string]any) map[string]any {
 		"maxClients": raw["maxClients"],
 		"clients":    raw["clients"],
 		"result":     result,
+		"configure":  str(raw["configure"]),
 		"reason":     reason,
 		"error":      str(raw["error"]),
 	}

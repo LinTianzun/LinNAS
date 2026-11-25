@@ -218,17 +218,21 @@
     <section class="view" id="view-media" hidden>
       <div class="page-head">
         <h1><span data-icon="film" class="title-ic"></span>媒体库</h1>
-        <select id="media-sort" title="排序">
-          <option value="name">按名称</option>
-          <option value="mtime">按时间</option>
-          <option value="size">按大小</option>
-        </select>
-        <button class="btn ghost" id="media-group" title="按文件夹分组显示">按文件夹分组</button>
-      </div>
-      <div class="tabs" id="media-tabs">
-        <button data-type="video" class="on">视频</button>
-        <button data-type="image">图片</button>
-        <button data-type="audio">音乐</button>
+        <div class="ph-tools">
+          <div class="seg" id="media-tabs" role="tablist" aria-label="分类">
+            <button data-type="video" class="on" role="tab">视频</button>
+            <button data-type="image" role="tab">图片</button>
+            <button data-type="audio" role="tab">音乐</button>
+          </div>
+          <select id="media-sort" title="排序">
+            <option value="name">按名称</option>
+            <option value="mtime">按时间</option>
+            <option value="size">按大小</option>
+          </select>
+          <button class="btn" id="media-group" title="按文件夹分组显示">
+            <span data-icon="grid"></span>按文件夹分组
+          </button>
+        </div>
       </div>
       <p class="page-sub" id="media-sub"></p>
       <div class="file-list grid" id="media-grid"></div>
@@ -385,6 +389,21 @@
   </div>
 </div>
 
+<!-- 迷你音乐播放器 -->
+<div class="mini-player" id="mini-player" hidden>
+  <button class="mp-disc" id="mp-disc" title="回到音乐界面"><span data-icon="music"></span></button>
+  <div class="mp-main">
+    <div class="mp-title" id="mp-title">未选择歌曲</div>
+    <div class="mp-bar"><i id="mp-progress" style="width:0%"></i></div>
+  </div>
+  <div class="mp-ctrls">
+    <button class="mp-btn" id="mp-prev" title="上一首"><span data-icon="chevron-left"></span></button>
+    <button class="mp-btn mp-play" id="mp-play" title="播放 / 暂停"><span data-icon="play"></span></button>
+    <button class="mp-btn" id="mp-next" title="下一首"><span data-icon="chevron-right"></span></button>
+    <button class="mp-btn mp-close" id="mp-close" title="关闭"><span data-icon="x"></span></button>
+  </div>
+</div>
+
 <!-- 详情 -->
 <dialog id="dlg-info">
   <h3>详情</h3>
@@ -493,6 +512,7 @@
 <dialog id="dlg-vaultpw">
   <h3 id="vaultpw-title">解锁保险箱</h3>
   <p class="dlg-hint" id="vaultpw-hint"></p>
+  <label id="vaultpw-old-wrap" hidden>原密码 <input id="in-vault-old" type="password" autocomplete="off"></label>
   <label>密码 <input id="in-vault-pw" type="password" autocomplete="off"></label>
   <label id="vaultpw-pw2-wrap" hidden>确认密码 <input id="in-vault-pw2" type="password" autocomplete="off"></label>
   <div class="dlg-btns">
