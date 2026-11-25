@@ -38,7 +38,7 @@ func (s *Server) withWebDAVAuth(next http.Handler) http.Handler {
 			if ok {
 				if username == "token" && s.cfg.Token != "" && password == s.cfg.Token {
 					sess = &Session{Username: "admin", Role: "admin", Token: password}
-				} else if authenticated, valid := s.auth.Authenticate(username, password); valid {
+				} else if authenticated, valid := s.auth.Authenticate(username, password, clientIP(r)); valid {
 					sess = authenticated
 				}
 			}
@@ -281,7 +281,11 @@ func (fsys *davFileSystem) Mkdir(_ context.Context, name string, perm os.FileMod
 	if target.abs == target.root {
 		return os.ErrInvalid
 	}
-	return os.Mkdir(target.abs, perm)
+	if err := os.Mkdir(target.abs, perm); err != nil {
+		return err
+	}
+	fsys.server.indexUpdate(IndexChange{Add: VirtualPath(target.lib, target.abs)})
+	return nil
 }
 
 func (fsys *davFileSystem) OpenFile(ctx context.Context, name string, flag int, perm os.FileMode) (webdav.File, error) {
@@ -370,6 +374,9 @@ func (fsys *davFileSystem) RemoveAll(_ context.Context, name string) error {
 		return os.ErrInvalid
 	}
 	_, err = fsys.server.moveToTrash(target.lib, target.abs)
+	if err == nil {
+		fsys.server.indexUpdate(IndexChange{Remove: VirtualPath(target.lib, target.abs)})
+	}
 	return err
 }
 
@@ -388,7 +395,14 @@ func (fsys *davFileSystem) Rename(_ context.Context, oldName, newName string) er
 	if source.abs == target.abs {
 		return nil
 	}
-	return os.Rename(source.abs, target.abs)
+	if err := os.Rename(source.abs, target.abs); err != nil {
+		return err
+	}
+	fsys.server.indexUpdate(
+		IndexChange{Remove: VirtualPath(source.lib, source.abs)},
+		IndexChange{Add: VirtualPath(target.lib, target.abs)},
+	)
+	return nil
 }
 
 func (fsys *davFileSystem) Stat(_ context.Context, name string) (os.FileInfo, error) {
@@ -446,6 +460,9 @@ func (f *davFile) Close() error {
 		return f.closeErr
 	}
 	f.closeErr = os.Rename(f.stagingPath, f.target.abs)
+	if f.closeErr == nil {
+		f.fs.server.indexUpdate(IndexChange{Add: VirtualPath(f.target.lib, f.target.abs)})
+	}
 	return f.closeErr
 }
 

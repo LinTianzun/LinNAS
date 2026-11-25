@@ -335,12 +335,14 @@ function renderSidebar() {
   }
   $("#btn-vault").classList.toggle("active", state.view === "vault");
   $("#btn-media").classList.toggle("active", state.view === "media");
+  $("#btn-music").classList.toggle("active", state.view === "music");
   $("#btn-search").classList.toggle("active", state.view === "search");
   $("#btn-devices").classList.toggle("active", state.view === "devices");
   $("#btn-trash").classList.toggle("active", state.view === "trash");
   $("#btn-audit").classList.toggle("active", state.view === "audit");
   $("#btn-shares").classList.toggle("active", state.view === "shares");
   $("#btn-remote").classList.toggle("active", state.view === "remote");
+  $("#btn-pair").classList.toggle("active", state.view === "pair");
   // v1.4.0:按角色显示管理入口
   const isAdm = isAdmin();
   const logged = !!state.auth.username;
@@ -423,7 +425,7 @@ function emptyState(icon, title, hint, withAdd) {
 }
 
 /* ============================================================ 视图切换 */
-const VIEWS = ["view-home", "view-browse", "view-vault", "view-media", "view-search", "view-devices", "view-trash", "view-audit", "view-shares", "view-remote"];
+const VIEWS = ["view-home", "view-browse", "view-vault", "view-media", "view-music", "view-search", "view-devices", "view-trash", "view-audit", "view-shares", "view-remote", "view-pair"];
 function showView(target) {
   VIEWS.forEach((v) => { const el = document.getElementById(v); if (el) el.hidden = v !== target; });
 }
@@ -431,6 +433,7 @@ function showHome() { state.view = "home"; showView("view-home"); renderSidebar(
 function showBrowse() { state.view = "browse"; showView("view-browse"); renderSidebar(); }
 function showVault() { state.view = "vault"; showView("view-vault"); renderSidebar(); }
 function showMedia() { state.view = "media"; showView("view-media"); renderSidebar(); }
+function showMusic() { state.view = "music"; showView("view-music"); renderSidebar(); }
 function showSearch() { state.view = "search"; showView("view-search"); renderSidebar(); setTimeout(() => $("#in-global-search").focus(), 60); }
 function showDevices() { state.view = "devices"; showView("view-devices"); renderSidebar(); }
 function showTrash() { state.view = "trash"; showView("view-trash"); renderSidebar(); }
@@ -924,6 +927,21 @@ $("#btn-sel-move").onclick = () => {
 
 $("#btn-sel-copy").onclick = () => { setClipboard("copy"); };
 $("#btn-sel-cut").onclick = () => { setClipboard("cut"); };
+
+/* 打包下载:选中项 / 当前文件夹 */
+function zipFileName(vpath) {
+  const base = (vpath || "").split("/").filter(Boolean).pop() || "linNas";
+  return base + ".zip";
+}
+$("#btn-sel-zip").onclick = () => {
+  const vps = Array.from(state.selected);
+  if (!vps.length) return;
+  location.href = apiUrl("/api/zip?vpaths=" + encodeURIComponent(vps.join(",")) + "&name=" + encodeURIComponent(zipFileName(state.curPath)));
+};
+$("#btn-zip-dir").onclick = () => {
+  if (!state.curPath) return;
+  location.href = apiUrl("/api/zip?vpaths=" + encodeURIComponent(state.curPath) + "&name=" + encodeURIComponent(zipFileName(state.curPath)));
+};
 function setClipboard(mode) {
   const items = Array.from(state.selected).map((vp) => ({ vpath: vp, name: vp.split("/").pop(), isDir: false }));
   state.clipboard = { mode, items };
@@ -1163,6 +1181,17 @@ document.addEventListener("keydown", (e) => {
   else if (e.key === "ArrowLeft") { v.currentTime = Math.max(0, v.currentTime - 5); }
   else if (e.key === "ArrowRight") { v.currentTime = Math.min(v.duration || 1e9, v.currentTime + 5); }
   else if (e.key === "m" || e.key === "M") { v.muted = !v.muted; }
+});
+
+/* 全局搜索快捷键:Ctrl/⌘+K 或 / 随时唤起搜索 */
+document.addEventListener("keydown", (e) => {
+  if (!$("#player-modal").hidden) return;
+  const t = e.target;
+  const typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
+  if (typing) return;
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && (e.key === "k" || e.key === "K")) { e.preventDefault(); $("#btn-search").click(); }
+  else if (e.key === "/" && !document.querySelector("dialog[open]")) { e.preventDefault(); $("#btn-search").click(); }
 });
 
 /* 全局快捷键(仅在文件浏览视图、且无播放器/对话框/输入框聚焦时生效) */
@@ -1415,29 +1444,136 @@ async function loadVaultStatus() {
 }
 $("#btn-vault").onclick = async () => { state.vault.path = ""; showVault(); await loadVaultStatus(); if (state.vault.unlocked) await loadVaultList(); renderVault(); };
 
-/* 手机连接:弹出配对二维码 */
-$("#btn-pair").onclick = async () => {
+/* 手机连接:独立页面(实时二维码 + 地址选择 + 热点) */
+const pairState = { info: null, ip: "", hs: null, lastHsReason: "" };
+async function showPair() { state.view = "pair"; showView("view-pair"); renderSidebar(); await loadPair(); }
+async function loadPair() {
+  const cap = $("#pair-qr-cap"); if (cap) cap.textContent = "正在读取本机地址…";
   try {
     const info = await api("/api/pair");
-    const ip = (info.ips && info.ips[0]) || location.hostname;
-    $("#pair-qr").src = apiUrl("/api/pair/qr?size=320&ip=" + enc(ip));
-    const box = $("#pair-addrs");
-    box.innerHTML = "";
-    const head = document.createElement("div");
-    head.style.opacity = "0.7";
-    head.textContent = "在手机 App 里点「扫码配对」:";
-    box.appendChild(head);
-    for (const u of (info.urls || [])) {
-      const row = document.createElement("div");
-      row.textContent = u;
-      box.appendChild(row);
+    pairState.info = info;
+    if (!pairState.ip || !(info.ips || []).includes(pairState.ip)) {
+      pairState.ip = (info.ips && info.ips[0]) || location.hostname;
     }
-    $("#dlg-pair").showModal();
+    $("#pair-port").textContent = "端口 " + info.port;
+    renderPairAddrs();
+    setPairQR();
   } catch (e) {
-    toast("无法获取配对信息:" + e.message);
+    if (cap) cap.textContent = "无法获取本机地址:" + e.message;
   }
+  renderHotspot();
+}
+function setPairQR() {
+  const ip = pairState.ip;
+  $("#pair-qr").src = apiUrl("/api/pair/qr?size=340&ip=" + enc(ip));
+  const port = pairState.info ? pairState.info.port : "";
+  $("#pair-qr-cap").textContent = "扫码连接 · " + ip + ":" + port;
+}
+function renderPairAddrs() {
+  const box = $("#pair-addrs"); box.innerHTML = "";
+  const ips = (pairState.info && pairState.info.ips) || [];
+  if (!ips.length) { box.innerHTML = '<div class="addr-empty">未检测到局域网地址</div>'; return; }
+  ips.forEach((ip, i) => {
+    const row = document.createElement("button");
+    row.className = "addr-item" + (ip === pairState.ip ? " on" : "");
+    row.innerHTML = '<span class="ai-main"><b></b><em></em></span><span class="ai-tag"></span>';
+    row.querySelector("b").textContent = ip;
+    row.querySelector("em").textContent = "http://" + ip + ":" + pairState.info.port;
+    if (i === 0) row.querySelector(".ai-tag").textContent = "推荐";
+    row.onclick = () => { pairState.ip = ip; renderPairAddrs(); setPairQR(); };
+    box.appendChild(row);
+  });
+}
+const HS_REASON = {
+  "wifi-off": "无线网卡未开启:请先在系统里打开 Wi-Fi(或用笔记本的无线开关),再回来点「开启热点」。",
+  "disabled": "这台电脑的无线网卡不支持或已关闭移动热点。",
+  "no-internet": "当前没有可共享的上网连接(先连上网络再开热点)。",
+  "unknown": "无法识别热点能力。",
+  "error": "热点功能暂不可用(可能是服务端版本较旧,重建后生效)。",
 };
-$("#dlg-pair-close").onclick = () => $("#dlg-pair").close();
+function hsChip(text, on) { const c = $("#hs-chip"); c.textContent = text; c.className = "pn-chip" + (on === true ? " on" : on === false ? " off" : ""); }
+let hsSeq = 0;
+async function renderHotspot() {
+  const my = ++hsSeq;
+  const body = $("#hs-body");
+  hsChip("检测中…");
+  let hs;
+  try { hs = await api("/api/hotspot"); }
+  catch (e) { hs = { supported: false, reason: "error", error: e.message }; }
+  if (my !== hsSeq) return;
+  pairState.hs = hs;
+  if (!hs || !hs.supported) {
+    hsChip("不可用", false);
+    const why = HS_REASON[hs && hs.reason] || "热点不可用";
+    body.innerHTML = '<p class="hs-tip"></p><div class="hs-actions"><button class="btn" id="hs-open"><span data-icon="settings"></span>打开 Windows 移动热点设置</button></div>' +
+      '<p class="pn-hint">打开后开启「移动热点」,记住热点名称与密码;手机连上该 Wi-Fi 后,再回到本页扫描上方配对二维码。</p>';
+    body.querySelector(".hs-tip").textContent = why;
+    applyIcons(body);
+    $("#hs-open").onclick = openHotspotSettings;
+    return;
+  }
+  if (hs.running) {
+    pairState.lastHsReason = "";
+    hsChip("已开启", true);
+    const wifi = "WIFI:T:" + (hs.auth === "Open" ? "nopass" : "WPA") + ";S:" + (hs.ssid || "") + ";P:" + (hs.password || "") + ";;";
+    body.innerHTML =
+      '<div class="hs-on"><div class="hs-qr"><img alt="Wi-Fi 二维码" src="' + apiUrl("/api/qr?size=260&text=" + enc(wifi)) + '"></div>' +
+      '<div class="hs-oninfo"><div class="hs-ssid"><b></b></div>' +
+      '<div class="hs-pw">密码 <code></code> <button class="btn ghost small" id="hs-copy">复制</button></div>' +
+      '<div class="pn-hint">手机扫这个 Wi-Fi 二维码就能自动加入热点。<span id="hs-clients"></span></div></div></div>' +
+      '<div class="hs-actions"><button class="btn" id="hs-stop"><span data-icon="logout"></span>关闭热点</button></div>';
+    body.querySelector(".hs-ssid b").textContent = hs.ssid || "(未命名)";
+    body.querySelector(".hs-pw code").textContent = hs.password || "—";
+    const cl = $("#hs-clients"); if (cl) cl.textContent = " 已连接 " + (hs.clients || 0) + "/" + (hs.maxClients || "?") + " 台";
+    applyIcons(body);
+    $("#hs-copy").onclick = () => copyText(hs.password || "");
+    $("#hs-stop").onclick = () => hotspotAction("stop");
+    return;
+  }
+  hsChip("可用", true);
+  const hsReason = (hs.reason || pairState.lastHsReason || "");
+  const hsWarn = (hsReason && HS_REASON[hsReason]) ? `<p class="hs-warn">${HS_REASON[hsReason]}</p>` : "";
+  body.innerHTML =
+    hsWarn +
+    '<p class="hs-tip">手机和电脑不在同一网络时,让电脑开一个热点:手机先连上这个热点,再扫上面的配对码即可。</p>' +
+    '<label class="hs-field"><span>热点名称</span><input id="hs-ssid" maxlength="32" autocomplete="off"></label>' +
+    '<label class="hs-field"><span>热点密码</span><input id="hs-pw" maxlength="63" placeholder="至少 8 位" autocomplete="off"></label>' +
+    '<div class="hs-actions"><button class="btn primary" id="hs-start"><span data-icon="wifi"></span>开启热点</button>' +
+    '<button class="btn ghost" id="hs-open2">系统设置</button></div>' +
+    '<p class="pn-hint">开启后本页会显示 Wi-Fi 二维码,手机扫一下即可自动连上。</p>';
+  applyIcons(body);
+  $("#hs-ssid").value = hs.ssid || "linNas-Hotspot";
+  var hsDefaultPw = "linNas" + "8888";
+  $("#hs-pw").value = (hs.password && hs.password.length >= 8) ? hs.password : hsDefaultPw;
+  $("#hs-start").onclick = () => hotspotAction("start", $("#hs-ssid").value.trim(), $("#hs-pw").value);
+  $("#hs-open2").onclick = openHotspotSettings;
+}
+async function hotspotAction(action, ssid, password) {
+  hsChip(action === "start" ? "开启中…" : "关闭中…");
+  let res = null;
+  try { res = await api("/api/hotspot", { method: "POST", body: { action: action, ssid: ssid || "", password: password || "" } }); }
+  catch (e) { toast("热点操作失败:" + e.message); return await renderHotspot(); }
+  if (res && action === "start") {
+    if (!res.running) {
+      pairState.lastHsReason = res.reason || "unknown";
+      toast(HS_REASON[res.reason] || (res.error ? "开启失败:" + res.error : "热点未能开启"));
+    } else {
+      pairState.lastHsReason = "";
+    }
+  }
+  await renderHotspot();
+}
+async function openHotspotSettings() {
+  try { await api("/api/system/open", { method: "POST", body: { target: "mobilehotspot" } }); toast("已在电脑上打开「移动热点」设置"); }
+  catch (e) { toast("无法打开系统设置:" + e.message); }
+}
+function copyText(t) {
+  if (!t) return;
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(() => toast("已复制"), () => toast("复制失败"));
+  else toast(t);
+}
+$("#btn-pair").onclick = () => showPair();
+$("#pair-refresh").onclick = () => loadPair();
 
 function joinRel(dir, name) {
   dir = (dir || "").replace(/^\/+|\/+$/g, "");
@@ -1449,23 +1585,33 @@ function vaultOpen(rel) {
   loadVaultList().then(renderVault);
 }
 
+function vaultChip(text, kind) { const c = $("#vault-chip"); if (!c) return; c.hidden = false; c.textContent = text; c.className = "vchip " + (kind || ""); }
+function vaultSub(html) { const s = $("#vault-sub"); if (s) s.innerHTML = html; }
+
 function renderVault() {
   const body = $("#vault-body");
   const acts = $("#vault-actions");
   body.innerHTML = ""; acts.innerHTML = "";
   const v = state.vault;
   if (!v.exists) {
-    body.innerHTML = `<div class="vault-hero"><div class="vlock">${svgIcon("lock")}</div><div><b>尚未创建保险箱</b><br><span>设置一个密码即可创建;之后存放在这里的文件不会出现在普通浏览中。</span></div></div>`;
-    const b = document.createElement("button"); b.className = "btn primary"; b.innerHTML = svgIcon("lock") + " 设置密码"; b.onclick = vaultSetup;
+    vaultChip("未创建", "off");
+    vaultSub("保险箱内容存放在<b>存储库内的隐藏目录</b>(如 H:\\NAS\\.linNasVault),普通浏览和搜索都看不到;需密码解锁后访问。");
+    body.innerHTML = `<div class="vault-hero vh-tall"><div class="vlock">${svgIcon("lock")}</div>` +
+      `<div class="vh-text"><b>还没有保险箱</b><span>设置一个密码即可创建。之后存放进来的文件不会出现在普通浏览和搜索中,只有输入密码才能访问。</span></div></div>`;
+    const b = document.createElement("button"); b.className = "btn primary"; b.innerHTML = svgIcon("lock") + " 设置保险箱密码"; b.onclick = vaultSetup;
     body.querySelector(".vault-hero").appendChild(b);
     return;
   }
   if (!v.unlocked) {
-    body.innerHTML = `<div class="vault-hero"><div class="vlock">${svgIcon("lock")}</div><div><b>保险箱已锁定</b><br><span>输入密码解锁后可查看其中的文件。</span></div></div>`;
-    const b = document.createElement("button"); b.className = "btn primary"; b.innerHTML = svgIcon("unlock") + " 解锁"; b.onclick = vaultUnlock;
+    vaultChip("已锁定", "off");
+    vaultSub("保险箱已锁定。输入密码后即可查看、上传、导出其中的文件;解锁状态在 <b>2 小时</b>后自动失效。");
+    body.innerHTML = `<div class="vault-hero vh-tall"><div class="vlock locked">${svgIcon("lock")}</div>` +
+      `<div class="vh-text"><b>保险箱已锁定</b><span>其中的文件受密码保护,不会出现在普通浏览与搜索里。点击下方解锁。</span></div></div>`;
+    const b = document.createElement("button"); b.className = "btn primary"; b.innerHTML = svgIcon("unlock") + " 解锁保险箱"; b.onclick = () => vaultUnlock();
     body.querySelector(".vault-hero").appendChild(b);
     return;
   }
+  vaultChip("已解锁", "on");
   // 已解锁:操作按钮
   const up = document.createElement("button"); up.className = "btn primary"; up.innerHTML = svgIcon("upload") + " 上传"; up.onclick = () => $("#vault-file-input").click();
   const mk = document.createElement("button"); mk.className = "btn"; mk.innerHTML = svgIcon("folder-plus") + " 新建文件夹"; mk.onclick = vaultMkdir;
@@ -1492,10 +1638,15 @@ function renderVault() {
   });
   body.appendChild(crumb);
 
+  let vTotal = 0, vFiles = 0, vDirs = 0;
+  for (const e of v.entries) { if (e.isDir) vDirs++; else { vFiles++; vTotal += (e.size || 0); } }
+  vaultSub(`已解锁 · 共 <b>${v.entries.length}</b> 项(文件夹 ${vDirs} / 文件 ${vFiles}) · 合计 <b>${fmtSize(vTotal)}</b>;解锁状态在 2 小时后自动失效。`);
+
   if (!v.entries.length) {
-    body.insertAdjacentHTML("beforeend", `<div class="vault-hero"><div class="vlock">${svgIcon("folder")}</div><div><b>这个文件夹是空的</b><br><span>点「上传」放文件,或「新建文件夹」「导入文件」。</span></div></div>`);
+    body.insertAdjacentHTML("beforeend", `<div class="vault-hero vh-tall"><div class="vlock">${svgIcon("folder")}</div><div class="vh-text"><b>这个文件夹是空的</b><span>点右上角「上传」放文件,或用「新建文件夹」「导入文件」。</span></div></div>`);
     return;
   }
+  body.insertAdjacentHTML("beforeend", `<div class="vault-stat"><span>当前文件夹 <b>${v.entries.length}</b> 项</span><span>合计 <b>${fmtSize(vTotal)}</b></span><span class="vs-tip">已解锁 · 2 小时后自动锁定</span></div>`);
   const list = document.createElement("div");
   list.className = "vault-list";
   for (const e of v.entries) {
@@ -1551,7 +1702,7 @@ async function vaultSetup() {
   } catch (e) { toast("失败: " + e.message); }
 }
 async function vaultUnlock(preset) {
-  let pw = preset;
+  let pw = (preset && typeof preset === "string") ? preset : "";
   if (!pw) { const r = await askVaultPw({ title: "解锁保险箱", hint: "输入保险箱密码。", withConfirm: false }); if (!r) return; pw = r.password; }
   try {
     const res = await api("/api/vault/unlock", { method: "POST", body: { password: pw } });
@@ -1755,6 +1906,48 @@ async function openSettings() {
   reBtn.onclick = async () => { try { await api("/api/reindex", { method: "POST", body: {} }); toast("已开始后台重建索引"); } catch (e) { toast("失败: " + e.message); } };
   idxGroup.appendChild(reBtn);
 
+  // 存储与维护:回收站保留天数 + 转码缓存上限 + 立即清理
+  const numInput = (val, min, max, w) => {
+    const i = document.createElement("input");
+    i.type = "number"; i.min = String(min); i.max = String(max); i.value = String(val);
+    i.style.cssText = "padding:6px 9px;background:var(--bg-soft);color:var(--text);border:1px solid var(--line);border-radius:8px;font:inherit;font-size:13px;width:" + (w || 90) + "px";
+    if (!isAdmin()) i.disabled = true;
+    return i;
+  };
+  const daysInput = numInput(s.trashRetentionDays != null ? s.trashRetentionDays : 30, 0, 3650, 90);
+  const daysWrap = document.createElement("div"); daysWrap.style.cssText = "display:flex;gap:8px;align-items:center";
+  daysWrap.appendChild(daysInput);
+  const daysUnit = document.createElement("span"); daysUnit.textContent = "天后自动清理(0 = 不自动清理)"; daysUnit.style.cssText = "font-size:12.5px;color:var(--muted)";
+  daysWrap.appendChild(daysUnit);
+
+  const mbInput = numInput(s.transcodeCacheMB != null ? s.transcodeCacheMB : 2048, 0, 1048576, 100);
+  const mbWrap = document.createElement("div"); mbWrap.style.cssText = "display:flex;gap:8px;align-items:center";
+  mbWrap.appendChild(mbInput);
+  const mbUnit = document.createElement("span"); mbUnit.textContent = "MB 上限,超出按最久未用淘汰(0 = 不限)"; mbUnit.style.cssText = "font-size:12.5px;color:var(--muted)";
+  mbWrap.appendChild(mbUnit);
+
+  const maintWrap = document.createElement("div"); maintWrap.style.cssText = "display:flex;gap:8px;flex-wrap:wrap";
+  const maintSave = document.createElement("button"); maintSave.className = "btn primary"; maintSave.textContent = "保存"; maintSave.disabled = !isAdmin();
+  maintSave.onclick = async () => {
+    const d = Math.max(0, Math.min(3650, parseInt(daysInput.value, 10) || 0));
+    const mb = Math.max(0, Math.min(1048576, parseInt(mbInput.value, 10) || 0));
+    try { await api("/api/settings", { method: "POST", body: { trashRetentionDays: d, transcodeCacheMB: mb } }); toast("已保存:回收站保留 " + d + " 天,转码缓存上限 " + mb + " MB"); }
+    catch (e) { toast("失败: " + e.message); }
+  };
+  const cleanNow = document.createElement("button"); cleanNow.className = "btn"; cleanNow.textContent = "立即清理";
+  cleanNow.onclick = async () => {
+    try {
+      const r = await api("/api/maintenance/cleanup", { method: "POST", body: {} });
+      toast(`已清理:回收站 ${r.trashRemoved} 项,转码缓存 ${r.transcodeRemoved} 个(释放 ${(r.freedMB || 0).toFixed(1)} MB)`);
+    } catch (e) { toast("失败: " + e.message); }
+  };
+  maintWrap.appendChild(maintSave); maintWrap.appendChild(cleanNow);
+  group("存储与维护", [
+    row("回收站", daysWrap),
+    row("转码缓存", mbWrap),
+    row("维护", maintWrap),
+  ]);
+
   // 外观
   const themeSeg = document.createElement("div"); themeSeg.className = "seg";
   [["system", "跟随系统"], ["dark", "深色"], ["light", "浅色"]].forEach(([val, label]) => {
@@ -1862,6 +2055,60 @@ async function openSettings() {
     row("托盘常驻", "开机自启后以托盘方式后台运行,随时双击图标打开"),
     row("打开", rmBtn),
   ]);
+
+  // 网络唤醒(Wake-on-LAN)
+  const wolInputCss = "padding:6px 9px;background:var(--bg-soft);color:var(--text);border:1px solid var(--line);border-radius:8px;font:inherit;font-size:13px";
+  const wolWrap = document.createElement("div");
+  wolWrap.style.cssText = "display:flex;flex-direction:column;gap:8px;min-width:280px";
+  const wolList = document.createElement("div");
+  wolList.style.cssText = "display:flex;flex-direction:column;gap:6px";
+  wolWrap.appendChild(wolList);
+  const renderWol = (hosts) => {
+    wolList.innerHTML = "";
+    if (!hosts.length) {
+      const e = document.createElement("div");
+      e.textContent = isAdm ? "还没有添加主机,可在下方添加" : "还没有添加主机";
+      e.style.cssText = "font-size:12.5px;color:var(--muted)";
+      wolList.appendChild(e); return;
+    }
+    hosts.forEach((h) => {
+      const rowEl = document.createElement("div");
+      rowEl.style.cssText = "display:flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg-soft)";
+      const nm = document.createElement("span"); nm.textContent = h.name;
+      nm.style.cssText = "flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px";
+      rowEl.appendChild(nm);
+      const macEl = document.createElement("span"); macEl.textContent = h.mac;
+      macEl.style.cssText = "font-size:11.5px;color:var(--faint);font-family:var(--font-mono)";
+      rowEl.appendChild(macEl);
+      if (isAdm) {
+        const wake = document.createElement("button"); wake.className = "btn sm primary"; wake.textContent = "唤醒";
+        wake.onclick = async () => { try { await api("/api/wol/send", { method: "POST", body: { mac: h.mac } }); toast("已发送唤醒包到 " + h.name); } catch (e) { toast("失败: " + e.message); } };
+        rowEl.appendChild(wake);
+        const del = document.createElement("button"); del.className = "btn sm del"; del.textContent = "删除";
+        del.onclick = async () => { try { await api("/api/wol?id=" + enc(h.id), { method: "DELETE" }); toast("已删除"); loadWol(); } catch (e) { toast("失败: " + e.message); } };
+        rowEl.appendChild(del);
+      }
+      wolList.appendChild(rowEl);
+    });
+  };
+  const loadWol = async () => { try { const r = await api("/api/wol"); renderWol(r.hosts || []); } catch (e) { renderWol([]); } };
+  if (isAdm) {
+    const addWrap = document.createElement("div"); addWrap.style.cssText = "display:flex;gap:8px;flex-wrap:wrap;align-items:center";
+    const nameIn = document.createElement("input"); nameIn.placeholder = "名称(如 客厅电脑)"; nameIn.style.cssText = wolInputCss + ";width:130px";
+    const macIn = document.createElement("input"); macIn.placeholder = "MAC 地址"; macIn.style.cssText = wolInputCss + ";width:150px";
+    const addBtn = document.createElement("button"); addBtn.className = "btn primary"; addBtn.textContent = "添加";
+    addBtn.onclick = async () => {
+      try { await api("/api/wol", { method: "POST", body: { name: nameIn.value, mac: macIn.value } }); nameIn.value = ""; macIn.value = ""; toast("已添加主机"); loadWol(); }
+      catch (e) { toast("失败: " + e.message); }
+    };
+    addWrap.appendChild(nameIn); addWrap.appendChild(macIn); addWrap.appendChild(addBtn);
+    wolWrap.appendChild(addWrap);
+  }
+  loadWol();
+  group("网络唤醒 (Wake-on-LAN)", [
+    row("说明", "记录主机的 MAC,一键发送唤醒包(需在目标机 BIOS/网卡开启 Wake-on-LAN)"),
+    row("主机", wolWrap),
+  ]);
 }
 
 /* ============================================================ 存入保险箱 / 批量导入 */
@@ -1880,6 +2127,141 @@ $("#btn-sel-vault").onclick = async () => {
   clearSelection();
 };
 function vaultImport() { /* 兼容占位:改用 vaultImportFiles / 存入保险箱 */ }
+
+/* ============================================================ 音乐播放器 */
+const musicState = { list: [], index: -1, playing: false, rot: 0, timer: null };
+
+function fmtClock(sec) {
+  sec = Math.max(0, Math.floor(sec || 0));
+  return Math.floor(sec / 60) + ":" + String(sec % 60).padStart(2, "0");
+}
+function musicAudio() { return $("#music-audio"); }
+
+function startRotation() {
+  if (musicState.timer) return;
+  musicState.timer = setInterval(() => {
+    musicState.rot = (musicState.rot + 1) % 360;
+    const disc = $("#music-disc");
+    if (disc) disc.style.transform = "rotate(" + musicState.rot + "deg)";
+  }, 50);
+}
+function stopRotation() { if (musicState.timer) { clearInterval(musicState.timer); musicState.timer = null; } }
+
+function setMusicPlaying(playing) {
+  musicState.playing = playing;
+  const btn = $("#music-play");
+  if (btn) btn.textContent = playing ? "⏸" : "▶";
+  if (playing) startRotation(); else stopRotation();
+}
+
+async function loadMusic() {
+  const ul = $("#music-list");
+  if (ul) ul.innerHTML = '<li class="music-empty">加载中…</li>';
+  try {
+    const items = await api("/api/media?type=audio&sort=name&limit=500&offset=0");
+    musicState.list = items || [];
+    renderMusicList();
+  } catch (e) {
+    if (ul) ul.innerHTML = '<li class="music-empty">加载失败: ' + e.message + '</li>';
+  }
+}
+
+function renderMusicList() {
+  const ul = $("#music-list");
+  if (!ul) return;
+  $("#music-count").textContent = musicState.list.length ? musicState.list.length + " 首" : "";
+  ul.innerHTML = "";
+  if (!musicState.list.length) { ul.innerHTML = '<li class="music-empty">暂无音乐文件(索引建好后才有)</li>'; return; }
+  musicState.list.forEach((it, i) => {
+    const li = document.createElement("li");
+    if (i === musicState.index) li.className = "playing";
+    li.innerHTML = '<span class="ml-idx"></span><span class="ml-main"><span class="ml-name"></span><span class="ml-sub"></span></span>';
+    li.querySelector(".ml-idx").textContent = (i === musicState.index && musicState.playing) ? "♪" : String(i + 1);
+    li.querySelector(".ml-name").textContent = it.name;
+    li.querySelector(".ml-sub").textContent = fmtSize(it.size) + (it.modTime ? " · " + fmtTime(it.modTime) : "");
+    li.onclick = () => playMusic(i);
+    ul.appendChild(li);
+  });
+}
+
+function initMusicTrack() {
+  const it = musicState.list[musicState.index];
+  if (!it) return;
+  const a = musicAudio();
+  $("#music-title").textContent = it.name.replace(/\.[^.]+$/, "");
+  let artist = (it.path || "").replace(/\/[^/]*$/, "");
+  if (/^\/[^/]*$/.test(artist)) artist = ""; // 库根目录不显示为歌手
+  $("#music-artist").textContent = artist;
+  a.src = apiUrl("/api/raw?vpath=" + enc(it.path));
+  const seek = $("#music-seek");
+  seek.max = "100"; seek.value = 0;
+  $("#music-cur").textContent = "0:00";
+  $("#music-dur").textContent = "0:00";
+  renderMusicList();
+}
+
+async function playMusic(i) {
+  musicState.index = i;
+  initMusicTrack();
+  const a = musicAudio();
+  try { await a.play(); setMusicPlaying(true); }
+  catch (e) { setMusicPlaying(false); toast("无法播放: " + (e && e.message ? e.message : e)); }
+}
+
+function toggleMusic() {
+  const a = musicAudio();
+  if (!musicState.list.length) { loadMusic(); return; }
+  if (musicState.index < 0) { playMusic(0); return; }
+  if (a.paused) { a.play().then(() => setMusicPlaying(true)).catch((e) => toast("无法播放: " + e.message)); }
+  else { a.pause(); setMusicPlaying(false); }
+}
+
+function musicStep(delta) {
+  const n = musicState.list.length;
+  if (!n) return;
+  playMusic((musicState.index + delta + n) % n);
+}
+
+$("#btn-music").onclick = () => { showMusic(); loadMusic(); };
+$("#music-play").onclick = toggleMusic;
+$("#music-prev").onclick = () => musicStep(-1);
+$("#music-next").onclick = () => musicStep(1);
+(function bindMusicAudio() {
+  const a = $("#music-audio");
+  if (!a) return;
+  a.addEventListener("loadedmetadata", () => {
+    const d = isFinite(a.duration) ? a.duration : 0;
+    $("#music-seek").max = String(d || 100);
+    $("#music-dur").textContent = fmtClock(d);
+  });
+  a.addEventListener("timeupdate", () => {
+    if (!a.paused) {
+      $("#music-seek").value = String(a.currentTime || 0);
+      $("#music-cur").textContent = fmtClock(a.currentTime);
+    }
+  });
+  a.addEventListener("ended", () => {
+    if (musicState.list.length > 1) musicStep(1);
+    else setMusicPlaying(false);
+  });
+  a.addEventListener("play", () => setMusicPlaying(true));
+  a.addEventListener("pause", () => setMusicPlaying(false));
+})();
+(function bindMusicSeek() {
+  const seek = $("#music-seek");
+  if (!seek) return;
+  seek.addEventListener("input", () => {
+    const a = musicAudio();
+    if (isFinite(a.duration)) $("#music-cur").textContent = fmtClock(seek.value);
+  });
+  seek.addEventListener("change", () => {
+    const a = musicAudio();
+    const t = parseFloat(seek.value) || 0;
+    if (isFinite(a.duration)) a.currentTime = t;
+    if (musicState.playing) a.play().catch(() => {});
+  });
+})();
+window.addEventListener("beforeunload", () => stopRotation());
 
 /* ============================================================ 媒体库 */
 $("#btn-media").onclick = () => { showMedia(); state.mediaOffset = 0; loadMedia(true); };
@@ -2307,6 +2689,78 @@ $("#btn-um-pw").onclick = async () => {
     toast("密码已修改");
   } catch (e) { toast("失败: " + e.message); }
 };
+
+/* ---------- 活跃会话板 ---------- */
+function fmtRel(ts) {
+  if (!ts) return "—";
+  const diff = Math.floor(Date.now() / 1000) - ts;
+  if (diff < 60) return "刚刚";
+  if (diff < 3600) return Math.floor(diff / 60) + " 分钟前";
+  if (diff < 86400) return Math.floor(diff / 3600) + " 小时前";
+  return fmtTime(ts);
+}
+$("#btn-um-sessions").onclick = () => { $("#usermenu").hidden = true; openSessionsDialog(); };
+$("#btn-sessions-close").onclick = () => $("#dlg-sessions").close();
+async function openSessionsDialog() {
+  const box = $("#session-list");
+  box.innerHTML = '<div class="pempty">加载中…</div>';
+  $("#dlg-sessions").showModal();
+  await loadSessions();
+}
+async function loadSessions() {
+  const box = $("#session-list");
+  let list = [];
+  try {
+    const r = await api("/api/auth/sessions");
+    list = r.sessions || [];
+  } catch (e) {
+    box.innerHTML = '<div class="pempty">加载失败:' + (e.message || "未知错误") + "</div>";
+    return;
+  }
+  if (!list.length) { box.innerHTML = '<div class="pempty">没有活跃会话</div>'; return; }
+  const roleTxt = { admin: "管理员", user: "普通用户", viewer: "只读用户" };
+  const isMobile = /mobile|android|iphone|ipad|harmonyos/i.test(navigator.userAgent);
+  box.innerHTML = "";
+  for (const s of list) {
+    const row = document.createElement("div");
+    row.className = "session-row" + (s.current ? " current" : "");
+    const ic = document.createElement("span");
+    ic.className = "sess-ic";
+    ic.innerHTML = svgIcon(isMobile ? "smartphone" : "monitor");
+    const main = document.createElement("div");
+    main.className = "sess-main";
+    const name = document.createElement("b");
+    name.textContent = s.username || "—";
+    const role = document.createElement("span");
+    role.className = "sess-role";
+    role.textContent = roleTxt[s.role] || s.role || "";
+    const sub = document.createElement("div");
+    sub.className = "sess-sub";
+    sub.textContent = (s.ip || "—") + " · 最近活动 " + fmtRel(s.lastSeen);
+    main.append(name, document.createTextNode(" "), role, sub);
+    row.append(ic, main);
+    if (s.current) {
+      const tag = document.createElement("span");
+      tag.className = "sess-tag";
+      tag.textContent = "当前";
+      row.appendChild(tag);
+    } else {
+      const b = document.createElement("button");
+      b.className = "btn ghost sm";
+      b.textContent = "踢出";
+      b.onclick = async () => {
+        b.disabled = true;
+        try {
+          await api("/api/auth/revoke", { method: "POST", body: { id: s.id } });
+          toast("已踢出该会话");
+          await loadSessions();
+        } catch (e) { toast("失败: " + e.message); b.disabled = false; }
+      };
+      row.appendChild(b);
+    }
+    box.appendChild(row);
+  }
+}
 
 /* ---------- 用户管理 ---------- */
 async function openUsersDialog() {

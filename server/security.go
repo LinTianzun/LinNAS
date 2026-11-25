@@ -23,6 +23,7 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -50,20 +51,50 @@ type Session struct {
 	UserID   string
 	Username string
 	Role     string
+	IP       string
 	Created  int64
 	LastSeen int64
+}
+
+// 登录防爆破:按「用户名 + 来源 IP」统计连续失败次数,超过阈值后指数退避锁定。
+const (
+	bruteMaxFails = 5                // 连续失败多少次后开始锁定
+	bruteBaseLock = 30 * time.Second // 首次锁定时长,之后每次翻倍
+	bruteMaxLock  = 15 * time.Minute // 单次锁定上限
+	bruteIdleGC   = time.Hour        // 超过这么久没有新失败的记录可以清理
+)
+
+// bruteState 记录一个「用户名 + IP」的连续登录失败情况。
+type bruteState struct {
+	fails     int
+	lockUntil time.Time
+	last      time.Time
+}
+
+// LockoutError 表示登录被临时锁定。
+type LockoutError struct {
+	RetryAfter int // 剩余秒数
+}
+
+func (e *LockoutError) Error() string {
+	return fmt.Sprintf("尝试次数过多,请在 %d 秒后重试", e.RetryAfter)
 }
 
 type authStore struct {
 	mu       sync.Mutex
 	users    []User
 	sessions map[string]*Session
+	fails    map[string]*bruteState
 	path     string
 	idle     time.Duration
 }
 
 func newAuthStore(dataDir string, idleMinutes int) *authStore {
-	a := &authStore{sessions: map[string]*Session{}, path: filepath.Join(dataDir, "users.json")}
+	a := &authStore{
+		sessions: map[string]*Session{},
+		fails:    map[string]*bruteState{},
+		path:     filepath.Join(dataDir, "users.json"),
+	}
 	if idleMinutes <= 0 {
 		idleMinutes = 30
 	}
@@ -254,24 +285,88 @@ func (a *authStore) List() []map[string]any {
 	return out
 }
 
-func (a *authStore) Login(username, pw string) (*Session, error) {
+// Login 校验用户名密码并创建会话。ip 用于登录防爆破计数。
+func (a *authStore) Login(username, pw, ip string) (*Session, error) {
+	key := bruteKey(username, ip)
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if st := a.fails[key]; st != nil && time.Now().Before(st.lockUntil) {
+		return nil, &LockoutError{RetryAfter: int(time.Until(st.lockUntil).Seconds()) + 1}
+	}
 	s, ok := a.authenticateLocked(username, pw)
 	if !ok {
+		a.noteFailLocked(key)
+		if st := a.fails[key]; st != nil && time.Now().Before(st.lockUntil) {
+			return nil, &LockoutError{RetryAfter: int(time.Until(st.lockUntil).Seconds()) + 1}
+		}
 		return nil, fmt.Errorf("用户名或密码错误")
 	}
+	delete(a.fails, key)
 	s.Token = randHex(24)
+	s.IP = ip
 	s.Created = time.Now().Unix()
 	s.LastSeen = s.Created
 	a.sessions[s.Token] = s
 	return s, nil
 }
 
-func (a *authStore) Authenticate(username, pw string) (*Session, bool) {
+// Authenticate 只校验凭据、不创建会话(WebDAV Basic 认证用)。
+func (a *authStore) Authenticate(username, pw, ip string) (*Session, bool) {
+	key := bruteKey(username, ip)
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.authenticateLocked(username, pw)
+	if st := a.fails[key]; st != nil && time.Now().Before(st.lockUntil) {
+		return nil, false
+	}
+	s, ok := a.authenticateLocked(username, pw)
+	if !ok {
+		a.noteFailLocked(key)
+		return nil, false
+	}
+	delete(a.fails, key)
+	return s, true
+}
+
+// bruteKey 拼出「用户名 + IP」计数键(用户名不区分大小写,避免绕过)。
+func bruteKey(username, ip string) string {
+	return strings.ToLower(strings.TrimSpace(username)) + "\x00" + strings.TrimSpace(ip)
+}
+
+// noteFailLocked 记录一次失败并按需锁定(调用方需持有 a.mu)。
+func (a *authStore) noteFailLocked(key string) {
+	now := time.Now()
+	// 顺带清理长时间无活动的记录,避免 map 无限增长
+	for k, st := range a.fails {
+		if now.Sub(st.last) > bruteIdleGC && now.After(st.lockUntil) {
+			delete(a.fails, k)
+		}
+	}
+	st := a.fails[key]
+	if st == nil {
+		st = &bruteState{}
+		a.fails[key] = st
+	}
+	st.fails++
+	st.last = now
+	if st.fails >= bruteMaxFails {
+		over := st.fails - bruteMaxFails
+		lock := bruteBaseLock << uint(over) // 30s, 60s, 120s ... 指数退避
+		if lock > bruteMaxLock || lock <= 0 {
+			lock = bruteMaxLock
+		}
+		st.lockUntil = now.Add(lock)
+	}
+}
+
+// LockRemaining 返回某「用户名 + IP」还要等多少秒才能再试(0 = 未锁定)。
+func (a *authStore) LockRemaining(username, ip string) int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st := a.fails[bruteKey(username, ip)]
+	if st == nil || time.Now().After(st.lockUntil) {
+		return 0
+	}
+	return int(time.Until(st.lockUntil).Seconds()) + 1
 }
 
 func (a *authStore) authenticateLocked(username, pw string) (*Session, bool) {
@@ -309,6 +404,75 @@ func (a *authStore) Logout(tok string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	delete(a.sessions, tok)
+}
+
+// SessionInfo 是「活跃会话」列表里的一行(不暴露完整 token)。
+type SessionInfo struct {
+	ID       string `json:"id"` // token 前 6 位,用于吊销
+	UserID   string `json:"userId"`
+	Username string `json:"username"`
+	Role     string `json:"role"`
+	IP       string `json:"ip"`
+	Created  int64  `json:"created"`
+	LastSeen int64  `json:"lastSeen"`
+	Current  bool   `json:"current"`
+}
+
+// Sessions 列出当前活跃会话(闲置超时的会顺带清掉)。callerToken 用于标记「当前会话」。
+func (a *authStore) Sessions(callerToken string) []SessionInfo {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	now := time.Now()
+	out := make([]SessionInfo, 0, len(a.sessions))
+	for tok, s := range a.sessions {
+		if now.Sub(time.Unix(s.LastSeen, 0)) > a.idle {
+			delete(a.sessions, tok)
+			continue
+		}
+		info := SessionInfo{
+			ID: tok[:6], UserID: s.UserID, Username: s.Username, Role: s.Role,
+			IP: s.IP, Created: s.Created, LastSeen: s.LastSeen, Current: tok == callerToken,
+		}
+		if u := a.findByID(s.UserID); u != nil {
+			info.Username = u.Username
+			info.Role = u.Role
+		}
+		out = append(out, info)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].LastSeen > out[j].LastSeen })
+	return out
+}
+
+// Revoke 按 token 前缀吊销会话。非管理员只能吊销自己名下的会话。
+// 返回被吊销的会话数量。
+func (a *authStore) Revoke(idPrefix string, caller *Session) (int, error) {
+	idPrefix = strings.TrimSpace(idPrefix)
+	if len(idPrefix) < 6 {
+		return 0, fmt.Errorf("会话标识无效")
+	}
+	isAdmin := caller != nil && caller.Role == "admin"
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	removed := 0
+	denied := false
+	for tok, s := range a.sessions {
+		if !strings.HasPrefix(tok, idPrefix) {
+			continue
+		}
+		if !isAdmin && (caller == nil || s.UserID != caller.UserID) {
+			denied = true
+			continue
+		}
+		delete(a.sessions, tok)
+		removed++
+	}
+	if removed == 0 {
+		if denied {
+			return 0, fmt.Errorf("只能吊销自己的会话")
+		}
+		return 0, fmt.Errorf("未找到该会话")
+	}
+	return removed, nil
 }
 
 func (a *authStore) IdleMinutes() int {
@@ -407,6 +571,9 @@ func (l *auditLog) Recent(limit int) []AuditEntry {
 
 var auditActions = []struct{ prefix, action string }{
 	{"/api/users", "用户管理"},
+	{"/api/auth/revoke", "吊销会话"},
+	{"/api/maintenance/cleanup", "维护清理"},
+	{"/api/wol", "网络唤醒"},
 	{"/api/shares", "分享"},
 	{"/api/libs/update", "编辑存储库"},
 	{"/api/libs", "存储库"},
@@ -629,10 +796,17 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "请求格式错误")
 		return
 	}
-	sess, err := s.auth.Login(req.Username, req.Password)
+	sess, err := s.auth.Login(req.Username, req.Password, clientIP(r))
 	if err != nil {
-		s.audit.Add(AuditEntry{Time: time.Now().Unix(), User: strings.TrimSpace(req.Username), IP: clientIP(r), Action: "登录失败", Method: "POST", Path: "/api/auth/login", Status: 401})
-		writeErr(w, 401, err.Error())
+		status := http.StatusUnauthorized
+		action := "登录失败"
+		if le, ok := err.(*LockoutError); ok {
+			status = http.StatusTooManyRequests
+			action = "登录锁定"
+			w.Header().Set("Retry-After", strconv.Itoa(le.RetryAfter))
+		}
+		s.audit.Add(AuditEntry{Time: time.Now().Unix(), User: strings.TrimSpace(req.Username), IP: clientIP(r), Action: action, Method: "POST", Path: "/api/auth/login", Status: status})
+		writeErr(w, status, err.Error())
 		return
 	}
 	s.audit.Add(AuditEntry{Time: time.Now().Unix(), User: sess.Username, IP: clientIP(r), Action: "登录", Method: "POST", Path: "/api/auth/login", Status: 200})
@@ -640,6 +814,33 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		"token": sess.Token, "username": sess.Username, "role": sess.Role,
 		"idleLockMinutes": s.auth.IdleMinutes(), "expiresIn": int(s.auth.idle / time.Second),
 	})
+}
+
+// handleAuthSessions GET /api/auth/sessions  当前活跃会话列表
+func (s *Server) handleAuthSessions(w http.ResponseWriter, r *http.Request) {
+	tok := r.Header.Get("X-Token")
+	if tok == "" {
+		tok = r.URL.Query().Get("token")
+	}
+	writeJSON(w, 200, map[string]any{"sessions": s.auth.Sessions(tok)})
+}
+
+// handleAuthRevoke POST /api/auth/revoke {id}  吊销某个会话(非管理员仅限本人)
+func (s *Server) handleAuthRevoke(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeErr(w, 400, "请求格式错误")
+		return
+	}
+	caller := userFrom(r)
+	n, err := s.auth.Revoke(req.ID, caller)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "count": n})
 }
 
 func (s *Server) handleAuthMe(w http.ResponseWriter, r *http.Request) {

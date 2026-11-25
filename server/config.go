@@ -3,7 +3,7 @@ package main
 import "fmt"
 
 // Version of linNas server.
-const Version = "1.6.0"
+const Version = "1.7.0"
 
 // DefaultPort is the port linNas listens on by default.
 const DefaultPort = 52700
@@ -18,7 +18,20 @@ type Config struct {
 	Libraries []Library // registered storage libraries
 	// IdleLockMinutes 会话闲置多少分钟后自动锁定(需重新登录),默认 30。
 	IdleLockMinutes int `json:"idleLockMinutes,omitempty"`
+	// TrashRetentionDays 回收站保留天数,超过后自动清理;0 = 不自动清理。默认 30。
+	// 刻意不加 omitempty:0(关闭)也需要能持久化。
+	TrashRetentionDays int `json:"trashRetentionDays"`
+	// TranscodeCacheMB 转码缓存上限(MB),超出按最久未用淘汰;0 = 不限制。默认 2048。
+	TranscodeCacheMB int `json:"transcodeCacheMB"`
+	// WolHosts 记住的 Wake-on-LAN 主机列表。
+	WolHosts []WolHost `json:"wolHosts,omitempty"`
 }
+
+// 默认值(0 表示用户显式关闭,与「未设置」区分)。
+const (
+	defaultTrashRetentionDays = 30
+	defaultTranscodeCacheMB   = 2048
+)
 
 // Library is one registered storage location (e.g. H:\, I:\).
 type Library struct {

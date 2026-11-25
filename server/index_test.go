@@ -81,6 +81,7 @@ func TestScanLibSkipsHiddenAndExcludedPaths(t *testing.T) {
 	vaultDir := filepath.Join(root, ".linNasVault")
 	trashDir := filepath.Join(root, ".linNasTrash")
 	excludedDir := filepath.Join(root, "excluded")
+	sysDir := filepath.Join(root, "$RECYCLE.BIN")
 	for _, dir := range []string{vaultDir, trashDir, excludedDir} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
@@ -88,6 +89,13 @@ func TestScanLibSkipsHiddenAndExcludedPaths(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "hidden.txt"), []byte("hidden"), 0o644); err != nil {
 			t.Fatal(err)
 		}
+	}
+	// 系统回收站目录应被整棵跳过(真实环境里通常无访问权限)
+	if err := os.MkdirAll(filepath.Join(sysDir, "S-1-5-21"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sysDir, "S-1-5-21", "deleted.dat"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 	for _, name := range []string{"visible.txt", "unfinished.part"} {
 		if err := os.WriteFile(filepath.Join(root, name), []byte("file"), 0o644); err != nil {
@@ -102,7 +110,7 @@ func TestScanLibSkipsHiddenAndExcludedPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, hidden := range []string{"hidden.txt", "unfinished.part"} {
+	for _, hidden := range []string{"hidden.txt", "unfinished.part", "deleted.dat"} {
 		hits, err := ix.Search(hidden, "lib1", 10)
 		if err != nil {
 			t.Fatal(err)

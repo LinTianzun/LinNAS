@@ -6,6 +6,15 @@ import (
 	"strconv"
 )
 
+// indexUpdate 挂接一次增量索引更新(后台执行,索引不可用时为 no-op)。
+// 文件被移动/改名/删除/上传/恢复/保险箱导入导出/WebDAV 写操作后调用。
+func (s *Server) indexUpdate(changes ...IndexChange) {
+	if s.index == nil || len(changes) == 0 {
+		return
+	}
+	s.index.UpdatePaths(s.cfg, changes...)
+}
+
 // filterHits 只保留当前确实存在于存储库所选路径内、且不属于保险箱的条目,
 // 防止索引里残留的旧路径(例如库路径改小前扫到的整盘文件)混进结果。
 func (s *Server) filterHits(hits []IndexHit) []IndexHit {

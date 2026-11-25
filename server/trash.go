@@ -16,14 +16,14 @@ import (
 // ============================================================
 
 type trashItem struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	OrigPath string `json:"origPath"` // 原始位置(绝对路径)
-	LibID    string `json:"libId"`
-	Size     int64  `json:"size"`
-	ModTime  int64  `json:"modTime"`
-	IsDir    bool   `json:"isDir"`
-	TrashedAt int64 `json:"trashedAt"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	OrigPath  string `json:"origPath"` // 原始位置(绝对路径)
+	LibID     string `json:"libId"`
+	Size      int64  `json:"size"`
+	ModTime   int64  `json:"modTime"`
+	IsDir     bool   `json:"isDir"`
+	TrashedAt int64  `json:"trashedAt"`
 }
 
 // trashDirFor returns the trash folder of a library (inside the library root).
@@ -222,6 +222,7 @@ func (s *Server) handleTrashRestore(w http.ResponseWriter, r *http.Request) {
 			_ = os.RemoveAll(src)
 		}
 		_ = os.Remove(trashMetaPath(td, it.ID))
+		s.indexUpdate(IndexChange{Add: VirtualPath(lib, dst)})
 		writeJSON(w, 200, map[string]string{"restored": dst})
 		return
 	}
@@ -276,4 +277,29 @@ func (s *Server) handleTrashEmpty(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, 200, map[string]int{"count": count})
+}
+
+// cleanTrashByAge 删除回收站里 TrashedAt 早于 days 天的条目,返回清理数量。
+// days <= 0 时不做任何事(表示关闭自动清理)。
+func (s *Server) cleanTrashByAge(days int) int {
+	if days <= 0 {
+		return 0
+	}
+	cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour).Unix()
+	removed := 0
+	for _, lib := range s.cfg.Libraries {
+		td := trashDirForLib(lib)
+		if td == "" {
+			continue
+		}
+		for _, it := range s.listTrash(lib.ID) {
+			if it.TrashedAt == 0 || it.TrashedAt > cutoff {
+				continue
+			}
+			_ = os.RemoveAll(filepath.Join(td, it.ID+"__"+it.Name))
+			_ = os.Remove(trashMetaPath(td, it.ID))
+			removed++
+		}
+	}
+	return removed
 }

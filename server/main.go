@@ -114,6 +114,8 @@ func main() {
 	// UDP 局域网发现(应答 + 周期广播),作为 mDNS 的兜底:部分 Windows 环境
 	// 无法绑定 5353,广播能在同网段可靠送达。
 	srv.startDiscovery()
+	// 后台维护:回收站自动清理 + 转码缓存淘汰 + 过期保险箱会话清理
+	srv.startHousekeeping()
 
 	addr := srv.ListenAddr()
 	httpSrv := &http.Server{

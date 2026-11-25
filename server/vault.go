@@ -34,6 +34,21 @@ type vaultState struct {
 
 var vault = &vaultState{sessions: map[string]int64{}}
 
+// pruneVaultSessions 清理已过期的保险箱解锁会话,返回清理数量。
+func pruneVaultSessions() int {
+	now := time.Now().Unix()
+	vault.mu.Lock()
+	defer vault.mu.Unlock()
+	removed := 0
+	for tok, exp := range vault.sessions {
+		if exp < now {
+			delete(vault.sessions, tok)
+			removed++
+		}
+	}
+	return removed
+}
+
 type vaultConfig struct {
 	Salt string `json:"salt"`
 	Hash string `json:"hash"` // pbkdf2 派生密钥的 hex
@@ -495,6 +510,7 @@ func (s *Server) handleVaultImport(w http.ResponseWriter, r *http.Request) {
 	}
 	count := 0
 	errs := []string{}
+	var indexChanges []IndexChange
 	for _, vp := range req.VPaths {
 		lib, abs, rerr := s.cfg.Resolve(vp)
 		if rerr != nil {
@@ -523,8 +539,10 @@ func (s *Server) handleVaultImport(w http.ResponseWriter, r *http.Request) {
 			}
 			_ = os.RemoveAll(abs)
 		}
+		indexChanges = append(indexChanges, IndexChange{Remove: vp})
 		count++
 	}
+	s.indexUpdate(indexChanges...)
 	writeJSON(w, 200, map[string]any{"ok": len(errs) == 0, "count": count, "errors": errs})
 }
 
@@ -559,6 +577,7 @@ func (s *Server) handleVaultExport(w http.ResponseWriter, r *http.Request) {
 	list := append(append([]string{}, req.Paths...), req.Names...)
 	count := 0
 	errs := []string{}
+	var indexChanges []IndexChange
 	for _, rel := range list {
 		src, err := s.vaultAbs(rel)
 		if err != nil || src == filepath.Clean(s.vaultDir()) {
@@ -580,7 +599,9 @@ func (s *Server) handleVaultExport(w http.ResponseWriter, r *http.Request) {
 			}
 			_ = os.RemoveAll(src)
 		}
+		indexChanges = append(indexChanges, IndexChange{Add: VirtualPath(lib, dst)})
 		count++
 	}
+	s.indexUpdate(indexChanges...)
 	writeJSON(w, 200, map[string]any{"ok": len(errs) == 0, "count": count, "errors": errs})
 }

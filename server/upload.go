@@ -318,6 +318,7 @@ func (s *Server) handleUploadComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.uploads.remove(sess)
+	s.indexUpdate(IndexChange{Add: VirtualPath(lib, sess.DestAbs)})
 	writeJSON(w, 200, map[string]string{
 		"vpath": VirtualPath(lib, sess.DestAbs),
 		"name":  filepath.Base(sess.DestAbs),

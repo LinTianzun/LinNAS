@@ -100,6 +100,8 @@ func NewServer(cfg *Config) *Server {
 	api.HandleFunc("POST /api/auth/login", s.handleAuthLogin)
 	api.HandleFunc("GET /api/auth/me", s.handleAuthMe)
 	api.HandleFunc("POST /api/auth/logout", s.handleAuthLogout)
+	api.HandleFunc("GET /api/auth/sessions", s.handleAuthSessions)
+	api.HandleFunc("POST /api/auth/revoke", s.handleAuthRevoke)
 	api.HandleFunc("GET /api/users", s.handleUsersList)
 	api.HandleFunc("POST /api/users", s.handleUsersCreate)
 	api.HandleFunc("DELETE /api/users", s.handleUsersDelete)
@@ -121,6 +123,26 @@ func NewServer(cfg *Config) *Server {
 	api.HandleFunc("POST /api/trash/restore", s.handleTrashRestore)
 	api.HandleFunc("POST /api/trash/delete", s.handleTrashDelete)
 	api.HandleFunc("POST /api/trash/empty", s.handleTrashEmpty)
+
+	// 维护(立即清理回收站/转码缓存,管理员)
+	api.HandleFunc("POST /api/maintenance/cleanup", s.handleMaintenanceCleanup)
+
+	// 打包下载(文件夹/多选 → zip 流)
+	api.HandleFunc("GET /api/zip", s.handleZip)
+
+	// Wake-on-LAN 网络唤醒
+	api.HandleFunc("GET /api/wol", s.handleWolList)
+	api.HandleFunc("POST /api/wol", s.handleWolAdd)
+	api.HandleFunc("DELETE /api/wol", s.handleWolDelete)
+	api.HandleFunc("POST /api/wol/send", s.handleWolSend)
+
+	// 移动热点(手机不在同一网络时,由电脑开热点让手机接入)
+	api.HandleFunc("GET /api/hotspot", s.handleHotspotStatus)
+	api.HandleFunc("POST /api/hotspot", s.handleHotspotAction)
+	// 任意文本二维码(热点 Wi-Fi 扫码加入等)
+	api.HandleFunc("GET /api/qr", s.handleQRText)
+	// 在服务端所在电脑打开系统设置页
+	api.HandleFunc("POST /api/system/open", s.handleOpenSettings)
 
 	s.mux.Handle("/api/", s.withToken(s.auditLog(s.recordDevice(s.logRequests(api)))))
 	s.mux.Handle("/dav/", s.withWebDAVAuth(s.auditWebDAV(s.recordDevice(s.logRequests(http.HandlerFunc(s.handleWebDAV))))))
@@ -240,6 +262,14 @@ func (s *Server) authorize(sess *Session, r *http.Request) bool {
 	if (p == "/api/remote/serve" || p == "/api/autostart") && m != "GET" {
 		return false
 	}
+	// 维护操作(清理回收站/转码缓存)仅管理员
+	if p == "/api/maintenance/cleanup" {
+		return false
+	}
+	// Wake-on-LAN 的增删与发送属于系统级操作,仅管理员
+	if strings.HasPrefix(p, "/api/wol") && m != "GET" {
+		return false
+	}
 	// 只读角色禁止一切写操作(读、登录、退出、解锁除外)
 	if role == "viewer" && (m == "POST" || m == "DELETE") {
 		switch {
@@ -355,7 +385,7 @@ func (s *Server) handleAddLib(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.index != nil {
-		s.index.ScanAll(s.cfg)
+		s.index.RescanLib(s.cfg, lib.ID)
 	}
 	writeJSON(w, 200, lib)
 }
@@ -394,7 +424,7 @@ func (s *Server) handleRemoveLib(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.index != nil {
-		s.index.ScanAll(s.cfg)
+		s.index.RemoveLibRows(id)
 	}
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }
@@ -526,6 +556,7 @@ func (s *Server) handleMkdir(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "创建目录失败: "+err.Error())
 		return
 	}
+	s.indexUpdate(IndexChange{Add: req.VPath})
 	writeJSON(w, 200, map[string]string{"vpath": req.VPath})
 }
 
@@ -564,7 +595,9 @@ func (s *Server) handleRename(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "重命名失败: "+err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]string{"vpath": JoinVirtual(DirVirtual(req.VPath), req.NewName)})
+	newVPath := JoinVirtual(DirVirtual(req.VPath), req.NewName)
+	s.indexUpdate(IndexChange{Remove: req.VPath}, IndexChange{Add: newVPath})
+	writeJSON(w, 200, map[string]string{"vpath": newVPath})
 }
 
 func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
@@ -617,5 +650,6 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "删除失败: "+derr.Error())
 		return
 	}
+	s.indexUpdate(IndexChange{Remove: req.VPath})
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }

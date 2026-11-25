@@ -20,12 +20,14 @@
       <span class="led" id="conn-led"></span>
       <span id="conn-text">连接中…</span>
     </div>
+    <button class="btn icon-btn" id="btn-search" title="搜索 (Ctrl+K)"><span data-icon="search"></span></button>
     <button class="btn icon-btn" id="btn-theme" title="切换主题"></button>
     <div class="user-wrap">
       <button class="btn icon-btn" id="btn-user" title="账号"><span data-icon="user"></span></button>
       <div class="usermenu" id="usermenu" hidden>
         <div class="um-head"><span id="um-name">—</span><span class="um-role" id="um-role"></span></div>
         <button class="um-item" id="btn-um-pw"><span data-icon="key"></span>修改密码</button>
+        <button class="um-item" id="btn-um-sessions"><span data-icon="monitor"></span>活跃会话</button>
         <button class="um-item" id="btn-um-lock" hidden><span data-icon="lock"></span>锁定屏幕</button>
         <button class="um-item danger" id="btn-um-logout" hidden><span data-icon="logout"></span>退出登录</button>
       </div>
@@ -43,7 +45,7 @@
     <div class="side-head side-head2">更多</div>
     <nav class="lib-list">
       <button class="lib-item" id="btn-media"><span data-icon="film"></span><span class="nm">媒体库</span></button>
-      <button class="lib-item" id="btn-search"><span data-icon="search"></span><span class="nm">搜索</span></button>
+      <button class="lib-item" id="btn-music"><span data-icon="music"></span><span class="nm">音乐</span></button>
       <button class="lib-item" id="btn-devices"><span data-icon="monitor"></span><span class="nm">设备</span></button>
       <button class="lib-item" id="btn-trash"><span data-icon="trash"></span><span class="nm">回收站</span></button>
       <button class="lib-item" id="btn-vault"><span data-icon="lock"></span><span class="nm">隐私保险箱</span></button>
@@ -69,11 +71,14 @@
 
     <!-- 文件浏览 -->
     <section class="view" id="view-browse" hidden>
-      <div class="toolbar">
-        <button class="btn icon-btn back" id="btn-back" title="返回"><span data-icon="chevron-left"></span></button>
-        <nav class="crumbs" id="crumbs"></nav>
-        <button class="btn icon-btn" id="btn-editpath" title="编辑路径"><span data-icon="edit"></span></button>
-        <input id="in-path" class="path-input" hidden autocomplete="off" spellcheck="false" placeholder="输入路径,例如 /lib1/电影 或 H:\NAS\电影">
+      <div class="browse-head">
+        <div class="pathbar">
+          <button class="btn icon-btn back" id="btn-back" title="返回"><span data-icon="chevron-left"></span></button>
+          <nav class="crumbs" id="crumbs"></nav>
+          <input id="in-path" class="path-input" hidden autocomplete="off" spellcheck="false" placeholder="输入路径,例如 /lib1/电影 或 H:\NAS\电影">
+          <button class="btn icon-btn" id="btn-editpath" title="编辑路径"><span data-icon="edit"></span></button>
+        </div>
+        <div class="toolbar">
         <div class="tools">
           <div class="search">
             <span data-icon="search"></span>
@@ -98,7 +103,9 @@
           <button class="btn" id="btn-select" title="多选文件进行移动/复制/删除"><span data-icon="check-square"></span>选择</button>
           <span class="tool-sep"></span>
           <button class="btn" id="btn-mkdir"><span data-icon="folder-plus"></span>新建文件夹</button>
+          <button class="btn" id="btn-zip-dir" title="把当前文件夹（含子目录）打包成 zip 下载"><span data-icon="archive"></span>打包下载</button>
           <button class="btn primary" id="btn-upload"><span data-icon="upload"></span>上传</button>
+        </div>
         </div>
       </div>
 
@@ -110,6 +117,7 @@
           <button class="btn" id="btn-sel-copy"><span data-icon="copy"></span>复制</button>
           <button class="btn" id="btn-sel-cut"><span data-icon="cut"></span>剪切</button>
           <button class="btn" id="btn-sel-vault"><span data-icon="lock"></span>存入保险箱</button>
+          <button class="btn" id="btn-sel-zip"><span data-icon="archive"></span>打包下载</button>
           <button class="btn danger" id="btn-sel-delete"><span data-icon="trash"></span>删除</button>
           <button class="btn ghost" id="btn-sel-cancel">取消</button>
         </div>
@@ -135,12 +143,75 @@
     <!-- 保险箱 -->
     <section class="view" id="view-vault" hidden>
       <div class="page-head">
-        <h1><span data-icon="lock" class="title-ic"></span>隐私保险箱</h1>
+        <h1><span data-icon="lock" class="title-ic"></span>隐私保险箱<span class="vchip" id="vault-chip" hidden></span></h1>
         <div class="btns" id="vault-actions"></div>
       </div>
-      <p class="page-sub">保险箱内容存放在<b>存储库内的隐藏目录</b>(如 H:\NAS\.linNasVault),普通浏览和搜索都看不到;需密码解锁后访问。</p>
+      <p class="page-sub" id="vault-sub">保险箱内容存放在<b>存储库内的隐藏目录</b>(如 H:\NAS\.linNasVault),普通浏览和搜索都看不到;需密码解锁后访问。</p>
       <div id="vault-body"></div>
       <input type="file" id="vault-file-input" multiple hidden>
+    </section>
+
+    <!-- 手机连接 -->
+    <section class="view" id="view-pair" hidden>
+      <div class="page-head">
+        <h1><span data-icon="smartphone" class="title-ic"></span>手机连接</h1>
+        <div class="btns">
+          <button class="btn" id="pair-refresh"><span data-icon="refresh"></span>刷新</button>
+        </div>
+      </div>
+      <p class="page-sub" id="pair-sub">用手机 linNas App 扫描下方二维码即可连接。二维码按本机<strong>当前地址实时生成</strong>——换设备、换网络后点「刷新」就会更新。</p>
+      <div class="pair-grid">
+        <div class="pn-card qr-card">
+          <div class="qr-box"><img id="pair-qr" alt="配对二维码" src=""></div>
+          <div class="qr-cap" id="pair-qr-cap">正在读取本机地址…</div>
+          <div class="pn-steps">
+            <div class="pn-step"><b>1</b><span>手机装好并打开 <b>linNas App</b></span></div>
+            <div class="pn-step"><b>2</b><span>点「扫码配对」，扫描上方二维码</span></div>
+            <div class="pn-step"><b>3</b><span>地址与端口自动填好，直接连接</span></div>
+          </div>
+        </div>
+        <div class="pair-side">
+          <div class="pn-card">
+            <div class="pn-card-head"><span>本机地址</span><span class="pn-chip" id="pair-port">端口 —</span></div>
+            <div class="addr-list" id="pair-addrs"></div>
+            <p class="pn-hint">点某个地址即可用它重新生成二维码。手机需要和电脑处于<strong>同一局域网</strong>（同一路由器 / 同一 Wi-Fi）。</p>
+          </div>
+          <div class="pn-card">
+            <div class="pn-card-head"><span>手机不在同一网络？</span><span class="pn-chip" id="hs-chip">检测中…</span></div>
+            <div id="hs-body" class="hs-body"><div class="hs-loading">正在检测本机热点能力…</div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 音乐播放器 -->
+    <section class="view" id="view-music" hidden>
+      <div class="music-hero">
+        <div class="music-box">
+          <div class="music-disc" id="music-disc">
+            <div class="music-point"></div>
+          </div>
+          <div class="music-info">
+            <div class="music-title" id="music-title">未选择歌曲</div>
+            <div class="music-artist" id="music-artist">在右侧列表中选择一首开始播放</div>
+          </div>
+          <div class="music-progress">
+            <span class="music-time" id="music-cur">0:00</span>
+            <input type="range" id="music-seek" min="0" max="100" value="0" step="0.1">
+            <span class="music-time" id="music-dur">0:00</span>
+          </div>
+          <div class="music-controls">
+            <button class="mc-btn" id="music-prev" title="上一首">⏮</button>
+            <button class="mc-btn mc-primary" id="music-play" title="播放 / 暂停">▶</button>
+            <button class="mc-btn" id="music-next" title="下一首">⏭</button>
+          </div>
+          <audio id="music-audio" preload="metadata"></audio>
+        </div>
+        <div class="music-list-wrap">
+          <div class="music-list-head"><span>播放列表</span><span id="music-count"></span></div>
+          <ul class="music-list" id="music-list"></ul>
+        </div>
+      </div>
     </section>
 
     <!-- 媒体库 -->
@@ -462,6 +533,16 @@
   </div>
 </dialog>
 
+<!-- 活跃会话 -->
+<dialog id="dlg-sessions" class="wide">
+  <h3>活跃会话</h3>
+  <p class="dlg-hint">当前有效的登录会话。点「踢出」可让某个会话立即失效(例如在公共电脑上登录后忘记退出)。</p>
+  <div class="session-list" id="session-list"></div>
+  <div class="dlg-btns">
+    <button class="btn ghost" id="btn-sessions-close" type="button">关闭</button>
+  </div>
+</dialog>
+
 <!-- 登录 -->
 <dialog id="dlg-login">
   <h3>登录 linNas</h3>
@@ -514,19 +595,6 @@
   </div>
 </dialog>
 
-
-<!-- 手机连接 -->
-<dialog id="dlg-pair">
-  <h3>手机连接</h3>
-  <p class="dlg-hint">手机与电脑连同一 Wi-Fi,打开 linNas App 即可自动发现;也可直接扫下面的二维码连接。</p>
-  <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
-    <img id="pair-qr" alt="配对二维码" src="" style="width:220px;height:220px;background:#fff;border-radius:12px;padding:8px;box-shadow:0 2px 10px rgba(0,0,0,.25)" />
-    <div id="pair-addrs" style="font-size:13px;line-height:1.9;min-width:200px"></div>
-  </div>
-  <div class="dlg-btns">
-    <button class="btn primary" id="dlg-pair-close">关闭</button>
-  </div>
-</dialog>
 
 <div id="toast" class="toast" hidden></div>
 <script src="app.js"></script>

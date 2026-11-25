@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"log"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -277,16 +278,10 @@ func (ix *Index) scanLib(cfg *Config, lib Library, vaultDir string) error {
 		if err != nil {
 			return err
 		}
-		if vaultDir != "" && withinRoot(vaultDir, p) {
-			return skipIndexedPath(d)
-		}
-		if withinRoot(trashDirFor(&lib), p) {
-			return skipIndexedPath(d)
-		}
-		if d.IsDir() && cfg.ExcludedAbs(&lib, p) {
-			return filepath.SkipDir // 排除的子目录:不索引
-		}
-		if !d.IsDir() && strings.HasSuffix(strings.ToLower(d.Name()), ".part") {
+		if dec := indexWalkDecision(cfg, &lib, vaultDir, p, d); dec.skip {
+			if dec.skipSubtree {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if p == filepath.Clean(lib.Path) {
@@ -336,11 +331,316 @@ func (ix *Index) scanLib(cfg *Config, lib Library, vaultDir string) error {
 	return nil
 }
 
-func skipIndexedPath(d fs.DirEntry) error {
+// walkDecision says how the indexer treats one walked entry.
+type walkDecision struct {
+	skip        bool // do not index this entry
+	skipSubtree bool // do not descend (the entry is a hidden/excluded dir)
+}
+
+// indexWalkDecision mirrors the index filter rules (vault, library trash
+// folder, excluded sub-paths, .part temp files) for both full scans and
+// incremental updates.
+func indexWalkDecision(cfg *Config, lib *Library, vaultDir, p string, d fs.DirEntry) walkDecision {
+	if vaultDir != "" && withinRoot(vaultDir, p) {
+		return walkDecision{skip: true, skipSubtree: d.IsDir()}
+	}
+	if withinRoot(trashDirFor(lib), p) {
+		return walkDecision{skip: true, skipSubtree: d.IsDir()}
+	}
+	// 跳过操作系统回收站/卷影信息等无权限且无意义的数据
 	if d.IsDir() {
-		return filepath.SkipDir
+		switch strings.ToLower(d.Name()) {
+		case "$recycle.bin", "system volume information", "found.000", "$windows.~bt", "$windows.~ws":
+			return walkDecision{skip: true, skipSubtree: true}
+		}
+	}
+	if d.IsDir() && cfg.ExcludedAbs(lib, p) {
+		return walkDecision{skip: true, skipSubtree: true}
+	}
+	if !d.IsDir() && strings.HasSuffix(strings.ToLower(d.Name()), ".part") {
+		return walkDecision{skip: true}
+	}
+	return walkDecision{}
+}
+
+// ============================================================
+//  增量索引更新
+// ============================================================
+
+// IndexChange is one incremental index update: remove an old virtual path (or
+// whole subtree) and/or re-index a new one.
+type IndexChange struct {
+	Remove string
+	Add    string
+}
+
+// UpdatePaths applies incremental index changes in the background
+// (non-blocking). Changes submitted while a full scan is running are skipped —
+// the in-flight full scan rebuilds everything anyway.
+func (ix *Index) UpdatePaths(cfg *Config, changes ...IndexChange) {
+	if len(changes) == 0 {
+		return
+	}
+	ix.mu.Lock()
+	busy := ix.scanning
+	ix.mu.Unlock()
+	if busy {
+		return
+	}
+	cfgSnapshot := *cfg
+	cfgSnapshot.Libraries = append([]Library(nil), cfg.Libraries...)
+	for i := range cfgSnapshot.Libraries {
+		cfgSnapshot.Libraries[i].Exclude = append([]string(nil), cfgSnapshot.Libraries[i].Exclude...)
+	}
+	go func() {
+		vaultDir := vaultDirForConfig(&cfgSnapshot)
+		for _, ch := range changes {
+			if ch.Remove != "" {
+				ix.removeSubtreeRows(libIDOf(ch.Remove), ch.Remove)
+			}
+			if ch.Add != "" {
+				if err := ix.updateSubtree(&cfgSnapshot, ch.Add, vaultDir); err != nil {
+					log.Printf("增量索引 %s 失败: %v", ch.Add, err)
+				}
+			}
+		}
+		if err := ix.refreshCount(); err != nil {
+			log.Printf("更新索引计数失败: %v", err)
+		}
+	}()
+}
+
+// libIDOf returns the library id part of a virtual path ("" when empty).
+func libIDOf(vpath string) string {
+	vpath = strings.TrimPrefix(vpath, "/")
+	if i := strings.Index(vpath, "/"); i >= 0 {
+		return vpath[:i]
+	}
+	return vpath
+}
+
+// removeSubtreeRows drops one row (file) or a whole subtree (directory).
+func (ix *Index) removeSubtreeRows(libID, vpath string) {
+	vpath = path.Clean("/" + strings.TrimPrefix(vpath, "/"))
+	pat := likeEscape(vpath) + "/%"
+	if _, err := ix.db.Exec(
+		`DELETE FROM files WHERE lib_id = ? AND (path = ? COLLATE NOCASE OR path LIKE ? ESCAPE '\')`,
+		libID, vpath, pat); err != nil {
+		log.Printf("移除索引 %s 失败: %v", vpath, err)
+	}
+}
+
+// likeEscape escapes SQL LIKE wildcards so a path matches literally.
+func likeEscape(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `%`, `\%`)
+	return strings.ReplaceAll(s, `_`, `\_`)
+}
+
+// libFromVPath finds the enabled library of a virtual path inside the config
+// snapshot and returns it with the slash-separated library-relative path.
+func libFromVPath(cfg *Config, vpath string) (*Library, string, bool) {
+	vpath = path.Clean("/" + strings.TrimPrefix(vpath, "/"))
+	parts := strings.Split(strings.TrimPrefix(vpath, "/"), "/")
+	if parts[0] == "" {
+		return nil, "", false
+	}
+	for i := range cfg.Libraries {
+		lib := &cfg.Libraries[i]
+		if lib.ID == parts[0] && lib.Enabled && lib.Path != "" {
+			rel := ""
+			if len(parts) > 1 {
+				rel = strings.Join(parts[1:], "/")
+			}
+			return lib, rel, true
+		}
+	}
+	return nil, "", false
+}
+
+// updateSubtree (re-)indexes one virtual path: a file becomes a single row,
+// a directory is walked with the same filters as a full scan. Missing or
+// filtered paths just clear their stale rows.
+func (ix *Index) updateSubtree(cfg *Config, vpath, vaultDir string) error {
+	lib, rel, ok := libFromVPath(cfg, vpath)
+	if !ok {
+		return nil
+	}
+	if rel == "" {
+		// 整个库路径:退化为单库重扫
+		if _, err := os.Stat(lib.Path); err != nil {
+			return nil
+		}
+		return ix.scanLib(cfg, *lib, vaultDir)
+	}
+	abs := filepath.Join(lib.Path, filepath.FromSlash(rel))
+	info, err := os.Stat(abs)
+	if err != nil {
+		ix.removeSubtreeRows(lib.ID, vpath)
+		return nil
+	}
+	if info.IsDir() {
+		if cfg.ExcludedAbs(lib, abs) ||
+			(vaultDir != "" && withinRoot(vaultDir, abs)) ||
+			withinRoot(trashDirFor(lib), abs) {
+			ix.removeSubtreeRows(lib.ID, vpath)
+			return nil
+		}
+	} else if strings.HasSuffix(strings.ToLower(info.Name()), ".part") {
+		ix.removeSubtreeRows(lib.ID, vpath)
+		return nil
+	}
+	if err := ix.ensureAncestorRows(lib, abs); err != nil {
+		return err
+	}
+	return ix.insertSubtree(cfg, lib, vaultDir, abs)
+}
+
+// ensureAncestorRows makes sure every directory between the library root and
+// abs (exclusive) has an index row, in case the dir chain is brand new.
+func (ix *Index) ensureAncestorRows(lib *Library, abs string) error {
+	root := filepath.Clean(lib.Path)
+	dir := filepath.Clean(abs)
+	if !withinRoot(root, dir) {
+		return nil
+	}
+	var ancestors []string
+	for {
+		dir = filepath.Dir(dir)
+		if !withinRoot(root, dir) || filepath.Clean(dir) == root {
+			break
+		}
+		ancestors = append(ancestors, dir)
+	}
+	for i := len(ancestors) - 1; i >= 0; i-- {
+		p := ancestors[i]
+		info, err := os.Stat(p)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		vp := VirtualPath(lib, p)
+		if _, err := ix.db.Exec(`INSERT OR IGNORE INTO files
+			(lib_id,path,parent,name,is_dir,size,mod_time,kind) VALUES (?,?,?,?,1,0,?,?)`,
+			lib.ID, vp, DirVirtual(vp), filepath.Base(p), info.ModTime().Unix(), "dir"); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// insertSubtree walks abs and inserts/replaces index rows for it and its
+// descendants (single tx; on error the old rows are kept).
+func (ix *Index) insertSubtree(cfg *Config, lib *Library, vaultDir, abs string) error {
+	tx, err := ix.db.Begin()
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	stmt, err := tx.Prepare(`INSERT OR REPLACE INTO files
+		(lib_id,path,parent,name,is_dir,size,mod_time,kind) VALUES (?,?,?,?,?,?,?,?)`)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = stmt.Close() }()
+
+	walkErr := filepath.WalkDir(abs, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if dec := indexWalkDecision(cfg, lib, vaultDir, p, d); dec.skip {
+			if dec.skipSubtree {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		pi, ierr := d.Info()
+		if ierr != nil {
+			return ierr
+		}
+		vpath := VirtualPath(lib, p)
+		kind := "other"
+		id := 0
+		if d.IsDir() {
+			kind = "dir"
+			id = 1
+		} else {
+			kind = kindForExt(fileExt(p))
+		}
+		if _, err := stmt.Exec(lib.ID, vpath, DirVirtual(vpath), d.Name(), id, pi.Size(), pi.ModTime().Unix(), kind); err != nil {
+			return err
+		}
+		return nil
+	})
+	if walkErr != nil {
+		return walkErr
+	}
+	if err := stmt.Close(); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
+// RescanLib rescans one library in the background (used after a library is
+// added, renamed, re-pointed or its exclusion rules change). Skipped when a
+// scan is already running or the library is disabled/unknown.
+func (ix *Index) RescanLib(cfg *Config, libID string) {
+	cfgSnapshot := *cfg
+	cfgSnapshot.Libraries = append([]Library(nil), cfg.Libraries...)
+	for i := range cfgSnapshot.Libraries {
+		cfgSnapshot.Libraries[i].Exclude = append([]string(nil), cfgSnapshot.Libraries[i].Exclude...)
+	}
+	var lib *Library
+	for i := range cfgSnapshot.Libraries {
+		if cfgSnapshot.Libraries[i].ID == libID {
+			lib = &cfgSnapshot.Libraries[i]
+			break
+		}
+	}
+	if lib == nil || !lib.Enabled {
+		return
+	}
+	ix.mu.Lock()
+	busy := ix.scanning
+	ix.mu.Unlock()
+	if busy {
+		return
+	}
+	go func() {
+		if _, err := os.Stat(lib.Path); err != nil {
+			log.Printf("库 %s 不可用,跳过增量扫描: %v", lib.Name, err)
+			return
+		}
+		if err := ix.scanLib(&cfgSnapshot, *lib, vaultDirForConfig(&cfgSnapshot)); err != nil {
+			log.Printf("库 %s 增量扫描失败,保留旧索引: %v", lib.Name, err)
+			return
+		}
+		if err := ix.refreshCount(); err != nil {
+			log.Printf("更新索引计数失败: %v", err)
+		}
+	}()
+}
+
+// RemoveLibRows drops every indexed row of one library (used when a library is
+// removed from the config or disabled).
+func (ix *Index) RemoveLibRows(libID string) {
+	go func() {
+		if _, err := ix.db.Exec(`DELETE FROM files WHERE lib_id = ?`, libID); err != nil {
+			log.Printf("移除库 %s 索引失败: %v", libID, err)
+			return
+		}
+		if err := ix.refreshCount(); err != nil {
+			log.Printf("更新索引计数失败: %v", err)
+		}
+	}()
 }
 
 func kindForExt(ext string) string {

@@ -11,7 +11,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 )
 
 // streamVideo transcodes a video with ffmpeg while streaming it to the client.
@@ -115,6 +117,9 @@ func (s *Server) streamVideo(w http.ResponseWriter, r *http.Request, abs string,
 		pf = nil
 		if err := os.Rename(part, final); err != nil {
 			_ = os.Remove(part)
+		} else if mb := s.cfg.TranscodeCacheMB; mb > 0 {
+			// 转码缓存写入成功后,异步按最久未用淘汰,避免缓存无限增长
+			go s.trimTranscodeCache(mb)
 		}
 	} else if pf != nil {
 		cleanup()
@@ -123,4 +128,54 @@ func (s *Server) streamVideo(w http.ResponseWriter, r *http.Request, abs string,
 	if copyErr != nil {
 		log.Printf("转码流出错 %s: %v %s", abs, copyErr, strings.TrimSpace(stderr.String()))
 	}
+}
+
+// trimTranscodeCache 按最久未用(mtime)淘汰 DataDir/transcode 下的 .mp4,
+// 使缓存总量不超过 maxMB。maxMB <= 0 表示不限制。返回删除数量与释放字节数。
+func (s *Server) trimTranscodeCache(maxMB int) (removed int, freed int64) {
+	if maxMB <= 0 {
+		return 0, 0
+	}
+	dir := filepath.Join(s.cfg.DataDir, "transcode")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0, 0
+	}
+	type fentry struct {
+		path string
+		size int64
+		mod  time.Time
+	}
+	var files []fentry
+	var total int64
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".mp4") {
+			continue
+		}
+		info, ierr := e.Info()
+		if ierr != nil {
+			continue
+		}
+		files = append(files, fentry{filepath.Join(dir, e.Name()), info.Size(), info.ModTime()})
+		total += info.Size()
+	}
+	limit := int64(maxMB) * 1024 * 1024
+	if total <= limit {
+		return 0, 0
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].mod.Before(files[j].mod) })
+	for _, f := range files {
+		if total <= limit {
+			break
+		}
+		if err := os.Remove(f.path); err == nil {
+			total -= f.size
+			removed++
+			freed += f.size
+		}
+	}
+	if removed > 0 {
+		log.Printf("转码缓存超限,淘汰 %d 个文件,释放 %.1f MB", removed, float64(freed)/(1024*1024))
+	}
+	return removed, freed
 }

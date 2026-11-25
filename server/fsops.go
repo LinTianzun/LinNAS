@@ -171,7 +171,11 @@ func (s *Server) handleLibUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.index != nil {
-		s.index.ScanAll(s.cfg)
+		if lib.Enabled {
+			s.index.RescanLib(s.cfg, lib.ID)
+		} else {
+			s.index.RemoveLibRows(lib.ID)
+		}
 	}
 	writeJSON(w, 200, lib)
 }
@@ -184,6 +188,7 @@ type fsOpReq struct {
 	VPaths []string `json:"vpaths"`
 	Dest   string   `json:"dest"` // 目标目录的虚拟路径
 }
+
 // handleMove 把一批文件/文件夹移动到目标目录。
 // POST /api/move {vpaths:[], dest:"/lib1/target"}
 func (s *Server) handleMove(w http.ResponseWriter, r *http.Request) {
@@ -234,6 +239,7 @@ func (s *Server) fsOp(w http.ResponseWriter, r *http.Request, move bool) {
 	}
 	errs := []opErr{}
 	moved := 0
+	var indexChanges []IndexChange
 	for _, vp := range req.VPaths {
 		srcLib, srcAbs, rerr := s.cfg.Resolve(vp)
 		if rerr != nil {
@@ -266,6 +272,7 @@ func (s *Server) fsOp(w http.ResponseWriter, r *http.Request, move bool) {
 		if _, err := os.Stat(dst); err == nil {
 			dst = filepath.Join(destAbs, uniqueName(destAbs, name))
 		}
+		dstVPath := VirtualPath(destLib, dst)
 		if move {
 			merr := os.Rename(srcAbs, dst)
 			if merr != nil {
@@ -276,17 +283,20 @@ func (s *Server) fsOp(w http.ResponseWriter, r *http.Request, move bool) {
 				}
 				_ = os.RemoveAll(srcAbs)
 			}
+			indexChanges = append(indexChanges, IndexChange{Remove: vp, Add: dstVPath})
 		} else {
 			if cerr := copyTree(srcAbs, dst); cerr != nil {
 				errs = append(errs, opErr{vp, "复制失败: " + cerr.Error()})
 				continue
 			}
+			indexChanges = append(indexChanges, IndexChange{Add: dstVPath})
 		}
 		moved++
 	}
+	s.indexUpdate(indexChanges...)
 	writeJSON(w, 200, map[string]any{
-		"ok":    len(errs) == 0,
-		"count": moved,
+		"ok":     len(errs) == 0,
+		"count":  moved,
 		"errors": errs,
 	})
 }
