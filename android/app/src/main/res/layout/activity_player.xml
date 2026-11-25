@@ -93,5 +93,32 @@
             android:layout_marginStart="4dp"
             android:minWidth="0dp"
             android:text="旋转" />
+
+        <Button
+            android:id="@+id/btn_prev"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:minWidth="0dp"
+            android:text="上一集"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/btn_next"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:minWidth="0dp"
+            android:text="下一集"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/btn_list"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:minWidth="0dp"
+            android:text="列表"
+            android:visibility="gone" />
     </LinearLayout>
 </FrameLayout>

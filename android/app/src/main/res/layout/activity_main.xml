@@ -451,6 +451,23 @@
                         android:text="上传队列" />
 
                     <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:orientation="horizontal"
+                        android:gravity="end">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnClearFinished"
+                            style="@style/Widget.Material3.Button.TextButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:minWidth="0dp"
+                            android:text="清除已完成"
+                            android:textSize="12sp" />
+                    </LinearLayout>
+
+                    <LinearLayout
                         android:id="@+id/transferList"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -463,6 +480,29 @@
                         android:layout_height="wrap_content"
                         android:paddingTop="16dp"
                         android:text="暂无上传任务"
+                        android:textColor="?attr/lTextDim"
+                        android:textSize="13sp" />
+
+                    <TextView
+                        style="@style/TextLabel"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="22dp"
+                        android:text="离线缓存" />
+
+                    <LinearLayout
+                        android:id="@+id/offlineList"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:orientation="vertical" />
+
+                    <TextView
+                        android:id="@+id/offlineEmpty"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:paddingTop="10dp"
+                        android:text="暂无离线缓存"
                         android:textColor="?attr/lTextDim"
                         android:textSize="13sp" />
 
@@ -642,6 +682,81 @@
                                     android:layout_weight="1"
                                     android:layout_marginStart="8dp"
                                     android:text="保险箱" />
+                            </LinearLayout>
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="8dp">
+
+                                <com.google.android.material.button.MaterialButton
+                                    android:id="@+id/btnTrash"
+                                    style="@style/Widget.Material3.Button.OutlinedButton"
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:text="回收站" />
+
+                                <com.google.android.material.button.MaterialButton
+                                    android:id="@+id/btnShares"
+                                    style="@style/Widget.Material3.Button.OutlinedButton"
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:layout_marginStart="8dp"
+                                    android:text="分享管理" />
+                            </LinearLayout>
+
+                            <TextView
+                                android:id="@+id/setLoginUser"
+                                style="@style/TextMeta"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="8dp"
+                                android:text="未登录(口令访问)" />
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="8dp">
+
+                                <com.google.android.material.button.MaterialButton
+                                    android:id="@+id/btnLogin"
+                                    style="@style/Widget.Material3.Button.OutlinedButton"
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:text="登录账号" />
+
+                                <com.google.android.material.button.MaterialButton
+                                    android:id="@+id/btnLogout"
+                                    style="@style/Widget.Material3.Button.OutlinedButton"
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:layout_marginStart="8dp"
+                                    android:text="退出登录"
+                                    android:visibility="gone" />
+                            </LinearLayout>
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="8dp">
+
+                                <com.google.android.material.button.MaterialButton
+                                    android:id="@+id/btnAudit"
+                                    style="@style/Widget.Material3.Button.OutlinedButton"
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:text="操作日志" />
+
+                                <View
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:layout_marginStart="8dp" />
                             </LinearLayout>
 
                             <com.google.android.material.button.MaterialButton

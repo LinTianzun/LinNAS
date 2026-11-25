@@ -40,11 +40,33 @@
             android:name=".VaultActivity"
             android:exported="false"
             android:configChanges="orientation|screenSize|keyboardHidden" />
-        <!-- M3 内置播放器页 -->
+        <!-- M7 回收站 -->
+        <activity
+            android:name=".TrashActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+        <!-- M7 分享管理 -->
+        <activity
+            android:name=".SharesActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+        <!-- M7 多用户登录 -->
+        <activity
+            android:name=".LoginActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+        <!-- P2 操作日志(仅管理员可见) -->
+        <activity
+            android:name=".AuditActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+        <!-- M3 内置播放器页;P1 支持画中画 -->
         <activity
             android:name=".PlayerActivity"
             android:exported="false"
-            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize|screenLayout"
+            android:supportsPictureInPicture="true"
+            android:launchMode="singleTask"
             android:theme="@style/Theme.LinNas.Player" />
         <!-- 扫码配对:覆盖 zxing 库自带的横屏声明,改为竖屏 -->
         <activity

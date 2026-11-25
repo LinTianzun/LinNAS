@@ -81,6 +81,7 @@ class MainActivity : AppCompatActivity() {
     private var currentTab = R.id.tab_files
     private var serverVersion = ""
     private var mediaType = "video"
+    private var mediaAll: List<Entry> = emptyList()   // P2:媒体页当前列表(播放列表来源)
 
     // 视图
     private lateinit var connDot: View
@@ -128,6 +129,18 @@ class MainActivity : AppCompatActivity() {
 
     private val permLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
+
+    private val loginLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        if (r.resultCode == RESULT_OK) {
+            // 登录成功,继续加载主流程
+            connectAndLoad(silent = true)
+        } else {
+            // 跳过登录:用访问口令继续,口令无效时由各请求报错提示
+            loadAfterAuth()
+        }
+    }
+
+    private fun canWrite(): Boolean = ServerConfig.sessionRole != "viewer"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         setTheme(ThemeStore.styleRes(this))
@@ -211,6 +224,11 @@ class MainActivity : AppCompatActivity() {
             override fun handleOnBackPressed() { handleBack() }
         })
 
+        findViewById<View>(R.id.btnClearFinished).setOnClickListener {
+            UploadService.clearFinished()
+            refreshTransfers()
+        }
+
         if (ServerConfig.baseUrl.isBlank()) {
             showDiscoveryDialog()
         } else {
@@ -218,7 +236,25 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    override fun onResume() { super.onResume(); handler.post(poller) }
+    override fun onResume() {
+        super.onResume()
+        handler.post(poller)
+        // M7:多用户会话闲置超时失效后,回到页面时校验并重新登录
+        if (ServerConfig.multiUser && ServerConfig.sessionToken.isNotBlank()) {
+            lifecycleScope.launch {
+                val me = try { withContext(Dispatchers.IO) { client.authMe() } } catch (_: Exception) { null }
+                if (me == null || me.username.isBlank()) {
+                    ServerConfig.clearSession()
+                    bindSettings()
+                    launchLogin()
+                } else if (me.username != ServerConfig.sessionUser || me.role != ServerConfig.sessionRole) {
+                    ServerConfig.sessionUser = me.username
+                    ServerConfig.sessionRole = me.role
+                    bindSettings()
+                }
+            }
+        }
+    }
     override fun onPause() { super.onPause(); handler.removeCallbacks(poller) }
 
     // ---------- 导航 ----------
@@ -235,7 +271,8 @@ class MainActivity : AppCompatActivity() {
             findViewById<View>(R.id.pageMedia).visibility = if (item.itemId == R.id.tab_media) View.VISIBLE else View.GONE
             findViewById<View>(R.id.pageTransfers).visibility = if (item.itemId == R.id.tab_transfers) View.VISIBLE else View.GONE
             findViewById<View>(R.id.pageSettings).visibility = if (item.itemId == R.id.tab_settings) View.VISIBLE else View.GONE
-            findViewById<View>(R.id.fabUpload).visibility = if (item.itemId == R.id.tab_files) View.VISIBLE else View.GONE
+            findViewById<View>(R.id.fabUpload).visibility =
+                if (item.itemId == R.id.tab_files && canWrite()) View.VISIBLE else View.GONE
             when (item.itemId) {
                 R.id.tab_media -> loadMedia(mediaType)
                 R.id.tab_transfers -> { refreshTransfers(); updateBackupStatus() }
@@ -243,6 +280,13 @@ class MainActivity : AppCompatActivity() {
             }
             true
         }
+    }
+
+    /** 切到底部导航 tab:0 文件 / 1 媒体 / 2 传输 / 3 设置。 */
+    private fun selectTab(index: Int) {
+        val id = intArrayOf(R.id.tab_files, R.id.tab_media, R.id.tab_transfers, R.id.tab_settings)[index]
+        findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.bottomNav)
+            .selectedItemId = id
     }
 
     private fun handleBack() {
@@ -280,7 +324,36 @@ class MainActivity : AppCompatActivity() {
                 if (libs.isEmpty()) showDiscoveryDialog() else if (!silent) showDiscoveryDialog()
                 return@launch
             }
-            val loadedLibs = withContext(Dispatchers.IO) { client.libs() }
+            // M7 多用户:探测 /api/auth/status,未登录则跳登录页
+            val auth = try { withContext(Dispatchers.IO) { client.authStatus() } } catch (_: Exception) { null }
+            val multiUser = auth?.optBoolean("multiUser") == true
+            ServerConfig.multiUser = multiUser
+            if (multiUser && ServerConfig.sessionToken.isBlank()) {
+                launchLogin()
+                return@launch
+            }
+            loadAfterAuth(silent)
+        }
+    }
+
+    private fun launchLogin() {
+        loginLauncher.launch(Intent(this, LoginActivity::class.java))
+    }
+
+    private fun loadAfterAuth(silent: Boolean = true) {
+        lifecycleScope.launch {
+            val loadedLibs = try { withContext(Dispatchers.IO) { client.libs() } }
+            catch (e: Exception) {
+                if (ServerConfig.multiUser) {
+                    setConnState("offline")
+                    toast(e.message ?: "未登录或登录已过期")
+                    launchLogin()
+                } else {
+                    setConnState("offline")
+                    toast("加载失败: ${e.message}")
+                }
+                return@launch
+            }
             val loadedDisks = withContext(Dispatchers.IO) { client.disks() }
             serverVersion = withContext(Dispatchers.IO) { client.version() }
             withContext(Dispatchers.Main) {
@@ -383,7 +456,7 @@ class MainActivity : AppCompatActivity() {
             is ListRow.FileRow -> {
                 val e = row.e
                 if (e.isDir) {
-                    val vp = curPath.trimEnd('/') + "/" + e.name
+                    val vp = e.vpath ?: (curPath.trimEnd('/') + "/" + e.name)
                     crumbs.add(e.name to vp)
                     curPath = vp
                     loadDir()
@@ -397,33 +470,134 @@ class MainActivity : AppCompatActivity() {
     private fun onRowMore(row: ListRow, anchor: View) {
         if (row !is ListRow.FileRow) return
         val e = row.e
-        val vp = curPath.trimEnd('/') + "/" + e.name
+        val vp = e.vpath ?: (curPath.trimEnd('/') + "/" + e.name)   // P2:跨库搜索结果带绝对 vpath
+        val ext = e.name.substringAfterLast('.', "").lowercase()
+        val playable = !e.isDir && (ext in FileListAdapter.VIDEO || ext in FileListAdapter.AUDIO)
+        val offline = OfflineStore.get(this, vp)
         val popup = PopupMenu(this, anchor)
-        popup.menu.add(0, 1, 0, "重命名")
-        popup.menu.add(0, 2, 1, "删除")
-        popup.menu.add(0, 3, 2, "移动到…")
-        popup.menu.add(0, 4, 3, "复制到…")
+        if (canWrite()) {
+            popup.menu.add(0, 1, 0, "重命名")
+            popup.menu.add(0, 2, 1, "删除")
+            popup.menu.add(0, 3, 2, "移动到…")
+            popup.menu.add(0, 4, 3, "复制到…")
+            popup.menu.add(0, 5, 4, "分享链接…")
+        }
+        popup.menu.add(0, 6, 5, "详情")
+        if (playable) {
+            when (offline?.status) {
+                OfflineStore.ST_DONE -> popup.menu.add(0, 7, 6, "移除离线缓存")
+                OfflineStore.ST_DOWNLOADING, OfflineStore.ST_PAUSED ->
+                    popup.menu.add(0, 7, 6, "离线下载中…")
+                else -> popup.menu.add(0, 7, 6, "缓存到手机")
+            }
+        }
         popup.setOnMenuItemClickListener { mi ->
             when (mi.itemId) {
                 1 -> renameDialog(vp, e.name)
                 2 -> deleteConfirm(vp, e)
                 3 -> showDirPicker { dest -> transferEntry(vp, dest, move = true) }
                 4 -> showDirPicker { dest -> transferEntry(vp, dest, move = false) }
+                5 -> startActivity(Intent(this, SharesActivity::class.java).apply {
+                    putExtra(SharesActivity.EXTRA_INITIAL_VPATH, vp)
+                })
+                6 -> showInfoDialog(vp, e)
+                7 -> toggleOffline(vp, e)
             }
             true
         }
         popup.show()
     }
 
+    /** P1:/api/info 详情弹窗(文件夹给递归统计,媒体给 ffprobe 技术信息)。 */
+    private fun showInfoDialog(vp: String, e: Entry) {
+        lifecycleScope.launch {
+            val info = try {
+                withContext(Dispatchers.IO) { client.info(vp) }
+            } catch (ex: Exception) {
+                toast("读取详情失败:${ex.message}")
+                return@launch
+            }
+            val sb = StringBuilder()
+            sb.append("路径:").append(info.path).append('\n')
+            sb.append("类型:").append(
+                if (info.isDir) "文件夹" else info.kind.ifBlank { info.ext.ifBlank { "文件" } }
+            )
+            if (!info.isDir) sb.append('\n').append("大小:").append(FileListAdapter.fmtSize(info.size))
+            sb.append('\n').append("修改时间:").append(FileListAdapter.fmtDate(info.modTime))
+            if (info.isDir) {
+                sb.append('\n').append("包含:").append(info.files).append(" 个文件 / ")
+                    .append(info.dirs).append(" 个文件夹")
+                sb.append('\n').append("总大小:").append(FileListAdapter.fmtSize(info.totalBytes))
+            }
+            if (info.width > 0 && info.height > 0) {
+                sb.append('\n').append("分辨率:").append(info.width).append('×').append(info.height)
+            }
+            if (info.duration > 0) {
+                sb.append('\n').append("时长:").append(fmtDuration(info.duration.toLong()))
+            }
+            if (info.fps > 0) sb.append('\n').append("帧率:")
+                .append(String.format("%.2f", info.fps)).append(" fps")
+            if (info.bitRate > 0) sb.append('\n').append("码率:")
+                .append(info.bitRate / 1000).append(" kbps")
+            if (info.videoCodec.isNotBlank()) sb.append('\n').append("视频编码:").append(info.videoCodec)
+            if (info.audioCodec.isNotBlank()) sb.append('\n').append("音频编码:").append(info.audioCodec)
+            AlertDialog.Builder(this@MainActivity)
+                .setTitle(info.name.ifBlank { e.name })
+                .setMessage(sb.toString())
+                .setPositiveButton("关闭", null)
+                .show()
+        }
+    }
+
+    /** P1:离线缓存开关(缓存到手机 / 移除缓存)。 */
+    private fun toggleOffline(vp: String, e: Entry) {
+        when (OfflineStore.get(this, vp)?.status) {
+            OfflineStore.ST_DONE -> AlertDialog.Builder(this)
+                .setTitle("移除离线缓存")
+                .setMessage("删除本机缓存的「${e.name}」?服务器上的文件不受影响。")
+                .setPositiveButton("删除") { _, _ ->
+                    OfflineStore.remove(this, vp)
+                    toast("已移除离线缓存")
+                }
+                .setNegativeButton("取消", null)
+                .show()
+            OfflineStore.ST_DOWNLOADING, OfflineStore.ST_PAUSED -> {
+                toast("已在离线下载中,可到「传输」页管理")
+                selectTab(2)
+            }
+            else -> {
+                OfflineDownloader.start(this, vp, e.name, e.size)
+                toast("开始离线缓存:${e.name}")
+                selectTab(2)
+            }
+        }
+    }
+
+    private fun fmtDuration(sec: Long): String {
+        val h = sec / 3600
+        val m = (sec % 3600) / 60
+        val s = sec % 60
+        return if (h > 0) String.format("%d:%02d:%02d", h, m, s) else String.format("%d:%02d", m, s)
+    }
+
     private fun openFile(e: Entry) {
-        val vp = curPath.trimEnd('/') + "/" + e.name
+        val vp = e.vpath ?: (curPath.trimEnd('/') + "/" + e.name)   // P2:跨库搜索结果带绝对 vpath
         val ext = e.name.substringAfterLast('.', "").lowercase()
         val transcode = setOf("avi", "rmvb", "rm", "flv", "wmv", "mpg", "mpeg", "vob", "asf", "ogv")
         try {
             when {
-                ext in FileListAdapter.VIDEO || ext in FileListAdapter.AUDIO ->
-                    startPlayer(client.rawUrl(vp), e.name, vp, findSubtitle(vp))
-                ext in transcode -> startPlayer(client.streamUrl(vp), e.name, vp, null)
+                ext in FileListAdapter.VIDEO || ext in FileListAdapter.AUDIO -> lifecycleScope.launch {
+                    // 已离线缓存则直接播本地文件;字幕走服务端 /api/subtitle。
+                    val local = OfflineStore.localFile(this@MainActivity, vp)
+                    val sub = withContext(Dispatchers.IO) { findSubtitle(vp) }
+                    val url = local?.let { "file://" + it.absolutePath } ?: client.rawUrl(vp)
+                    val (pl, idx) = playlistFor(vp)
+                    startPlayer(url, e.name, vp, sub, pl, idx)
+                }
+                ext in transcode -> {
+                    val (pl, idx) = playlistFor(vp)
+                    startPlayer(client.streamUrl(vp), e.name, vp, null, pl, idx)
+                }
                 ext in FileListAdapter.IMAGE -> startActivity(
                     Intent(Intent.ACTION_VIEW).apply { setDataAndType(Uri.parse(client.rawUrl(vp)), "image/*") }
                 )
@@ -437,31 +611,56 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** 找同目录下同名字幕(.srt/.ass/.vtt)。 */
-    private fun findSubtitle(vpath: String): String? {
-        val base = vpath.substringBeforeLast('.')
-        for (ext in listOf("srt", "ass", "ssa", "vtt")) {
-            val cand = "$base.$ext"
-            if (allRows.any { it is ListRow.FileRow && (it as ListRow.FileRow).e.name.equals(
-                    cand.substringAfterLast('/'), ignoreCase = true) }) {
-                return client.rawUrl(cand)
-            }
+    /** P2:从当前浏览上下文(目录列表/全局搜索/媒体页)构建可播放列表,返回 (JSON 数组, 当前下标)。 */
+    private fun playlistFor(currentVp: String): Pair<String, Int> {
+        val rows: List<Entry> = if (currentTab == R.id.tab_media) mediaAll
+            else allRows.mapNotNull { (it as? ListRow.FileRow)?.e }
+        val playable = rows.filter { it ->
+            val x = it.name.substringAfterLast('.', "").lowercase()
+            !it.isDir && (x in FileListAdapter.VIDEO || x in FileListAdapter.AUDIO)
         }
-        return null
+        val vps = playable.map { it.vpath ?: (curPath.trimEnd('/') + "/" + it.name) }
+        val idx = vps.indexOf(currentVp)
+        if (idx < 0 || playable.size < 2) return "[]" to -1
+        val arr = StringBuilder("[")
+        for (i in playable.indices) {
+            if (i > 0) arr.append(',')
+            arr.append("{\"name\":\"").append(jsonEscape(playable[i].name))
+                .append("\",\"vpath\":\"").append(jsonEscape(vps[i])).append("\"}")
+        }
+        arr.append(']')
+        return arr.toString() to idx
     }
 
-    private fun startPlayer(url: String, title: String, vpath: String = "", subtitle: String? = null) {
+    private fun jsonEscape(s: String) = s.replace("\\", "\\\\").replace("\"", "\\\"")
+
+    /** P1:用服务端 /api/subtitle 找同目录字幕(优先中文),返回可播放的 VTT 地址。 */
+    private fun findSubtitle(vpath: String): String? {
+        val tracks = try {
+            client.subtitles(vpath)
+        } catch (_: Exception) {
+            return null
+        }
+        if (tracks.isEmpty()) return null
+        val pick = tracks.firstOrNull { it.lang.startsWith("zh") } ?: tracks.first()
+        return client.absoluteUrl(pick.url)
+    }
+
+    private fun startPlayer(url: String, title: String, vpath: String = "", subtitle: String? = null,
+                            playlist: String = "[]", playIndex: Int = -1) {
         startActivity(Intent(this, PlayerActivity::class.java).apply {
             putExtra(PlayerActivity.EXTRA_URL, url)
             putExtra(PlayerActivity.EXTRA_TITLE, title)
             putExtra(PlayerActivity.EXTRA_VPATH, vpath)
             subtitle?.let { putExtra(PlayerActivity.EXTRA_SUB, it) }
+            putExtra(PlayerActivity.EXTRA_PLAYLIST, playlist)
+            putExtra(PlayerActivity.EXTRA_PLAY_INDEX, playIndex)
         })
     }
 
     private fun showTopMenu(anchor: View) {
         val popup = PopupMenu(this, anchor)
-        popup.menu.add(0, 1, 0, "新建文件夹")
+        if (canWrite()) popup.menu.add(0, 1, 0, "新建文件夹")
         popup.menu.add(0, 2, 1, "重新扫描服务器")
         popup.menu.add(0, 3, 2, "连接其他服务器")
         popup.setOnMenuItemClickListener { mi ->
@@ -535,6 +734,7 @@ class MainActivity : AppCompatActivity() {
                 }
             } catch (_: Exception) { }
             withContext(Dispatchers.Main) {
+                mediaAll = all   // P2:播放列表来源
                 mediaAdapter.submit(all)
                 mediaEmpty.visibility = if (all.isEmpty()) View.VISIBLE else View.GONE
             }
@@ -545,10 +745,16 @@ class MainActivity : AppCompatActivity() {
         val vp = e.vpath ?: return
         val ext = e.name.substringAfterLast('.', "").lowercase()
         val transcode = setOf("avi", "rmvb", "rm", "flv", "wmv", "mpg", "mpeg", "vob", "asf", "ogv")
+        val (pl, idx) = playlistFor(vp)
         when {
-            ext in transcode -> startPlayer(client.streamUrl(vp), e.name, vp, null)
+            ext in transcode -> startPlayer(client.streamUrl(vp), e.name, vp, null, pl, idx)
             ext in FileListAdapter.IMAGE -> toast("图片请在文件页打开")
-            else -> startPlayer(client.rawUrl(vp), e.name, vp, null)
+            else -> lifecycleScope.launch {
+                val local = OfflineStore.localFile(this@MainActivity, vp)
+                val sub = withContext(Dispatchers.IO) { findSubtitle(vp) }
+                val url = local?.let { "file://" + it.absolutePath } ?: client.rawUrl(vp)
+                startPlayer(url, e.name, vp, sub, pl, idx)
+            }
         }
     }
 
@@ -603,14 +809,81 @@ class MainActivity : AppCompatActivity() {
             v.findViewById<TextView>(R.id.tname).text = t.name
             val pct = if (t.size > 0) ((t.sent * 100) / t.size).toInt() else 0
             v.findViewById<TextView>(R.id.tstate).text = when {
-                t.state == "完成" -> "已完成"
+                t.state == UploadService.ST_DONE -> "已完成"
                 t.state.startsWith("失败") -> t.state
-                else -> "$pct%"
+                else -> "${t.state} $pct%"
             }
             val bar = v.findViewById<LinearProgressIndicator>(R.id.tprog)
             bar.max = 100
-            bar.setProgressCompat(if (t.state == "完成") 100 else pct, true)
+            bar.setProgressCompat(if (t.state == UploadService.ST_DONE) 100 else pct, true)
+            // P1:单任务操作(暂停/继续/取消/重试/清除)
+            val actionable = t.state != UploadService.ST_DONE
+            val btn = v.findViewById<com.google.android.material.button.MaterialButton>(R.id.tact)
+            btn.visibility = if (actionable) View.VISIBLE else View.GONE
+            btn.text = when {
+                t.state == UploadService.ST_RUNNING -> "暂停"
+                t.state == UploadService.ST_QUEUED -> "暂停"
+                t.state == UploadService.ST_PAUSED -> "继续"
+                t.state.startsWith("失败") -> "重试"
+                else -> "取消"
+            }
+            btn.setOnClickListener {
+                when {
+                    t.state == UploadService.ST_RUNNING || t.state == UploadService.ST_QUEUED ->
+                        UploadService.pause(this, t.name)
+                    t.state == UploadService.ST_PAUSED || t.state.startsWith("失败") ->
+                        UploadService.resume(this, t.name)
+                    else -> UploadService.cancel(this, t.name)
+                }
+                refreshTransfers()
+            }
+            val clear = v.findViewById<com.google.android.material.button.MaterialButton>(R.id.tclear)
+            clear.visibility = if (actionable) View.GONE else View.VISIBLE
+            clear.setOnClickListener {
+                UploadService.progress.remove(t.name)
+                refreshTransfers()
+            }
             transferList.addView(v)
+        }
+        // 离线缓存区(OfflineStore 登记的任务)
+        val offlineList = findViewById<LinearLayout>(R.id.offlineList)
+        val offlineEmpty = findViewById<View>(R.id.offlineEmpty)
+        offlineList.removeAllViews()
+        val offs = OfflineStore.all(this)
+        offlineEmpty.visibility = if (offs.isEmpty()) View.VISIBLE else View.GONE
+        for (o in offs) {
+            val v = layoutInflater.inflate(R.layout.item_transfer, offlineList, false)
+            v.findViewById<TextView>(R.id.tname).text = o.name
+            val pct = o.percent
+            v.findViewById<TextView>(R.id.tstate).text = when (o.status) {
+                OfflineStore.ST_DOWNLOADING -> "缓存中 $pct%"
+                OfflineStore.ST_PAUSED -> "已暂停 $pct%"
+                OfflineStore.ST_DONE -> "已缓存"
+                else -> "失败: ${o.msg}"
+            }
+            val bar = v.findViewById<LinearProgressIndicator>(R.id.tprog)
+            bar.max = 100
+            bar.setProgressCompat(if (o.status == OfflineStore.ST_DONE) 100 else pct, true)
+            val btn = v.findViewById<com.google.android.material.button.MaterialButton>(R.id.tact)
+            btn.visibility = if (o.status == OfflineStore.ST_DONE) View.GONE else View.VISIBLE
+            btn.text = if (o.status == OfflineStore.ST_PAUSED) "继续" else "暂停"
+            btn.setOnClickListener {
+                if (o.status == OfflineStore.ST_PAUSED) {
+                    OfflineDownloader.resume(this, o.vpath, o.name, o.size)
+                } else {
+                    OfflineDownloader.pause(this, o.vpath)
+                }
+                refreshTransfers()
+            }
+            val clear = v.findViewById<com.google.android.material.button.MaterialButton>(R.id.tclear)
+            clear.visibility = View.VISIBLE
+            clear.text = if (o.status == OfflineStore.ST_DONE) "移除" else "取消"
+            clear.setOnClickListener {
+                if (o.status != OfflineStore.ST_DONE) OfflineDownloader.cancel(this, o.vpath)
+                OfflineStore.remove(this, o.vpath)
+                refreshTransfers()
+            }
+            offlineList.addView(v)
         }
         // 下载队列(系统 DownloadManager 提供进度)
         downloadList.removeAllViews()
@@ -629,6 +902,10 @@ class MainActivity : AppCompatActivity() {
             val bar = v.findViewById<LinearProgressIndicator>(R.id.tprog)
             bar.max = 100
             bar.setProgressCompat(if (d.status == android.app.DownloadManager.STATUS_SUCCESSFUL) 100 else pct, true)
+            val clear = v.findViewById<com.google.android.material.button.MaterialButton>(R.id.tclear)
+            clear.visibility = View.GONE
+            val btn = v.findViewById<com.google.android.material.button.MaterialButton>(R.id.tact)
+            btn.visibility = View.GONE
             downloadList.addView(v)
         }
     }
@@ -662,7 +939,31 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnVault).setOnClickListener {
             startActivity(Intent(this, VaultActivity::class.java))
         }
+        findViewById<View>(R.id.btnTrash).setOnClickListener {
+            startActivity(Intent(this, TrashActivity::class.java))
+        }
+        findViewById<View>(R.id.btnShares).setOnClickListener {
+            startActivity(Intent(this, SharesActivity::class.java))
+        }
         findViewById<View>(R.id.btnAddLib).setOnClickListener { showAddLibrary() }
+        findViewById<View>(R.id.btnLogin).setOnClickListener { launchLogin() }
+        findViewById<View>(R.id.btnLogout).setOnClickListener { doLogout() }
+        // P2:操作日志页(仅管理员可见)
+        findViewById<View>(R.id.btnAudit).setOnClickListener {
+            startActivity(Intent(this, AuditActivity::class.java))
+        }
+    }
+
+    /** 服务端 /api/audit 仅管理员可用:口令模式视为管理员;多用户模式需 sessionRole==admin。 */
+    private fun canAdmin(): Boolean = !ServerConfig.multiUser || ServerConfig.sessionRole == "admin"
+
+    private fun doLogout() {
+        lifecycleScope.launch {
+            try { withContext(Dispatchers.IO) { client.logout() } } catch (_: Exception) { }
+            ServerConfig.clearSession()
+            bindSettings()
+            toast("已退出登录")
+        }
     }
 
     /** 手机端添加存储库:浏览电脑盘符/目录,选一个目录注册为存储库。 */
@@ -811,6 +1112,15 @@ class MainActivity : AppCompatActivity() {
         setServer.text = ServerConfig.baseUrl.ifBlank { "未连接" }
         setToken.text = if (ServerConfig.token.isBlank()) "无口令" else "口令已设置"
         setServerVersion.text = if (serverVersion.isBlank()) "" else "服务端 v$serverVersion"
+        val loggedIn = ServerConfig.sessionUser.isNotBlank()
+        val lb = findViewById<View>(R.id.btnLogin)
+        val lo = findViewById<View>(R.id.btnLogout)
+        lb.visibility = if (loggedIn) View.GONE else View.VISIBLE
+        lo.visibility = if (loggedIn) View.VISIBLE else View.GONE
+        val who = findViewById<TextView>(R.id.setLoginUser)
+        who.text = if (loggedIn) "已登录:${ServerConfig.sessionUser}(${roleLabel(ServerConfig.sessionRole)})" else "未登录(口令访问)"
+        // P2:操作日志仅管理员可见
+        findViewById<View>(R.id.btnAudit).visibility = if (canAdmin()) View.VISIBLE else View.GONE
     }
 
     // ---------- 发现 / 手动连接 ----------
@@ -1105,4 +1415,11 @@ class MainActivity : AppCompatActivity() {
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+
+    private fun roleLabel(role: String) = when (role) {
+        "admin" -> "管理员"
+        "viewer" -> "只读"
+        "user" -> "用户"
+        else -> "未登录"
+    }
 }

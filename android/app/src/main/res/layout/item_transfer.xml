@@ -37,4 +37,28 @@
         app:trackColor="?attr/lOutline"
         app:trackCornerRadius="3dp"
         app:trackThickness="5dp" />
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="6dp"
+        android:gravity="end">
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/tclear"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="0dp"
+            android:text="清除"
+            android:textSize="12sp" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/tact"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="0dp"
+            android:layout_marginStart="8dp"
+            android:text="暂停"
+            android:textSize="12sp" />
+    </LinearLayout>
 </LinearLayout>

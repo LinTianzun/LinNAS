@@ -13,7 +13,9 @@ import android.view.WindowManager
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -21,6 +23,11 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 import kotlin.math.abs
 
 /**
@@ -39,6 +46,12 @@ class PlayerActivity : AppCompatActivity() {
         const val EXTRA_START = "start"
         const val EXTRA_VPATH = "vpath"
         const val EXTRA_SUB = "subtitle"
+        // P2 播放列表
+        const val EXTRA_PLAYLIST = "playlist"    // JSON: [{"name":..,"vpath":..}]
+        const val EXTRA_PLAY_INDEX = "playIndex" // 当前项下标
+
+        /** 需服务端转码才能播的旧格式。 */
+        private val TRANS_CODE = setOf("avi", "rmvb", "rm", "flv", "wmv", "mpg", "mpeg", "vob", "asf", "ogv")
     }
 
     private var player: ExoPlayer? = null
@@ -62,6 +75,12 @@ class PlayerActivity : AppCompatActivity() {
     private var subtitleUrl: String? = null
     private var locked = false
     private var lastResumeSave = 0L
+    private var shouldRestorePlay = true
+
+    // ---------- P2 播放列表 ----------
+    private val client = LinNasClient()
+    private var playlist = emptyList<Pair<String, String>>() // (vpath, name)
+    private var playIdx = -1
 
     override fun onCreate(savedInstanceState: Bundle?) {
         setTheme(ThemeStore.styleRes(this))
@@ -82,6 +101,14 @@ class PlayerActivity : AppCompatActivity() {
         view = findViewById(R.id.player_view)
         view.keepScreenOn = true
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+
+        // P2 播放列表:多集时启用 上一集/下一集/列表 按钮
+        playlist = parsePlaylist(intent.getStringExtra(EXTRA_PLAYLIST))
+        playIdx = intent.getIntExtra(EXTRA_PLAY_INDEX, -1)
+        if (playlist.size > 1 && playIdx in playlist.indices) {
+            setupPlaylistButtons()
+            updateTitleWithIndex(title)
+        }
 
         // 续播:优先用传入起点,否则用本地记录
         startPosition = intent.getLongExtra(EXTRA_START, 0L)
@@ -108,6 +135,8 @@ class PlayerActivity : AppCompatActivity() {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_ENDED) {
                     PlaybackStore.clear(this@PlayerActivity, playbackKey)
+                    // P2:播完自动连播下一集
+                    if (playIdx in 0 until playlist.size - 1) loadListIndex(playIdx + 1)
                 }
             }
         })
@@ -137,7 +166,15 @@ class PlayerActivity : AppCompatActivity() {
                 builder.setSubtitleConfigurations(
                     listOf(
                         MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(it))
-                            .setMimeType("application/x-subrip")
+                            // 服务端 /api/subtitle/content 统一输出 WebVTT;file:// 本地字幕按扩展名判断
+                            .setMimeType(
+                                // 服务端 /api/subtitle/content 统一输出 WebVTT;file:// 本地字幕按扩展名判断
+                                if (it.startsWith("file:")) when (it.substringAfterLast('.', "").lowercase()) {
+                                    "vtt" -> "text/vtt"
+                                    "ass", "ssa" -> "text/x-ssa"
+                                    else -> "application/x-subrip"
+                                } else "text/vtt"
+                            )
                             .setLanguage("zh")
                             .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
                             .build()
@@ -146,6 +183,77 @@ class PlayerActivity : AppCompatActivity() {
             } catch (_: Exception) { }
         }
         return builder.build()
+    }
+
+    // ---------- P2 播放列表 ----------
+
+    private fun parsePlaylist(json: String?): List<Pair<String, String>> {
+        if (json.isNullOrBlank() || json == "[]") return emptyList()
+        return try {
+            val arr = JSONArray(json)
+            (0 until arr.length()).mapNotNull { i ->
+                val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                val vp = o.optString("vpath")
+                if (vp.isBlank()) null else vp to o.optString("name", vp)
+            }
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun setupPlaylistButtons() {
+        findViewById<View>(R.id.btn_prev).visibility = View.VISIBLE
+        findViewById<View>(R.id.btn_next).visibility = View.VISIBLE
+        findViewById<View>(R.id.btn_list).visibility = View.VISIBLE
+        findViewById<View>(R.id.btn_prev).setOnClickListener { loadListIndex(playIdx - 1) }
+        findViewById<View>(R.id.btn_next).setOnClickListener { loadListIndex(playIdx + 1) }
+        findViewById<View>(R.id.btn_list).setOnClickListener { showListDialog() }
+    }
+
+    /** 切到播放列表第 i 集:本地缓存/转码/原流 + 服务端字幕 + 每集独立续播。 */
+    private fun loadListIndex(i: Int) {
+        if (i < 0 || i >= playlist.size) return
+        val p = player ?: return
+        val (vp, name) = playlist[i]
+        playIdx = i
+        playbackKey = vp
+        updateTitleWithIndex(name)
+        lifecycleScope.launch {
+            val (url, sub) = withContext(Dispatchers.IO) {
+                val ext = vp.substringAfterLast('.', "").lowercase()
+                val local = OfflineStore.localFile(this@PlayerActivity, vp)
+                val u = if (local != null) "file://" + local.absolutePath
+                    else if (ext in TRANS_CODE) client.streamUrl(vp)
+                    else client.rawUrl(vp)
+                u to findSubFor(vp)
+            }
+            p.setMediaItem(buildMediaItem(url, sub))
+            p.prepare()
+            val resume = PlaybackStore.position(this@PlayerActivity, vp)
+            if (resume > 0) p.seekTo(resume)
+            p.playWhenReady = true
+        }
+    }
+
+    private fun findSubFor(vp: String): String? {
+        val tracks = try { client.subtitles(vp) } catch (_: Exception) { return null }
+        if (tracks.isEmpty()) return null
+        val pick = tracks.firstOrNull { it.lang.startsWith("zh") } ?: tracks.first()
+        return try { client.absoluteUrl(pick.url) } catch (_: Exception) { null }
+    }
+
+    private fun updateTitleWithIndex(name: String) {
+        val t = if (playlist.size > 1) "${playIdx + 1}/${playlist.size} · $name" else name
+        findViewById<TextView>(R.id.player_title).text = t
+    }
+
+    private fun showListDialog() {
+        val names = playlist.mapIndexed { i, item ->
+            if (i == playIdx) "▶ " + item.second else item.second
+        }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("播放列表(${playlist.size})")
+            .setItems(names) { _, which -> loadListIndex(which) }
+            .setNegativeButton("关闭", null)
+            .show()
     }
 
     private fun setupButtons(p: ExoPlayer) {
@@ -306,11 +414,36 @@ class PlayerActivity : AppCompatActivity() {
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 
-    // ---------- 生命周期 ----------
+    // ---------- 画中画(P1) ----------
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        // 用户按 Home 离开时自动进入画中画(视频播放中、API 26+)
+        val p = player ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            p.isPlaying && p.playbackState != Player.STATE_ENDED
+        ) {
+            shouldRestorePlay = false
+            try { enterPictureInPictureMode(android.app.PictureInPictureParams.Builder().build()) } catch (_: Exception) { }
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: android.content.res.Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        if (isInPictureInPictureMode) {
+            view.hideController()
+        } else {
+            // 从画中画返回:恢复用户离开前的播放状态
+            if (shouldRestorePlay) player?.play()
+        }
+    }
 
     override fun onStop() {
         super.onStop()
-        player?.pause()
+        // 画中画模式下 onStop 不保存为「离开」,避免覆盖进度逻辑误暂停
+        if (!isInPictureInPictureMode) {
+            player?.pause()
+        }
         player?.let { PlaybackStore.save(this, playbackKey, it.currentPosition, it.duration) }
     }
 

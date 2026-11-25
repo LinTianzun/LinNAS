@@ -1,4 +1,8 @@
-# LinNAS — 本地云盘/NAS 方案 v1.1(已确认)
+# LinNAS — 本地云盘/NAS 方案与版本路线图
+
+> 当前组件版本（2026-11-25）：Windows 服务端 **1.5.0**；Android 客户端 **1.4.0**（`versionCode` 6）。WebDAV 挂载尚未实现。发布流程见根目录 [RELEASING.md](RELEASING.md)。
+
+> 下文保留早期技术决策与里程碑记录；历史版本号描述当时状态，不代表当前版本。
 
 > 决策已确认(2026-11-24):
 > - PC 服务端:**Go**
@@ -79,7 +83,7 @@
 | **M1** ✅ 2026-11-24 | Go 服务端:文件 API + Range 播放 + Web UI(嵌入 exe) | 手机浏览器打开即能传、能看 —— 核心体验最快落地 |
 | **M2** ✅ 2026-11-24 | Android 端:连接/浏览/上传/观看(APK 已构建) | 像云盘一样用 |
 | **M3** ✅ 2026-11-24 | 播放器集成 ✅、缩略图 ✅、ffmpeg 按需转码 ✅、媒体库索引(SQLite)✅ | 完整影院体验 |
-| **M4** 🚧 2026-11-24 | 相册自动备份 ✅;WebDAV 挂载、Tailscale 出门远程访问 待做 | 进阶 |
+| **M4** 🚧 2026-11-24 | 相册自动备份 ✅；Tailscale 远程访问 ✅；WebDAV 挂载待做 | 进阶 |
 
 ### M1 完成情况(2026-11-24)
 - Go 1.27.4 服务端,单文件 `server/linNas-server.exe`(UI 已嵌入)
@@ -143,7 +147,7 @@
 ### M4 完成情况(2026-11-24,v0.5.0)
 - **相册自动备份(Android)**:`backup/PhotoBackup.kt` 用 WorkManager 每 6 小时(可限 WiFi)增量扫描 MediaStore 新照片/视频,分块上传到指定目录(默认 `/lib1/手机备份`),按 DATE_ADDED 逐条前移断点、失败自动重试;主界面「备份」按钮配置(启用/目录/仅WiFi/立即备份/状态),Android 13+ 自动申请媒体权限。
 - APK:`release/linNas-0.5.0-debug.apk`(9.8MB)。
-- 待做:M4 其余两项 —— WebDAV 挂载、Tailscale 出门远程访问。
+- 待做:M4 尚未完成项 —— WebDAV 挂载。Tailscale 远程访问已在服务端 v1.5.0 提供。
 
 ### M4.1 App 界面重构 + 局域网自动发现(2026-11-24,v0.6.0)
 - **界面重做**:底部 4 tab(文件/媒体/传输/设置)+ 顶部连接状态胶囊 + 搜索框 + 面包屑 chip;深墨蓝(#0B0D11)配冷蓝主色(#6EA8FE),薄荷/琥珀/红作状态色;18 个手绘描边矢量图标(统一 1.7 描边,替换原 emoji);缩略图列表、媒体两列网格、空状态与加载态。
@@ -226,3 +230,9 @@
 - **前端**:顶栏账号菜单(#btn-user/#usermenu:当前身份、改密码、锁定、退出);登录框 #dlg-login 与锁屏 #lockscreen;api() 的 401 分流 —— 多用户时按是否有会话决定弹锁屏或登录框,单用户口令模式沿用 askToken;用户管理 #dlg-users(新建/改角色/改密码/删除);操作日志 #view-audit;分享管理 #view-shares + 文件行“分享链接”按钮 + #dlg-share/#dlg-share-done;系统设置“安全与账号”组;角色感知 UI(updateRoleUI/isAdmin/canWrite,只读用户隐藏上传/新建/改名/删除/设置等)。
 - **实测**:admin 登录显示“管理员”;只读用户 GET /api/ls 200、POST /api/mkdir 403、GET /api/users 403、界面只剩“下载/详情”;会话失效自动弹锁屏,密码解锁成功;分享页免登录可看文件,密码分享先校验密码;目录分享返回 entries;操作日志显示登录/用户管理/分享记录。go vet 干净、go build OK、health 1.4.0。
 - **数据文件**:linnas-data/users.json、shares.json、audit.log(删除 users.json 并重启可回到免登录模式)。
+
+### M8 远程访问与版本发布整理(2026-11-25)
+- **Windows 服务端 v1.5.0**:Web UI 增加远程访问入口；读取本机 Tailscale 状态、展示可访问地址，并可管理 Tailscale Serve；支持以托盘模式后台运行和开机自启。
+- **Android 客户端 v1.4.0 (versionCode 6)**:包含多用户登录、分享链接、回收站、离线缓存与播放器画中画(P0/P1),以及操作日志页、播放列表连播、跨库搜索结果打开子目录字幕上下文修复(P2)等能力。
+- 服务端与 Android 客户端采用**独立版本号**；版本、构建产物命名和校验步骤以根目录 [RELEASING.md](RELEASING.md) 为准。
+- WebDAV 挂载仍未实现。此前关于“无 Tailscale 远程访问”的待办已过期。
