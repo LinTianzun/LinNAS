@@ -25,8 +25,10 @@ func newOverviewTestServer(t *testing.T) (*Server, *Index) {
 	t.Cleanup(func() { _ = ix.Close() })
 	s := &Server{
 		cfg: &Config{
-			DataDir:             root,
-			IndexRefreshSeconds: 120,
+			DataDir:              root,
+			IndexRefreshSeconds:  120,
+			SpaceWarnPercent:     10,
+			SpaceCriticalPercent: 3,
 			Libraries: []Library{{
 				ID: "lib1", Name: "测试库", Path: libDir, Enabled: true,
 			}},
@@ -35,6 +37,7 @@ func newOverviewTestServer(t *testing.T) (*Server, *Index) {
 		audit:   newAuditLog(root),
 		shares:  newShareStore(root),
 		devices: newDeviceRegistry(),
+		alerts:  newAlertStore(root),
 	}
 	return s, ix
 }
@@ -278,7 +281,7 @@ func TestBuildOverviewAlertsSpace(t *testing.T) {
 	// 可用 5% → 不足 10%。
 	alerts := buildOverviewAlerts([]overviewLib{
 		{ID: "lib1", Name: "H盘", FreeMB: 50, TotalMB: 1000},
-	}, nil, now, 120)
+	}, nil, now, 120, 10, 3)
 	if len(alerts) != 2 { // 空间告警 + 索引未启用
 		t.Fatalf("应有 2 条告警(空间 + 索引未启用),得到 %d: %#v", len(alerts), alerts)
 	}
@@ -288,14 +291,14 @@ func TestBuildOverviewAlertsSpace(t *testing.T) {
 	// 可用 2% → 不足 3%(更严重)。
 	alerts = buildOverviewAlerts([]overviewLib{
 		{ID: "lib1", Name: "H盘", FreeMB: 20, TotalMB: 1000},
-	}, nil, now, 120)
+	}, nil, now, 120, 10, 3)
 	if alerts[0].Level != "warn" || alerts[0].Text != "「H盘」可用空间不足 3%" {
 		t.Errorf("严重空间告警不正确: %#v", alerts[0])
 	}
 	// 可用 50% → 无空间告警。
 	alerts = buildOverviewAlerts([]overviewLib{
 		{ID: "lib1", Name: "H盘", FreeMB: 500, TotalMB: 1000},
-	}, &overviewIndexState{LastScan: now.Unix(), RefreshSeconds: 120}, now, 120)
+	}, &overviewIndexState{LastScan: now.Unix(), RefreshSeconds: 120}, now, 120, 10, 3)
 	if len(alerts) != 0 {
 		t.Errorf("空间充足且索引新鲜时不应有告警,得到 %#v", alerts)
 	}
@@ -308,14 +311,14 @@ func TestBuildOverviewAlertsSpace(t *testing.T) {
 func TestBuildOverviewAlertsIndex(t *testing.T) {
 	now := time.Now()
 	// 索引未启用。
-	alerts := buildOverviewAlerts(nil, nil, now, 120)
+	alerts := buildOverviewAlerts(nil, nil, now, 120, 10, 3)
 	if len(alerts) != 1 || alerts[0].Level != "info" || alerts[0].Text != "媒体索引未启用" {
 		t.Fatalf("索引未启用告警不正确: %#v", alerts)
 	}
 	// 索引 2 小时未更新(refreshSeconds=120 → 阈值 max(10 分钟, 360 秒) = 10 分钟)。
 	alerts = buildOverviewAlerts(nil, &overviewIndexState{
 		LastScan: now.Add(-2 * time.Hour).Unix(), RefreshSeconds: 120,
-	}, now, 120)
+	}, now, 120, 10, 3)
 	if len(alerts) != 1 || alerts[0].Level != "info" {
 		t.Fatalf("索引过期告警不正确: %#v", alerts)
 	}
@@ -325,14 +328,14 @@ func TestBuildOverviewAlertsIndex(t *testing.T) {
 	// 索引刚更新过 → 无告警。
 	alerts = buildOverviewAlerts(nil, &overviewIndexState{
 		LastScan: now.Add(-time.Minute).Unix(), RefreshSeconds: 120,
-	}, now, 120)
+	}, now, 120, 10, 3)
 	if len(alerts) != 0 {
 		t.Errorf("索引新鲜时不应有告警,得到 %#v", alerts)
 	}
 	// refreshSeconds = 0(关闭对账)→ 不报过期。
 	alerts = buildOverviewAlerts(nil, &overviewIndexState{
 		LastScan: now.Add(-72 * time.Hour).Unix(), RefreshSeconds: 0,
-	}, now, 0)
+	}, now, 0, 10, 3)
 	if len(alerts) != 0 {
 		t.Errorf("关闭自动对账时不应报索引过期,得到 %#v", alerts)
 	}
@@ -341,7 +344,7 @@ func TestBuildOverviewAlertsIndex(t *testing.T) {
 	for i := 0; i < 8; i++ {
 		many = append(many, overviewLib{ID: "lib", Name: "库", FreeMB: 1, TotalMB: 1000})
 	}
-	alerts = buildOverviewAlerts(many, nil, now, 120)
+	alerts = buildOverviewAlerts(many, nil, now, 120, 10, 3)
 	if len(alerts) > overviewMaxAlerts {
 		t.Errorf("告警条数应不超过 %d,得到 %d", overviewMaxAlerts, len(alerts))
 	}

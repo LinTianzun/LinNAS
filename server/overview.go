@@ -18,10 +18,6 @@ import (
 
 // 总览相关的固定参数。
 const (
-	// overviewSpaceWarnPct:单库可用比例低于该值即给出 warn 告警。
-	overviewSpaceWarnPct = 10
-	// overviewSpaceCriticalPct:单库可用比例低于该值即给出更严重的 warn。
-	overviewSpaceCriticalPct = 3
 	// overviewIndexStaleMinutes:索引未更新的最小分钟数(与对账间隔×3 取大者)。
 	overviewIndexStaleMinutes = 10
 	// overviewMaxAlerts:告警条数上限。
@@ -88,9 +84,14 @@ type overviewRecent struct {
 }
 
 // overviewAlert 是一条告警(level: warn / info)。
+// ID 用于告警记录去重(space:<libID>:crit / :warn、index:*、disk:<drive>);
+// acked 来自告警 store 的已读状态。
 type overviewAlert struct {
+	ID    string `json:"id,omitempty"`
 	Level string `json:"level"`
 	Text  string `json:"text"`
+	LibID string `json:"libId,omitempty"`
+	Acked bool   `json:"acked,omitempty"`
 }
 
 // overviewResp 是 GET /api/overview 的完整响应(字段名固定)。
@@ -105,6 +106,8 @@ type overviewResp struct {
 	Devices overviewCount       `json:"devices"`
 	Recent  []overviewRecent    `json:"recent"`
 	Alerts  []overviewAlert     `json:"alerts"`
+	// UnreadAlerts 是告警 store 里仍生效且未标记已读的条数。
+	UnreadAlerts int `json:"unreadAlerts"`
 }
 
 // handleOverview GET /api/overview — 总览仪表盘数据(所有登录角色可访问)。
@@ -204,9 +207,58 @@ func (s *Server) buildOverview(r *http.Request) overviewResp {
 		resp.Recent = filterRecentForUser(s.audit.Recent(overviewRecentLimit), currentUserName(r), isAdmin)
 	}
 
-	// 9) 告警(最多 5 条,没有则为���数组)。
-	resp.Alerts = buildOverviewAlerts(resp.Libs, resp.Index, time.Now(), s.cfg.IndexRefreshSeconds)
+	// 9) 告警(最多 5 条,没有则为空数组)。
+	// 先按配置阈值与索引状态生成当前告警,再并入磁盘健康告警(只读缓存,
+	// 不在总览请求里触发 PowerShell),交给告警 store 合并已读状态。
+	now := time.Now()
+	alerts := buildOverviewAlerts(resp.Libs, resp.Index, now, s.cfg.IndexRefreshSeconds,
+		s.cfg.SpaceWarnPercent, s.cfg.SpaceCriticalPercent)
+	alerts = append(alerts, s.diskHealthAlerts()...)
+	if len(alerts) > overviewMaxAlerts {
+		alerts = alerts[:overviewMaxAlerts]
+	}
+	current := make([]spaceAlert, 0, len(alerts))
+	for _, al := range alerts {
+		current = append(current, spaceAlert{
+			ID: al.ID, Level: al.Level, LibID: al.LibID, Text: al.Text,
+		})
+	}
+	if s.alerts != nil {
+		s.alerts.Sync(current, now)
+		resp.Alerts = overviewAlertsFromStore(s.alerts.Active(overviewMaxAlerts))
+		resp.UnreadAlerts = s.alerts.Unread()
+	} else {
+		// 告警 store 不可用(如测试里手工构造 Server):直接返回本轮结果。
+		resp.Alerts = alerts
+	}
 	return resp
+}
+
+// diskHealthAlerts 把缓存中健康状态异常的磁盘转成 warn 告警;不会触发采集。
+func (s *Server) diskHealthAlerts() []overviewAlert {
+	var out []overviewAlert
+	for _, d := range s.diskHealth.peek() {
+		if strings.EqualFold(d.HealthStatus, "Healthy") {
+			continue
+		}
+		out = append(out, overviewAlert{
+			ID:    "disk:" + d.Drive,
+			Level: "warn",
+			Text:  "磁盘 " + d.Drive + " 健康状态异常: " + d.HealthStatus,
+		})
+	}
+	return out
+}
+
+// overviewAlertsFromStore 把告警 store 里仍生效的条目转成响应结构(带 acked)。
+func overviewAlertsFromStore(items []spaceAlert) []overviewAlert {
+	out := make([]overviewAlert, 0, len(items))
+	for _, it := range items {
+		out = append(out, overviewAlert{
+			ID: it.ID, Level: it.Level, Text: it.Text, LibID: it.LibID, Acked: it.Acked,
+		})
+	}
+	return out
 }
 
 // overviewLibAgg 是某个库的索引聚合结果。
@@ -280,13 +332,15 @@ func (s *Server) overviewKindCounts() overviewKinds {
 }
 
 // buildOverviewAlerts 生成告警列表(纯函数,便于单测)。
-//   - 单库可用比例 < 3% → warn「<库名> 可用空间不足 3%」
-//   - 单库可用比例 < 10% → warn「<库名> 可用空间不足 10%」
+//   - 单库可用比例 < critPct → warn「<库名> 可用空间不足 <critPct>%」
+//   - 单库可用比例 < warnPct → warn「<库名> 可用空间不足 <warnPct>%」
+//     (同一库只取更严重的一条,阈值来自配置而不是写死 10/3)
 //   - 索引未启用 → info「媒体索引未启用」
 //   - 索引久未更新 → info「索引已 X 分钟未更新」
 //
-// 最多返回 overviewMaxAlerts 条,没有告警时返回空数组(不是 null)。
-func buildOverviewAlerts(libs []overviewLib, index *overviewIndexState, now time.Time, refreshSeconds int) []overviewAlert {
+// 每条告警带稳定 ID(space:<libID>:crit / :warn、index:*),供告警 store 去重与
+// 记录已读状态。最多返回 overviewMaxAlerts 条,没有告警时返回空数组(不是 null)。
+func buildOverviewAlerts(libs []overviewLib, index *overviewIndexState, now time.Time, refreshSeconds int, warnPct, critPct int) []overviewAlert {
 	alerts := []overviewAlert{}
 	for _, lib := range libs {
 		if lib.TotalMB <= 0 {
@@ -294,24 +348,33 @@ func buildOverviewAlerts(libs []overviewLib, index *overviewIndexState, now time
 		}
 		freePct := float64(lib.FreeMB) / float64(lib.TotalMB) * 100
 		switch {
-		case freePct < overviewSpaceCriticalPct:
-			alerts = append(alerts, overviewAlert{Level: "warn", Text: "「" + lib.Name + "」可用空间不足 3%"})
-		case freePct < overviewSpaceWarnPct:
-			alerts = append(alerts, overviewAlert{Level: "warn", Text: "「" + lib.Name + "」可用空间不足 10%"})
+		case critPct > 0 && freePct < float64(critPct):
+			alerts = append(alerts, overviewAlert{
+				ID: "space:" + lib.ID + ":crit", LibID: lib.ID, Level: "warn",
+				Text: "「" + lib.Name + "」可用空间不足 " + itoa(critPct) + "%",
+			})
+		case warnPct > 0 && freePct < float64(warnPct):
+			alerts = append(alerts, overviewAlert{
+				ID: "space:" + lib.ID + ":warn", LibID: lib.ID, Level: "warn",
+				Text: "「" + lib.Name + "」可用空间不足 " + itoa(warnPct) + "%",
+			})
 		}
 	}
 	if index == nil {
-		alerts = append(alerts, overviewAlert{Level: "info", Text: "媒体索引未启用"})
+		alerts = append(alerts, overviewAlert{ID: "index:disabled", Level: "info", Text: "媒体索引未启用"})
 	} else if index.LastScan == 0 {
 		// 索引已启用但从未完成首次扫描。
-		alerts = append(alerts, overviewAlert{Level: "info", Text: "索引尚未完成首次扫描"})
+		alerts = append(alerts, overviewAlert{ID: "index:firstscan", Level: "info", Text: "索引尚未完成首次扫描"})
 	} else if refreshSeconds > 0 {
 		stale := time.Duration(refreshSeconds*3) * time.Second
 		if minStale := overviewIndexStaleMinutes * time.Minute; stale < minStale {
 			stale = minStale
 		}
 		if elapsed := now.Sub(time.Unix(index.LastScan, 0)); elapsed > stale {
-			alerts = append(alerts, overviewAlert{Level: "info", Text: "索引已 " + itoa(int(elapsed.Minutes())) + " 分钟未更新"})
+			alerts = append(alerts, overviewAlert{
+				ID: "index:stale", Level: "info",
+				Text: "索引已 " + itoa(int(elapsed.Minutes())) + " 分钟未更新",
+			})
 		}
 	}
 	if len(alerts) > overviewMaxAlerts {

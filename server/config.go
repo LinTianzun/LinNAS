@@ -26,14 +26,20 @@ type Config struct {
 	// IndexRefreshSeconds 索引自动对账间隔(秒),用于发现资源管理器等外部改动;0 = 关闭。默认 120。
 	// 刻意不加 omitempty:0(关闭)也需要能持久化。
 	IndexRefreshSeconds int `json:"indexRefreshSeconds"`
+	// SpaceWarnPercent 单库可用空间百分比低于该值时给出告警。默认 10。
+	SpaceWarnPercent int `json:"spaceWarnPercent"`
+	// SpaceCriticalPercent 单库可用空间百分比低于该值时给出更严重的告警。默认 3。
+	SpaceCriticalPercent int `json:"spaceCriticalPercent"`
 	// WolHosts 记住的 Wake-on-LAN 主机列表。
 	WolHosts []WolHost `json:"wolHosts,omitempty"`
 }
 
 // 默认值(0 表示用户显式关闭,与「未设置」区分)。
 const (
-	defaultTrashRetentionDays = 30
-	defaultTranscodeCacheMB   = 2048
+	defaultTrashRetentionDays   = 30
+	defaultTranscodeCacheMB     = 2048
+	defaultSpaceWarnPercent     = 10
+	defaultSpaceCriticalPercent = 3
 )
 
 // Library is one registered storage location (e.g. H:\, I:\).

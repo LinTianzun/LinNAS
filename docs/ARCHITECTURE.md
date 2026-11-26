@@ -1,4 +1,4 @@
-# LinNAS 架构说明
+﻿# LinNAS 架构说明
 
 > 更新：2026-11-26。当前版本：Windows 服务端 1.7.0；Android 1.8.0（versionCode 9）。
 > 本文描述**现状**；里程碑与版本演进见 [PLAN.md](../PLAN.md)，后续候选见 [FEATURE_ROADMAP.md](FEATURE_ROADMAP.md)。
@@ -52,6 +52,9 @@
 | `fsops.go` / `size.go` / `disks.go` | 目录选择器 / 盘符枚举、移动 / 复制 / 改名 / 删除、目录递归大小、磁盘剩余 |
 | `analysis.go` | 存储空间分析：概览、大文件 Top N、重复文件候选（后台抽样哈希，人工确认后删除） |
 | `media_hide.go` | 「不在媒体库展示」路径的增删查（仍索引、仍可访问） |
+| `trend.go` | 存储增长趋势：`storage_snapshots` 按小时快照 + `GET /api/storage/trend`（7/30/90 天，SVG 面积图） |
+| `disk_health.go` | 磁盘健康：Windows `Get-PhysicalDisk`/`Get-Volume`，5 分钟缓存，`GET /api/disks/health`（非 Windows → supported:false） |
+| `alerts.go` | 空间告警存储：`alerts.json` 触发 / 恢复 / 已读，`GET /api/alerts`、`POST /api/alerts/ack` |
 | `overview.go` | 总览仪表盘数据：`GET /api/overview`（库容量、全库与类型统计、索引 / 回收站 / 分享 / 设备、近期活动、空间与索引告警） |
 | `webdav.go` | WebDAV 服务（`/dav/<库ID>/`，继承账号 / 只读，敏感目录不可访问） |
 | `zip.go` | 文件夹 / 多选服务端流式 Zip 打包 |
@@ -71,7 +74,7 @@
 - 安全 / 账号：`auth/{login,logout,me,status,sessions,revoke}`、`users`（+password / update）、`audit`、`devices`、`shares`、`share/{id}`、`share/{id}/raw`
 - 保险箱：`vault/{status,setup,unlock,lock,ls,raw,upload,delete,mkdir,import,export,改密}`
 - 回收站：`trash`、`trash/{restore,delete,empty,thumb}`
-- 其它：`health`、`settings`、`pair`、`pair/qr`、`qr`、`remote`、`remote/serve`、`hotspot`、`autostart`、`app/version`、`app/apk`、`wol`、`wol/send`、`maintenance/cleanup`、`system/open`、`overview`、`storage/{summary,large,duplicates,duplicates/scan}`
+- 其它：`health`、`settings`、`pair`、`pair/qr`、`qr`、`remote`、`remote/serve`、`hotspot`、`autostart`、`app/version`、`app/apk`、`wol`、`wol/send`、`maintenance/cleanup`、`system/open`、`overview`、`storage/{summary,large,duplicates,duplicates/scan,trend}`、`disks/health`、`alerts`、`alerts/ack`
 - 非 `/api`：`/pair`（配对页）、`/s/{id}`（分享页）、`/dav/<lib>/`（WebDAV）、`/ui/`（管理端）
 
 ### 3.3 鉴权与权限

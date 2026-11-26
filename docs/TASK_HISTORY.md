@@ -1,4 +1,4 @@
-# 任务历史（TASK HISTORY）
+﻿# 任务历史（TASK HISTORY）
 
 > 记录已完成的任务 / 里程碑与近期提交。详细逐项见 [PLAN.md](../PLAN.md)；当前状态见 [DEVELOPMENT_STATUS.md](DEVELOPMENT_STATUS.md)，正在做的事见 [CURRENT_TASK.md](CURRENT_TASK.md)。
 
@@ -6,6 +6,7 @@
 
 | 里程碑 | 日期 | 组件 / 版本 | 主要内容 |
 |---|---|---|---|
+| M15.1 | 2026-11-26 | 服务端 1.7.0 | 存储空间分析增强（批次 1）：`GET /api/storage/trend` 增长趋势、`GET /api/disks/health` 磁盘健康、`storage_snapshots` 与 `Index.Snapshot()`、空间告警阈值可配置 + `GET /api/alerts` / `POST /api/alerts/ack`；新增 `server/{trend,disk_health,alerts}.go` 与单测 |
 | M14 | 2026-11-26 | 服务端 1.7.0（Web UI） | 总览仪表盘（`GET /api/overview`：容量 / 内容 / 系统状态 / 近期活动 / 快捷入口 / 规划中）；侧栏按总览 / 媒体 / 存储 / 设备与网络 / 分享与管理分组；主区全宽消除宽屏左侧死区 |
 | M13 | 2026-11-26 | Android 1.8.0 (vc9) | 统一传输中心（下载 / ZIP 前台服务、暂停续传 / 重试 / 取消 / SAF 目录）、文件多选批量操作、生物识别、版本检查、收藏 / 最近 / 搜索历史与筛选、播放器 B 站式重做、媒体库按文件夹分组、设置页重排、`DESIGN.md` 视觉规范 |
 | M12 | 2026-11-26 | Android 1.7.0 (vc8) | 对齐服务端 v1.7.0：活跃会话、用户管理、维护、网络唤醒、存储库管理、Zip 下载、保险箱增强、429 倒计时 |
@@ -23,6 +24,7 @@
 
 ## 近期提交（git log）
 
+- 工作区（未提交）：服务端 1.7.0 —— M15 批次 1（趋势 / 磁盘健康 / 空间告警；`server/{trend,disk_health,alerts}.go`、`storage_snapshots` 表、设置阈值、`ui/dist` 趋势 tab / sparkline / 磁盘健康卡 / 告警「全部已读」）。
 - 工作区（未提交）：服务端 1.7.0 —— Web UI 总览仪表盘与侧栏分组重构（`server/overview.go`、`GET /api/overview`、`overview_test.go`、`ui/dist/{index.html,app.js,style.css}`）；主区全宽、五张总览卡片、规划中两张路线图。
 - 工作区（未提交）：服务端 1.7.0 修补 —— 媒体库自动分页加载、回收站缩略图（`GET /api/trash/thumb`）、「不在媒体库展示」睁眼/闭眼图标与即时徽标；补 `trash_thumb_test.go`。
 - `12b5c2a` feat(android): v1.8.0 体验升级（传输中心 / 多选批量 / 生物识别 / 版本检查 / 播放器重做 / 收藏筛选 / 媒体分组 / 视觉打磨）

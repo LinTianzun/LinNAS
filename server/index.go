@@ -69,6 +69,14 @@ func OpenIndex(dataDir string) (*Index, error) {
 		`CREATE INDEX IF NOT EXISTS idx_files_kind ON files(lib_id, kind, name)`,
 		`CREATE INDEX IF NOT EXISTS idx_files_name ON files(name)`,
 		`CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS storage_snapshots (
+			lib_id TEXT NOT NULL,
+			ts     INTEGER NOT NULL,
+			bytes  INTEGER NOT NULL,
+			files  INTEGER NOT NULL,
+			PRIMARY KEY (lib_id, ts)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_snap_ts ON storage_snapshots(ts)`,
 	} {
 		if _, err := db.Exec(stmt); err != nil {
 			return nil, err
@@ -117,6 +125,66 @@ func (ix *Index) refreshCount() error {
 	ix.mu.Lock()
 	ix.fileCount = n
 	ix.mu.Unlock()
+	return nil
+}
+
+// ============================================================
+//  存储空间趋势快照
+// ============================================================
+
+// Snapshot 记录当前各库的占用快照;同一小时只保留一条;顺便清理 400 天前的数据。
+func (ix *Index) Snapshot() error {
+	ts := time.Now().Truncate(time.Hour).Unix()
+	rows, err := ix.db.Query(
+		`SELECT lib_id, COUNT(*), COALESCE(SUM(size), 0) FROM files WHERE is_dir = 0 GROUP BY lib_id`)
+	if err != nil {
+		return err
+	}
+	type snap struct {
+		libID string
+		files int64
+		bytes int64
+	}
+	var snaps []snap
+	for rows.Next() {
+		var s snap
+		if err := rows.Scan(&s.libID, &s.files, &s.bytes); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		snaps = append(snaps, s)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	_ = rows.Close()
+
+	tx, err := ix.db.Begin()
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	for _, s := range snaps {
+		if _, err := tx.Exec(`INSERT OR REPLACE INTO storage_snapshots
+			(lib_id, ts, bytes, files) VALUES (?,?,?,?)`, s.libID, ts, s.bytes, s.files); err != nil {
+			return err
+		}
+	}
+	// 清理 400 天前的历史,避免快照表无限增长。
+	if _, err := tx.Exec(`DELETE FROM storage_snapshots WHERE ts < ?`,
+		time.Now().Unix()-400*86400); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	committed = true
 	return nil
 }
 
@@ -171,6 +239,12 @@ func (ix *Index) ScanAll(cfg *Config) {
 			if _, err := ix.db.Exec(`INSERT OR REPLACE INTO meta(k, v) VALUES ('last_scan', ?)`,
 				strconv.FormatInt(scanFinished.Unix(), 10)); err != nil {
 				scanErrors = append(scanErrors, "保存扫描时间失败: "+err.Error())
+			}
+		}
+		// 扫描成功后记一条空间快照(失败只记日志,不影响扫描结果)。
+		if len(scanErrors) == 0 {
+			if err := ix.Snapshot(); err != nil {
+				log.Printf("记录存储空间快照失败: %v", err)
 			}
 		}
 		ix.mu.Lock()
@@ -796,6 +870,10 @@ func (ix *Index) ReconcileAll(cfg *Config) {
 	}
 	if err := ix.refreshCount(); err != nil {
 		log.Printf("更新索引计数失败: %v", err)
+	}
+	// 对账完成后记一条空间快照(失败只记日志,不影响对账结果)。
+	if err := ix.Snapshot(); err != nil {
+		log.Printf("记录存储空间快照失败: %v", err)
 	}
 }
 

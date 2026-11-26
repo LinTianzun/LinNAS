@@ -26,20 +26,26 @@ type Server struct {
 	audit    *auditLog
 	shares   *shareStore
 	dup      *dupScanState
+	// alerts 保存空间/健康告警的首次出现时间与已读状态(DataDir/alerts.json)。
+	alerts *alertStore
+	// diskHealth 缓存物理磁盘健康采集结果(5 分钟)。
+	diskHealth *diskHealthCache
 }
 
 // NewServer creates the HTTP mux with all routes registered.
 func NewServer(cfg *Config) *Server {
 	s := &Server{
-		cfg:      cfg,
-		mux:      http.NewServeMux(),
-		uploads:  newUploadSessionStore(),
-		davLocks: webdav.NewMemLS(),
-		devices:  newDeviceRegistry(),
-		auth:     newAuthStore(cfg.DataDir, cfg.IdleLockMinutes),
-		audit:    newAuditLog(cfg.DataDir),
-		shares:   newShareStore(cfg.DataDir),
-		dup:      newDupScanState(),
+		cfg:        cfg,
+		mux:        http.NewServeMux(),
+		uploads:    newUploadSessionStore(),
+		davLocks:   webdav.NewMemLS(),
+		devices:    newDeviceRegistry(),
+		auth:       newAuthStore(cfg.DataDir, cfg.IdleLockMinutes),
+		audit:      newAuditLog(cfg.DataDir),
+		shares:     newShareStore(cfg.DataDir),
+		dup:        newDupScanState(),
+		alerts:     newAlertStore(cfg.DataDir),
+		diskHealth: &diskHealthCache{},
 	}
 
 	api := http.NewServeMux()
@@ -55,6 +61,12 @@ func NewServer(cfg *Config) *Server {
 	api.HandleFunc("GET /api/storage/large", s.handleStorageLarge)
 	api.HandleFunc("POST /api/storage/duplicates/scan", s.handleStorageDupScan)
 	api.HandleFunc("GET /api/storage/duplicates", s.handleStorageDupStatus)
+	// 存储空间趋势(按小时快照)与物理磁盘健康
+	api.HandleFunc("GET /api/storage/trend", s.handleStorageTrend)
+	api.HandleFunc("GET /api/disks/health", s.handleDisksHealth)
+	// 告警记录:列表与标记已读(任意登录角色,只影响已读状态)
+	api.HandleFunc("GET /api/alerts", s.handleAlerts)
+	api.HandleFunc("POST /api/alerts/ack", s.handleAlertsAck)
 	api.HandleFunc("GET /api/ls", s.handleList)
 	api.HandleFunc("GET /api/size", s.handleSize)
 	api.HandleFunc("GET /api/info", s.handleInfo)
@@ -259,6 +271,10 @@ func (s *Server) authorize(sess *Session, r *http.Request) bool {
 	m := r.Method
 	// 任何登录用户都可以修改自己的密码
 	if p == "/api/users/password" {
+		return true
+	}
+	// 告警已读状态只影响本人看到的提醒,任意登录角色(含 viewer)都可以标记。
+	if p == "/api/alerts/ack" {
 		return true
 	}
 	// 管理员专属

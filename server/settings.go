@@ -9,23 +9,25 @@ import (
 // handleSettingsInfo GET /api/settings — 系统信息(只读)
 func (s *Server) handleSettingsInfo(w http.ResponseWriter, r *http.Request) {
 	info := map[string]any{
-		"version":             Version,
-		"port":                s.cfg.Port,
-		"host":                s.cfg.Host,
-		"dataDir":             s.cfg.DataDir,
-		"tokenSet":            s.cfg.Token != "",
-		"libCount":            len(s.cfg.Libraries),
-		"goos":                runtime.GOOS,
-		"goarch":              runtime.GOARCH,
-		"ffmpeg":              findFFmpeg() != "",
-		"vaultDir":            s.vaultDir(),
-		"serverNow":           time.Now().Unix(),
-		"idleLockMinutes":     s.auth.IdleMinutes(),
-		"multiUser":           s.auth.MultiUser(),
-		"userCount":           s.auth.UserCount(),
-		"trashRetentionDays":  s.cfg.TrashRetentionDays,
-		"transcodeCacheMB":    s.cfg.TranscodeCacheMB,
-		"indexRefreshSeconds": s.cfg.IndexRefreshSeconds,
+		"version":              Version,
+		"port":                 s.cfg.Port,
+		"host":                 s.cfg.Host,
+		"dataDir":              s.cfg.DataDir,
+		"tokenSet":             s.cfg.Token != "",
+		"libCount":             len(s.cfg.Libraries),
+		"goos":                 runtime.GOOS,
+		"goarch":               runtime.GOARCH,
+		"ffmpeg":               findFFmpeg() != "",
+		"vaultDir":             s.vaultDir(),
+		"serverNow":            time.Now().Unix(),
+		"idleLockMinutes":      s.auth.IdleMinutes(),
+		"multiUser":            s.auth.MultiUser(),
+		"userCount":            s.auth.UserCount(),
+		"trashRetentionDays":   s.cfg.TrashRetentionDays,
+		"transcodeCacheMB":     s.cfg.TranscodeCacheMB,
+		"indexRefreshSeconds":  s.cfg.IndexRefreshSeconds,
+		"spaceWarnPercent":     s.cfg.SpaceWarnPercent,
+		"spaceCriticalPercent": s.cfg.SpaceCriticalPercent,
 	}
 	if s.index != nil {
 		st := s.index.Status()
@@ -43,11 +45,13 @@ func (s *Server) handleSettingsInfo(w http.ResponseWriter, r *http.Request) {
 // handleSettingsUpdate POST /api/settings {token} — 修改访问口令(立即生效)
 func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Token               *string `json:"token"`
-		IdleLockMinutes     *int    `json:"idleLockMinutes"`
-		TrashRetentionDays  *int    `json:"trashRetentionDays"`
-		TranscodeCacheMB    *int    `json:"transcodeCacheMB"`
-		IndexRefreshSeconds *int    `json:"indexRefreshSeconds"`
+		Token                *string `json:"token"`
+		IdleLockMinutes      *int    `json:"idleLockMinutes"`
+		TrashRetentionDays   *int    `json:"trashRetentionDays"`
+		TranscodeCacheMB     *int    `json:"transcodeCacheMB"`
+		IndexRefreshSeconds  *int    `json:"indexRefreshSeconds"`
+		SpaceWarnPercent     *int    `json:"spaceWarnPercent"`
+		SpaceCriticalPercent *int    `json:"spaceCriticalPercent"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeErr(w, 400, "请求格式错误")
@@ -97,17 +101,39 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		s.cfg.IndexRefreshSeconds = secs
 	}
+	if req.SpaceWarnPercent != nil {
+		p := *req.SpaceWarnPercent
+		if p < 1 {
+			p = 1
+		}
+		if p > 50 {
+			p = 50
+		}
+		s.cfg.SpaceWarnPercent = p
+	}
+	if req.SpaceCriticalPercent != nil {
+		p := *req.SpaceCriticalPercent
+		if p < 1 {
+			p = 1
+		}
+		if p > 20 {
+			p = 20
+		}
+		s.cfg.SpaceCriticalPercent = p
+	}
 	if err := s.cfg.SaveConfig(); err != nil {
 		writeErr(w, 500, "保存配置失败: "+err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{
-		"ok":                  true,
-		"tokenSet":            s.cfg.Token != "",
-		"idleLockMinutes":     s.auth.IdleMinutes(),
-		"trashRetentionDays":  s.cfg.TrashRetentionDays,
-		"transcodeCacheMB":    s.cfg.TranscodeCacheMB,
-		"indexRefreshSeconds": s.cfg.IndexRefreshSeconds,
+		"ok":                   true,
+		"tokenSet":             s.cfg.Token != "",
+		"idleLockMinutes":      s.auth.IdleMinutes(),
+		"trashRetentionDays":   s.cfg.TrashRetentionDays,
+		"transcodeCacheMB":     s.cfg.TranscodeCacheMB,
+		"indexRefreshSeconds":  s.cfg.IndexRefreshSeconds,
+		"spaceWarnPercent":     s.cfg.SpaceWarnPercent,
+		"spaceCriticalPercent": s.cfg.SpaceCriticalPercent,
 	})
 }
 

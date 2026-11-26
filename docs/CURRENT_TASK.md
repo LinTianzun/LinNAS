@@ -1,16 +1,18 @@
-# 当前任务（CURRENT TASK）
+﻿# 当前任务（CURRENT TASK）
 
 > 这是一个「活」文件：记录此刻正在做 / 紧接着要做的事。稳定后的结论应迁移到 [TASK_HISTORY.md](TASK_HISTORY.md)，整体状态见 [DEVELOPMENT_STATUS.md](DEVELOPMENT_STATUS.md)。更新时间：2026-11-26。
 
 ## 进行中
 
-- （当前无进行中的代码或文档任务；M10 真机基本回归已通过。）
+- M15 批次 1（趋势 / 磁盘健康 / 空间告警）已实现、验证并部署到本机 52700；批次 2（校验巡检）待开始。
 
 ## 下一步（待办）
 
-1. 完成 release 签名与 CI 发布自动化（见 [ROADMAP_BACKLOG.md](ROADMAP_BACKLOG.md) BL-002 / BL-003）。
-2. （可选）在 Android 7 / 14 双版本补测关键路径；M10 单机基本回归已通过。
-3. 按 [RELEASING.md](../RELEASING.md) 流程发布（若递增版本号，同步更新 `server/config.go` / `android/app/build.gradle.kts` 与 README、PLAN、CHANGELOG）。
+1. 按 [PLAN.md](../PLAN.md) M15 开始**批次 2 校验巡检**（quick 抽样哈希 / deep 全文件、可取消、只报告不修改）。
+2. 之后按计划推进 M16 批次 3（正文索引与内容搜索）、批次 4（自动整理规则）。
+3. 完成 release 签名与 CI 发布自动化（见 [ROADMAP_BACKLOG.md](ROADMAP_BACKLOG.md) BL-002 / BL-003）。
+4. （可选）在 Android 7 / 14 双版本补测关键路径；M10 单机基本回归已通过。
+5. 按 [RELEASING.md](../RELEASING.md) 流程发布（若递增版本号，同步更新 `server/config.go` / `android/app/build.gradle.kts` 与 README、PLAN、CHANGELOG）。
 
 ## 阻塞 / 风险
 
@@ -19,6 +21,7 @@
 
 ## 最近完成
 
+- 2026-11-26 服务端 1.7.0：存储空间分析增强（批次 1）——增长趋势 `GET /api/storage/trend`（7/30/90 天 + 总览 sparkline）、磁盘健康 `GET /api/disks/health`、空间告警阈值可配置与 `GET /api/alerts` / `POST /api/alerts/ack`；新增 `server/{trend,disk_health,alerts}.go` 与单测；已构建并部署到本机 52700。
 - 2026-11-26 M10 真机基本回归通过（单设备，未发现阻断问题）。
 - 2026-11-26 服务端 1.7.0：Web UI 总览仪表盘（六项 KPI + 容量 / 内容 / 快捷入口 / 近期活动 / 规划中五卡）与侧栏分组重构；主区全宽消除宽屏左侧死区；新增 `GET /api/overview` 与单测；已构建并部署到本机 52700（工作区未提交）。
 - 2026-11-26 服务端 1.7.0 修补：媒体库自动分页加载、回收站网格/列表缩略图、媒体库隐藏状态的睁眼/闭眼图标与徽标；已构建并部署到本机 52700（提交 `d9590bf`）。

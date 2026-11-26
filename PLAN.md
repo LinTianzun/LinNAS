@@ -1,4 +1,4 @@
-# LinNAS — 本地云盘/NAS 方案与版本路线图
+﻿# LinNAS — 本地云盘/NAS 方案与版本路线图
 
 > 当前组件版本（2026-11-26）：Windows 服务端 **1.7.0**；Android 客户端 **1.8.2**（`versionCode` 11）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
 
@@ -330,7 +330,9 @@
 ### M15 存储空间分析增强（规划，分两批实现）
 总览页「规划中」第二张卡片的落地计划。目标：在已有概览 / 大文件 / 重复候选之上补齐**增长趋势、校验巡检、磁盘健康与空间告警**，全部复用现有 `files` 索引与 `analysis.go` 模式（后台异步 + 状态轮询），不引入第三方依赖，删除动作一律只进回收站且需人工确认。
 
-**批次 1：趋势快照 + 磁盘健康 + 空间告警**
+**批次 1：趋势快照 + 磁盘健康 + 空间告警**（✅ 已完成并部署 2026-11-26）
+
+> 状态：批次 1 已实现、测试并部署到本机 52700（服务端版本仍为 1.7.0）；新增 `server/trend.go`、`server/disk_health.go`、`server/alerts.go` 及单测 `trend_test.go` / `disk_health_test.go` / `alerts_test.go`。批次 2（校验巡检）待开始。
 - 快照表：`storage_snapshots(ts INTEGER, lib_id TEXT, bytes INTEGER, files INTEGER)`，`PRIMARY KEY(lib_id, ts)` + `CREATE INDEX idx_snap_lib ON storage_snapshots(lib_id, ts)`；在 `ScanAll` / `ReconcileAll` 完成后调用 `Index.Snapshot()`，同一小时最多一条（按 `ts/3600` 去重），保留 400 天，超出由 housekeeping 清理。
 - `GET /api/storage/trend?days=30&lib=` → `{days, libs:[{libId,name,points:[{t,bytes,files,delta}]}], total:{points:[...], weekDeltaBytes}}`；无快照时返回空数组而非 500。
 - `GET /api/disks/health`：Windows 侧执行 `Get-PhysicalDisk` + `Get-Volume`（`exec.Command("powershell", "-NoProfile", "-Command", ...)`），把结果缓存 5 分钟，返回 `[{drive, model, mediaType, healthStatus, operationalStatus, sizeGB, temperature?}]`；非 Windows 或命令失败返回 `{supported:false, reason}`，不影响其它接口。

@@ -43,16 +43,20 @@ const state = {
   trash: [],
   trashView: localStorage.getItem("linnas_trash_view") || "list",
   // 存储空间分析
-  storageTab: "large",       // large | dups
+  storageTab: "large",       // large | dups | trend
   storageLarge: [],
   storageDups: null,
   storageScanTimer: null,
+  trendDays: 30,             // 趋势页签的时间范围(天)
+  diskHealth: null,          // GET /api/disks/health 的缓存结果
+  diskHealthSeq: 0,          // 防止并发请求把旧结果追加两遍
   // v1.4.0 D 安全
   auth: { multiUser: false, userCount: 0, idleLockMinutes: 30, username: "", role: "", session: false, locked: false },
   users: [],
   audit: [],
   shares: [],
   overview: null,          // GET /api/overview 的总览数据
+  overviewSeq: 0,          // 总览加载序号,用于丢弃过期的趋势补绘
 };
 
 const $ = (s) => document.querySelector(s);
@@ -491,10 +495,13 @@ async function loadOverview() {
   const alerts = $("#ov-alerts");
   if (sub) sub.textContent = "正在读取总览数据…";
   if (alerts) alerts.innerHTML = "";
+  state.overviewSeq = (state.overviewSeq || 0) + 1;
+  const seq = state.overviewSeq;
   try {
     const ov = await api("/api/overview");
     state.overview = ov || {};
     renderOverview(state.overview);
+    loadOverviewSparkline(seq); // 异步补绘迷你趋势;接口不可用时静默跳过
   } catch (e) {
     state.overview = null;
     if (sub) sub.textContent = "无法读取总览数据";
@@ -544,6 +551,30 @@ function renderOverview(ov) {
       el.appendChild(ovEl("span", "ov-alert-ic", a && a.level === "warn" ? "!" : "i"));
       el.appendChild(ovEl("span", "ov-alert-txt", (a && a.text) || ""));
       alertBox.appendChild(el);
+    }
+    // 有未读告警时,在条内右侧提供「全部已读」
+    if ((Number(ov.unreadAlerts) || 0) > 0) {
+      const ackBtn = document.createElement("button");
+      ackBtn.className = "btn small";
+      ackBtn.textContent = "全部已读";
+      ackBtn.onclick = async () => {
+        ackBtn.disabled = true;
+        try {
+          await api("/api/alerts/ack", { method: "POST", body: { ids: [], all: true } });
+          await loadOverview();
+        } catch (e) {
+          ackBtn.disabled = false;
+          toast("失败: " + (e && e.message ? e.message : "未知错误"));
+        }
+      };
+      let host = alertBox.lastElementChild;
+      if (!host) {
+        host = ovEl("div", "ov-alert info");
+        host.appendChild(ovEl("span", "ov-alert-ic", "i"));
+        host.appendChild(ovEl("span", "ov-alert-txt", "有未读的空间告警"));
+        alertBox.appendChild(host);
+      }
+      host.appendChild(ackBtn);
     }
   }
 
@@ -721,6 +752,30 @@ function renderOverview(ov) {
       road.appendChild(card);
     }
   }
+}
+
+// 总览:存储容量卡片底部的迷你趋势行(sparkline + 较上周)
+async function loadOverviewSparkline(seq) {
+  let r;
+  try { r = await api("/api/storage/trend?days=30"); } catch (e) { return; }
+  if (seq !== state.overviewSeq) return; // 总览已重新加载,丢弃旧结果
+  const cap = $("#ov-capacity-body");
+  if (!cap) return;
+  const total = (r && r.total) || {};
+  const pts = Array.isArray(total.points) ? total.points.slice(-14) : [];
+  if (!pts.length) return;
+  const old = $("#ov-spark-row");
+  if (old) old.remove();
+  const row = ovEl("div", "tr-spark-row");
+  row.id = "ov-spark-row";
+  const svg = trSvgChart(pts, "tr-spark", 120, 32, true);
+  if (svg) row.appendChild(svg);
+  let delta = Number(total.weekDeltaBytes);
+  if (!isFinite(delta)) delta = trWeekDeltaOf(pts).bytes;
+  const txt = ovEl("span", "tr-spark-txt", "较上周 " + trSignedSize(delta));
+  txt.classList.add(delta > 0 ? "up" : delta < 0 ? "down" : "flat");
+  row.appendChild(txt);
+  cap.appendChild(row);
 }
 
 $("#btn-overview").onclick = () => showOverview();
@@ -2304,6 +2359,27 @@ async function openSettings() {
   const mbUnit = document.createElement("span"); mbUnit.textContent = "MB 上限,超出按最久未用淘汰(0 = 不限)"; mbUnit.style.cssText = "font-size:12.5px;color:var(--muted)";
   mbWrap.appendChild(mbUnit);
 
+  // 空间告警阈值(批次 1):可用空间百分比低于阈值时在总览提示
+  const warnInput = numInput(s.spaceWarnPercent != null ? s.spaceWarnPercent : 10, 1, 50, 70);
+  const warnWrap = document.createElement("div"); warnWrap.style.cssText = "display:flex;gap:8px;align-items:center;flex-wrap:wrap";
+  warnWrap.appendChild(warnInput);
+  const warnUnit = document.createElement("span"); warnUnit.textContent = "% 可用空间低于此值时提醒(1-50)"; warnUnit.style.cssText = "font-size:12.5px;color:var(--muted)";
+  warnWrap.appendChild(warnUnit);
+
+  const critInput = numInput(s.spaceCriticalPercent != null ? s.spaceCriticalPercent : 3, 1, 20, 70);
+  const critWrap = document.createElement("div"); critWrap.style.cssText = "display:flex;gap:8px;align-items:center;flex-wrap:wrap";
+  critWrap.appendChild(critInput);
+  const critUnit = document.createElement("span"); critUnit.textContent = "% 可用空间低于此值时严重提醒(1-20)"; critUnit.style.cssText = "font-size:12.5px;color:var(--muted)";
+  critWrap.appendChild(critUnit);
+  const spaceSave = document.createElement("button"); spaceSave.className = "btn primary"; spaceSave.textContent = "保存"; spaceSave.disabled = !isAdmin();
+  spaceSave.onclick = async () => {
+    const w = Math.max(1, Math.min(50, parseInt(warnInput.value, 10) || 10));
+    const c = Math.max(1, Math.min(20, parseInt(critInput.value, 10) || 3));
+    try { await api("/api/settings", { method: "POST", body: { spaceWarnPercent: w, spaceCriticalPercent: c } }); toast(`已保存:空间告警阈值 ${w}%,严重阈值 ${c}%`); }
+    catch (e) { toast("失败: " + e.message); }
+  };
+  critWrap.appendChild(spaceSave);
+
   const maintWrap = document.createElement("div"); maintWrap.style.cssText = "display:flex;gap:8px;flex-wrap:wrap";
   const maintSave = document.createElement("button"); maintSave.className = "btn primary"; maintSave.textContent = "保存"; maintSave.disabled = !isAdmin();
   maintSave.onclick = async () => {
@@ -2323,6 +2399,8 @@ async function openSettings() {
   group("存储与维护", [
     row("回收站", daysWrap),
     row("转码缓存", mbWrap),
+    row("空间告警阈值 %", warnWrap),
+    row("严重阈值 %", critWrap),
     row("维护", maintWrap),
   ]);
 
@@ -3156,13 +3234,15 @@ $$("#storage-tabs button").forEach((b) => {
 
 // 供总览「快捷入口」等外部调用：切换存储页签并加载对应数据
 function setStorageTab(tab) {
-  state.storageTab = tab === "dups" ? "dups" : "large";
+  if (tab !== "dups" && tab !== "trend") tab = "large";
+  state.storageTab = tab;
   $$("#storage-tabs button").forEach((x) => {
-    const t = x.dataset.tab === "dups" ? "dups" : "large";
-    x.classList.toggle("on", t === state.storageTab);
+    x.classList.toggle("on", x.dataset.tab === state.storageTab);
   });
   $("#storage-large").hidden = state.storageTab !== "large";
   $("#storage-dups").hidden = state.storageTab !== "dups";
+  const trendEl = $("#storage-trend");
+  if (trendEl) trendEl.hidden = state.storageTab !== "trend";
   loadStorageTab();
 }
 
@@ -3175,6 +3255,7 @@ function showStorage() {
 }
 function loadStorageTab() {
   if (state.storageTab === "dups") loadDupsStatus();
+  else if (state.storageTab === "trend") loadTrend();
   else loadStorageLarge();
 }
 
@@ -3189,6 +3270,7 @@ async function loadStorageSummary() {
     sub.textContent = "无法统计存储占用";
     el.innerHTML = `<div class="st-empty">${e.message || "索引未启用"}</div>`;
   }
+  loadDiskHealth();
 }
 function renderStorageSummary(s) {
   const el = $("#storage-overview");
@@ -3196,7 +3278,7 @@ function renderStorageSummary(s) {
   el.innerHTML = "";
   const libs = (s && s.libs) || [];
   sub.textContent = `共 ${s.totalFiles || 0} 个文件 · 占用 ${fmtSize(s.totalBytes || 0)}`;
-  if (!libs.length) { el.innerHTML = '<div class="st-empty">暂无索引数据（需先建立文件索引）</div>'; return; }
+  if (!libs.length) { el.innerHTML = '<div class="st-empty">暂无索引数据（需先建立文件索引）</div>'; renderDiskHealth(); return; }
   for (const lib of libs) {
     const card = document.createElement("div"); card.className = "st-card";
     card.innerHTML = `
@@ -3211,6 +3293,7 @@ function renderStorageSummary(s) {
     card.querySelector(".st-size").textContent = fmtSize(lib.bytes || 0);
     el.appendChild(card);
   }
+  renderDiskHealth();
 }
 
 async function loadStorageLarge() {
@@ -3389,6 +3472,191 @@ async function deleteSelectedDups() {
   }
   toast(errs ? `已删除 ${done} 项，${errs} 项失败` : `已删除 ${done} 项，正在重新扫描…`);
   await startDupScan();
+}
+
+/* ============================================================ 存储趋势(批次 1) */
+// 与后端 total 的口径一致:最后一点 - 7 天前最近一点;不足 7 天则与最早一点比
+function trWeekDeltaOf(points) {
+  const pts = (Array.isArray(points) ? points : []).filter((p) => p && isFinite(p.bytes));
+  if (pts.length < 2) return { bytes: 0, pct: 0 };
+  const last = pts[pts.length - 1];
+  const cutoff = (Number(last.t) || 0) - 7 * 86400;
+  let ref = pts[0];
+  for (const p of pts) {
+    if ((Number(p.t) || 0) >= cutoff) { ref = p; break; }
+  }
+  const bytes = (Number(last.bytes) || 0) - (Number(ref.bytes) || 0);
+  const prev = Number(ref.bytes) || 0;
+  const pct = prev > 0 ? (bytes / prev) * 100 : 0;
+  return { bytes, pct };
+}
+function trSignedSize(n) {
+  if (!isFinite(n)) n = 0;
+  return (n > 0 ? "+" : n < 0 ? "-" : "") + fmtSize(Math.abs(n));
+}
+function trSignedPct(p) {
+  if (!isFinite(p)) p = 0;
+  const v = Math.round(p * 10) / 10;
+  return (v > 0 ? "+" : v < 0 ? "-" : "") + Math.abs(v).toFixed(1) + "%";
+}
+// 手写 SVG 面积/折线图:X 轴按点等距,Y 轴默认 0..max(bytes);fitRange 时按 min..max 拉伸(用于迷你 sparkline)
+function trSvgChart(points, cls, W, H, fitRange) {
+  W = W || 600; H = H || 120;
+  const NS = "http://www.w3.org/2000/svg";
+  const raw = (Array.isArray(points) ? points : []).filter((p) => p && isFinite(p.bytes));
+  const pts = raw.length === 1 ? [raw[0], raw[0]] : raw;
+  if (!pts.length) return null;
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+  svg.setAttribute("width", String(W));
+  svg.setAttribute("height", String(H));
+  svg.setAttribute("preserveAspectRatio", "none");
+  svg.setAttribute("class", cls);
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", "存储占用趋势");
+  const pad = 4;
+  const innerW = Math.max(1, W - pad * 2);
+  const innerH = Math.max(1, H - pad * 2);
+  const values = pts.map((p) => Math.max(0, Number(p.bytes) || 0));
+  const maxB = Math.max(1, ...values);
+  const minB = fitRange ? Math.min(...values) : 0;
+  const range = Math.max(1, maxB - minB);
+  const x = (i) => pad + (innerW * i) / (pts.length - 1);
+  const y = (b) => pad + innerH - ((Math.max(0, Number(b) || 0) - minB) / range) * innerH;
+  let d = "";
+  pts.forEach((p, i) => { d += (i ? "L" : "M") + x(i).toFixed(1) + "," + y(p.bytes).toFixed(1); });
+  const baseY = pad + innerH;
+  const area = document.createElementNS(NS, "path");
+  area.setAttribute("class", "tr-area");
+  area.setAttribute("d", d + " L" + (pad + innerW) + "," + baseY + " L" + pad + "," + baseY + " Z");
+  const line = document.createElementNS(NS, "path");
+  line.setAttribute("class", "tr-line");
+  line.setAttribute("d", d);
+  line.setAttribute("vector-effect", "non-scaling-stroke");
+  svg.appendChild(area);
+  svg.appendChild(line);
+  return svg;
+}
+function trTrendCard(name, points, delta, pct) {
+  const pts = (Array.isArray(points) ? points : []).filter((p) => p && isFinite(p.bytes));
+  const cur = pts.length ? fmtSize(Number(pts[pts.length - 1].bytes) || 0) : "0 B";
+  const card = document.createElement("div"); card.className = "tr-card";
+  const head = document.createElement("div"); head.className = "tr-head";
+  head.appendChild(ovEl("span", "tr-name", name));
+  head.appendChild(ovEl("span", "tr-now", cur));
+  card.appendChild(head);
+  const svg = trSvgChart(pts, "tr-chart", 600, 120);
+  if (svg) card.appendChild(svg);
+  const meta = document.createElement("div"); meta.className = "tr-meta";
+  meta.textContent = "共 " + cur + " · 本周 " + trSignedSize(delta) + " · " + trSignedPct(pct);
+  card.appendChild(meta);
+  return card;
+}
+async function loadTrend() {
+  const el = $("#storage-trend");
+  if (!el) return;
+  el.innerHTML = '<div class="st-empty">加载中…</div>';
+  const days = state.trendDays || 30;
+  let r;
+  try { r = await api("/api/storage/trend?days=" + days); }
+  catch (e) { el.innerHTML = `<div class="st-empty">加载失败: ${e.message}</div>`; return; }
+  renderTrend(r || {}, days);
+}
+function renderTrend(r, days) {
+  const el = $("#storage-trend");
+  if (!el) return;
+  el.innerHTML = "";
+  days = days || r.days || state.trendDays || 30;
+
+  // 7 / 30 / 90 天切换(复用 .seg 分段按钮)
+  const bar = document.createElement("div"); bar.className = "st-toolbar";
+  const seg = document.createElement("div"); seg.className = "seg";
+  for (const d of [7, 30, 90]) {
+    const b = document.createElement("button");
+    b.textContent = d + " 天";
+    if (d === days) b.classList.add("on");
+    b.onclick = () => { if (state.trendDays !== d) { state.trendDays = d; loadTrend(); } };
+    seg.appendChild(b);
+  }
+  bar.appendChild(seg);
+  const hint = document.createElement("span"); hint.className = "st-hint";
+  hint.textContent = "扫描完成后按整点记录各库占用快照(最多保留 400 天)。";
+  bar.appendChild(hint);
+  el.appendChild(bar);
+
+  const libs = Array.isArray(r.libs) ? r.libs : [];
+  const total = r.total || {};
+  const totalPts = Array.isArray(total.points) ? total.points : [];
+  const libsWithPts = libs.filter((l) => l && Array.isArray(l.points) && l.points.length);
+  if (!libsWithPts.length && !totalPts.length) {
+    el.appendChild(ovEl("div", "st-empty", "还没有足够的历史快照，扫描几次后即可看到趋势"));
+    return;
+  }
+
+  // 全部库合计
+  if (totalPts.length) {
+    let tb = Number(total.weekDeltaBytes);
+    let tp = Number(total.weekDeltaPct);
+    const d = trWeekDeltaOf(totalPts);
+    if (!isFinite(tb)) tb = d.bytes;
+    if (!isFinite(tp)) tp = d.pct;
+    el.appendChild(trTrendCard("全部存储库", totalPts, tb, tp));
+  }
+  // 每个库一条
+  for (const lib of libsWithPts) {
+    const d = trWeekDeltaOf(lib.points);
+    el.appendChild(trTrendCard(lib.name || lib.id || "存储库", lib.points, d.bytes, d.pct));
+  }
+}
+
+/* ============================================================ 磁盘健康(批次 1) */
+async function loadDiskHealth() {
+  const seq = (state.diskHealthSeq || 0) + 1;
+  state.diskHealthSeq = seq;
+  let h = null;
+  try { h = await api("/api/disks/health"); } catch (e) { h = null; }
+  if (seq !== state.diskHealthSeq) return; // 已有更新的请求,丢弃旧结果
+  state.diskHealth = h;
+  renderDiskHealth();
+}
+function renderDiskHealth() {
+  const host = $("#storage-overview");
+  if (!host) return;
+  const old = $("#storage-health");
+  if (old) old.remove();
+  const h = state.diskHealth;
+  if (!h || h.supported !== true) return; // 不支持或接口不可用:整段隐藏
+  const disks = Array.isArray(h.disks) ? h.disks : [];
+  if (!disks.length) return;
+
+  const card = document.createElement("div"); card.className = "dh-card"; card.id = "storage-health";
+  const anyBad = disks.some((dk) => (dk.healthStatus || "") !== "Healthy");
+  if (anyBad) card.classList.add("warn");
+  const head = document.createElement("div"); head.className = "dh-head";
+  head.appendChild(ovEl("span", "dh-h", "磁盘健康"));
+  head.appendChild(ovEl("span", "dh-at", h.at ? "检测于 " + fmtTime(h.at) : ""));
+  card.appendChild(head);
+
+  const list = document.createElement("div"); list.className = "dh-list";
+  for (const dk of disks) {
+    const bad = (dk.healthStatus || "") !== "Healthy";
+    const row = document.createElement("div"); row.className = "dh-row" + (bad ? " warn" : "");
+    const parts = [
+      ["dh-drive", dk.drive || "—"],
+      ["dh-model", dk.model || "未知型号"],
+      ["dh-media", dk.mediaType || "—"],
+      ["dh-health", dk.healthStatus || "—"],
+    ];
+    parts.forEach(([cls, txt], i) => {
+      if (i) row.appendChild(ovEl("span", "dh-sep", "·"));
+      row.appendChild(ovEl("span", cls, txt));
+    });
+    const sz = Number(dk.sizeGB);
+    row.appendChild(ovEl("span", "dh-size", isFinite(sz) && sz > 0 ? Math.round(sz) + " GB" : "—"));
+    list.appendChild(row);
+  }
+  card.appendChild(list);
+  host.appendChild(card);
 }
 
 /* ============================================================ 启动 */

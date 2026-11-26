@@ -1,0 +1,383 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"os/exec"
+	"runtime"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+)
+
+// ============================================================
+//  磁盘健康:通过 PowerShell(Get-PhysicalDisk / Get-Partition)
+//  读取物理磁盘型号、介质类型与健康状态;结果缓存 5 分钟。
+//  非 Windows 或命令失败时返回 supported:false,不返回 500。
+// ============================================================
+
+// diskHealthEntry 是一块物理磁盘(按盘符输出)。
+type diskHealthEntry struct {
+	Drive             string `json:"drive"`             // "C:"
+	Model             string `json:"model"`             // 型号,如 Samsung SSD 980
+	MediaType         string `json:"mediaType"`         // SSD / HDD / Unspecified
+	HealthStatus      string `json:"healthStatus"`      // Healthy / Warning / Unhealthy
+	OperationalStatus string `json:"operationalStatus"` // OK / Degraded / ...
+	SizeGB            int64  `json:"sizeGB"`
+}
+
+// diskHealthResp 是 GET /api/disks/health 的响应。
+type diskHealthResp struct {
+	Supported bool              `json:"supported"`
+	Reason    string            `json:"reason,omitempty"`
+	At        int64             `json:"at"`
+	Disks     []diskHealthEntry `json:"disks"`
+}
+
+// diskHealthTTL 是磁盘健康结果的缓存时长。
+const diskHealthTTL = 5 * time.Minute
+
+// diskHealthCmdTimeout 是单条 PowerShell 命令的超时。
+const diskHealthCmdTimeout = 20 * time.Second
+
+// PowerShell 采集脚本(与契约一致);前缀把输出编码固定为 UTF-8,避免中文型号乱码。
+const (
+	psDiskHealthScript = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ` +
+		`Get-PhysicalDisk | Select-Object DeviceId,FriendlyName,MediaType,HealthStatus,OperationalStatus,Size | ConvertTo-Json -Compress`
+	psDiskPartitionScript = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ` +
+		`Get-Partition | Where-Object { $_.DriveLetter } | Select-Object DriveLetter,DiskNumber | ConvertTo-Json -Compress`
+)
+
+// diskHealthCache 缓存最近一次采集结果(受 mu 保护,后台采集、HTTP 读)。
+type diskHealthCache struct {
+	mu     sync.Mutex
+	at     time.Time
+	resp   diskHealthResp
+	filled bool
+}
+
+// get 返回缓存结果;超过 5 分钟或尚未采集时 ok=false。
+func (c *diskHealthCache) get() (diskHealthResp, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.filled && time.Since(c.at) < diskHealthTTL {
+		return c.resp, true
+	}
+	return diskHealthResp{}, false
+}
+
+// set 写入最新采集结果。
+func (c *diskHealthCache) set(resp diskHealthResp) {
+	c.mu.Lock()
+	c.at = time.Now()
+	c.resp = resp
+	c.filled = true
+	c.mu.Unlock()
+}
+
+// peek 返回当前缓存磁盘列表的副本;不会触发采集(供总览页读取)。
+func (c *diskHealthCache) peek() []diskHealthEntry {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.filled || len(c.resp.Disks) == 0 {
+		return nil
+	}
+	out := make([]diskHealthEntry, len(c.resp.Disks))
+	copy(out, c.resp.Disks)
+	return out
+}
+
+// handleDisksHealth GET /api/disks/health — 物理磁盘健康状态(缓存 5 分钟)。
+func (s *Server) handleDisksHealth(w http.ResponseWriter, r *http.Request) {
+	c := s.diskHealth
+	if c == nil {
+		// 没有缓存容器(例如测试里手工构造 Server):直接采集一次,不缓存。
+		writeJSON(w, 200, collectDiskHealth())
+		return
+	}
+	if resp, ok := c.get(); ok {
+		writeJSON(w, 200, resp)
+		return
+	}
+	resp := collectDiskHealth()
+	c.set(resp)
+	writeJSON(w, 200, resp)
+}
+
+// collectDiskHealth 调用 PowerShell 采集并按盘符组装结果;任何失败都降级为 supported:false。
+func collectDiskHealth() diskHealthResp {
+	resp := diskHealthResp{At: time.Now().Unix(), Disks: []diskHealthEntry{}}
+	if runtime.GOOS != "windows" {
+		resp.Reason = "仅 Windows 支持读取物理磁盘健康状态"
+		return resp
+	}
+	disksJSON, err := runPowershellJSON(psDiskHealthScript)
+	if err != nil {
+		resp.Reason = "读取物理磁盘失败: " + err.Error()
+		return resp
+	}
+	partsJSON, err := runPowershellJSON(psDiskPartitionScript)
+	if err != nil {
+		resp.Reason = "读取分区信息失败: " + err.Error()
+		return resp
+	}
+	entries, err := parseDiskHealth(disksJSON, partsJSON)
+	if err != nil {
+		resp.Reason = "解析磁盘信息失败: " + err.Error()
+		return resp
+	}
+	if len(entries) == 0 {
+		resp.Reason = "未读取到带盘符的物理磁盘"
+		return resp
+	}
+	resp.Supported = true
+	resp.Disks = entries
+	return resp
+}
+
+// runPowershellJSON 执行一条 PowerShell 命令并返回原始 stdout(带超时)。
+func runPowershellJSON(script string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), diskHealthCmdTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", script)
+	raw, err := cmd.Output()
+	if ctx.Err() == context.DeadlineExceeded {
+		return nil, fmt.Errorf("PowerShell 命令超时")
+	}
+	if err != nil {
+		if ee, ok := err.(*exec.ExitError); ok && len(ee.Stderr) > 0 {
+			return nil, fmt.Errorf("%v: %s", err, strings.TrimSpace(string(ee.Stderr)))
+		}
+		return nil, err
+	}
+	return raw, nil
+}
+
+// psPhysicalDisk 是 Get-PhysicalDisk 序列化出来的一行(字段用 RawMessage,兼容
+// PowerShell 5.1 / 7 对枚举、字符的不同序列化形式)。
+type psPhysicalDisk struct {
+	DeviceID          json.RawMessage `json:"DeviceId"`
+	FriendlyName      json.RawMessage `json:"FriendlyName"`
+	MediaType         json.RawMessage `json:"MediaType"`
+	HealthStatus      json.RawMessage `json:"HealthStatus"`
+	OperationalStatus json.RawMessage `json:"OperationalStatus"`
+	Size              json.RawMessage `json:"Size"`
+}
+
+// psPartition 是 Get-Partition 序列化出来的一行。
+type psPartition struct {
+	DriveLetter json.RawMessage `json:"DriveLetter"`
+	DiskNumber  json.RawMessage `json:"DiskNumber"`
+}
+
+// parseDiskHealth 解析两份 PowerShell JSON(单对象与数组都支持),把
+// DiskNumber ↔ DriveLetter 关联后按盘符输出。供单测用固定样本覆盖。
+func parseDiskHealth(disksJSON, partsJSON []byte) ([]diskHealthEntry, error) {
+	disks, err := decodeJSONList[psPhysicalDisk](disksJSON)
+	if err != nil {
+		return nil, fmt.Errorf("解析物理磁盘 JSON 失败: %w", err)
+	}
+	parts, err := decodeJSONList[psPartition](partsJSON)
+	if err != nil {
+		return nil, fmt.Errorf("解析分区 JSON 失败: %w", err)
+	}
+
+	type diskInfo struct {
+		model   string
+		media   string
+		health  string
+		operate string
+		sizeGB  int64
+	}
+	byNumber := make(map[int]diskInfo, len(disks))
+	for _, d := range disks {
+		byNumber[psInt(d.DeviceID)] = diskInfo{
+			model:   psString(d.FriendlyName),
+			media:   normalizePSEnum(psEnumName(d.MediaType, diskMediaTypeNames), "Unspecified"),
+			health:  normalizePSEnum(psEnumName(d.HealthStatus, diskHealthNames), "Unknown"),
+			operate: normalizePSEnum(psEnumName(d.OperationalStatus, diskOperationalNames), "Unknown"),
+			sizeGB:  psInt64(d.Size) / (1 << 30),
+		}
+	}
+
+	out := []diskHealthEntry{}
+	seen := map[string]bool{}
+	for _, p := range parts {
+		letter := psDriveLetter(p.DriveLetter)
+		if letter == "" {
+			continue
+		}
+		drive := letter + ":"
+		if seen[drive] {
+			continue
+		}
+		seen[drive] = true
+		info, ok := byNumber[psInt(p.DiskNumber)]
+		if !ok {
+			continue // 找不到对应物理磁盘就跳过
+		}
+		out = append(out, diskHealthEntry{
+			Drive:             drive,
+			Model:             info.model,
+			MediaType:         info.media,
+			HealthStatus:      info.health,
+			OperationalStatus: info.operate,
+			SizeGB:            info.sizeGB,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Drive < out[j].Drive })
+	return out, nil
+}
+
+// decodeJSONList 兼容 PowerShell 的两种输出:单个对象或对象数组;空输出视为空列表。
+func decodeJSONList[T any](raw []byte) ([]T, error) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return nil, nil
+	}
+	var arr []T
+	if err := json.Unmarshal(raw, &arr); err == nil {
+		return arr, nil
+	}
+	var one T
+	if err := json.Unmarshal(raw, &one); err != nil {
+		return nil, err
+	}
+	return []T{one}, nil
+}
+
+// psString 把 PowerShell 字段归一化为字符串:兼容字符串、数字与字符串数组
+// (如 OperationalStatus 可能序列化为 ["OK"])。
+func psString(raw json.RawMessage) string {
+	s := strings.TrimSpace(string(raw))
+	if s == "" || s == "null" {
+		return ""
+	}
+	if strings.HasPrefix(s, "[") {
+		var arr []json.RawMessage
+		if json.Unmarshal(raw, &arr) != nil {
+			return ""
+		}
+		parts := make([]string, 0, len(arr))
+		for _, item := range arr {
+			if v := psString(item); v != "" {
+				parts = append(parts, v)
+			}
+		}
+		return strings.Join(parts, ", ")
+	}
+	var str string
+	if json.Unmarshal(raw, &str) == nil {
+		return strings.TrimSpace(str)
+	}
+	var num json.Number
+	if json.Unmarshal(raw, &num) == nil {
+		return num.String()
+	}
+	return ""
+}
+
+// psInt 把 PowerShell 字段归一化为整数;失败返回 -1。
+func psInt(raw json.RawMessage) int {
+	n, err := strconv.Atoi(strings.TrimSpace(psString(raw)))
+	if err != nil {
+		return -1
+	}
+	return n
+}
+
+// psInt64 把 PowerShell 字段归一化为 int64;失败返回 0。
+func psInt64(raw json.RawMessage) int64 {
+	f, err := strconv.ParseFloat(strings.TrimSpace(psString(raw)), 64)
+	if err != nil {
+		return 0
+	}
+	return int64(f)
+}
+
+// psDriveLetter 归一化盘符:兼容 "C"、数字字符码 67、带冒号的 "C:"。
+func psDriveLetter(raw json.RawMessage) string {
+	s := psString(raw)
+	if s == "" {
+		return ""
+	}
+	if n, err := strconv.Atoi(s); err == nil {
+		if n <= 0 || n > 0x10FFFF {
+			return ""
+		}
+		s = string(rune(n))
+	}
+	s = strings.ToUpper(strings.TrimSpace(s))
+	s = strings.TrimSuffix(s, ":")
+	if len(s) != 1 || s[0] < 'A' || s[0] > 'Z' {
+		return ""
+	}
+	return s
+}
+
+// psEnumName 把 PowerShell 枚举字段归一化为名称:数字按映射表翻译,字符串原样返回。
+func psEnumName(raw json.RawMessage, names map[int]string) string {
+	s := psString(raw)
+	if s == "" {
+		return ""
+	}
+	if n, err := strconv.Atoi(strings.TrimSpace(s)); err == nil {
+		if v, ok := names[n]; ok {
+			return v
+		}
+		return "Unknown"
+	}
+	return s
+}
+
+// normalizePSEnum 为空字段补默认名称。
+func normalizePSEnum(v, fallback string) string {
+	if v == "" {
+		return fallback
+	}
+	return v
+}
+
+// 各枚举的数值 → 名称映射(取自 MSFT_PhysicalDisk)。
+var diskMediaTypeNames = map[int]string{
+	0: "Unspecified",
+	3: "HDD",
+	4: "SSD",
+	5: "SCM",
+}
+
+var diskHealthNames = map[int]string{
+	0: "Healthy",
+	1: "Warning",
+	2: "Unhealthy",
+}
+
+var diskOperationalNames = map[int]string{
+	0:  "Unknown",
+	1:  "Other",
+	2:  "OK",
+	3:  "Degraded",
+	4:  "Stressed",
+	5:  "PredictiveFailure",
+	6:  "Error",
+	7:  "NonRecoverableError",
+	8:  "Starting",
+	9:  "Stopping",
+	10: "Stopped",
+	11: "InService",
+	12: "NoContact",
+	13: "LostCommunication",
+	14: "Aborted",
+	15: "Dormant",
+	16: "SupportingEntityInError",
+	17: "Completed",
+	18: "PowerMode",
+}

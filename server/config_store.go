@@ -16,13 +16,15 @@ func LoadConfig(dataDir string) (*Config, error) {
 		return nil, err
 	}
 	cfg := &Config{
-		Port:                DefaultPort,
-		Host:                "",
-		DataDir:             dataDir,
-		IdleLockMinutes:     30,
-		TrashRetentionDays:  defaultTrashRetentionDays,
-		TranscodeCacheMB:    defaultTranscodeCacheMB,
-		IndexRefreshSeconds: 120,
+		Port:                 DefaultPort,
+		Host:                 "",
+		DataDir:              dataDir,
+		IdleLockMinutes:      30,
+		TrashRetentionDays:   defaultTrashRetentionDays,
+		TranscodeCacheMB:     defaultTranscodeCacheMB,
+		IndexRefreshSeconds:  120,
+		SpaceWarnPercent:     defaultSpaceWarnPercent,
+		SpaceCriticalPercent: defaultSpaceCriticalPercent,
 	}
 	raw, err := os.ReadFile(filepath.Join(dataDir, configFileName))
 	if errors.Is(err, os.ErrNotExist) {
@@ -37,6 +39,12 @@ func LoadConfig(dataDir string) (*Config, error) {
 	cfg.DataDir = dataDir // never trust persisted DataDir
 	if cfg.IdleLockMinutes <= 0 {
 		cfg.IdleLockMinutes = 30
+	}
+	if cfg.SpaceWarnPercent <= 0 {
+		cfg.SpaceWarnPercent = defaultSpaceWarnPercent
+	}
+	if cfg.SpaceCriticalPercent <= 0 {
+		cfg.SpaceCriticalPercent = defaultSpaceCriticalPercent
 	}
 	return cfg, nil
 }
