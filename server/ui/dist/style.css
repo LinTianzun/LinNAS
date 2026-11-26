@@ -893,6 +893,7 @@ dialog.wide { width: min(94vw, 600px); }
   border: 1px solid var(--line-soft);
   border-radius: 16px; padding: 26px 22px 20px;
   box-shadow: var(--shadow-1);
+  position: relative;
 }
 .music-cover { position: relative; display: grid; place-items: center; padding: 6px 0 2px; }
 .music-cover::before {
@@ -956,7 +957,7 @@ dialog.wide { width: min(94vw, 600px); }
 .music-vol-pct { font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; min-width: 34px; text-align: right; }
 .mc-btn.mc-mini { width: 30px; height: 30px; font-size: 13px; }
 /* 睡眠定时:剩余时间提示 + 下拉菜单 */
-.music-sleep-left { font-size: 11px; color: var(--accent); background: var(--accent-soft); border-radius: 999px; padding: 4px 9px; font-variant-numeric: tabular-nums; white-space: nowrap; line-height: 1; }
+.music-sleep-left { position: absolute; top: 12px; right: 14px; font-size: 11px; color: var(--accent); background: var(--accent-soft); border: 1px solid transparent; border-radius: 999px; padding: 4px 10px; font-variant-numeric: tabular-nums; white-space: nowrap; line-height: 1; z-index: 5; box-shadow: 0 2px 8px rgba(0,0,0,.18); }
 .music-sleep-menu { position: fixed; z-index: 200; min-width: 132px; padding: 6px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 14px 32px rgba(0,0,0,.5); display: flex; flex-direction: column; gap: 2px; }
 .music-sleep-menu .msm-item { border: 0; background: none; color: var(--text); font: inherit; font-size: 13px; text-align: left; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
 .music-sleep-menu .msm-item:hover { background: var(--bg-soft); color: var(--accent); }
@@ -1019,13 +1020,24 @@ dialog.wide { width: min(94vw, 600px); }
 .pn-hint { margin: 10px 0 0; font-size: 12px; line-height: 1.6; color: var(--faint); }
 .pn-hint strong { color: var(--muted); }
 
-.hs-body { display: flex; flex-direction: column; gap: 10px; }
+.hs-body { display: flex; flex-direction: column; gap: 12px; }
+.hs-body .hs-field + .hs-field { margin-top: 2px; }
 .hs-loading { font-size: 12.5px; color: var(--faint); }
 .hs-tip { margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--muted); }
 .hs-warn { margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--accent); background: var(--accent-soft); border-radius: 8px; padding: 8px 10px; }
-.hs-field { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--muted); }
-.hs-field > span { flex: 0 0 64px; }
-.hs-field input { flex: 1 1 auto; min-width: 0; }
+.hs-field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--muted); }
+.hs-field > span { flex: none; font-weight: 600; letter-spacing: .02em; }
+.hs-field input {
+  flex: 1 1 auto; min-width: 0; width: 100%;
+  font: inherit; font-size: 13.5px; color: var(--text);
+  background: var(--bg-soft); border: 1px solid var(--line);
+  border-radius: 10px; padding: 9px 12px;
+  outline: none;
+  transition: border-color .15s, background .15s, box-shadow .15s;
+}
+.hs-field input::placeholder { color: var(--faint); }
+.hs-field input:hover { border-color: var(--line, #2a332c); }
+.hs-field input:focus { border-color: var(--accent); background: var(--surface-2); box-shadow: 0 0 0 3px var(--accent-soft); }
 .hs-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
 .hs-on { display: flex; gap: 14px; align-items: center; }
 .hs-qr { flex: 0 0 auto; padding: 8px; background: #fff; border-radius: 10px; line-height: 0; }

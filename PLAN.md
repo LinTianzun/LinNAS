@@ -1,6 +1,6 @@
 # LinNAS — 本地云盘/NAS 方案与版本路线图
 
-> 当前组件版本（2026-11-27）：Windows 服务端 **1.8.2**；Android 客户端 **1.8.10**（`versionCode` 19）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
+> 当前组件版本（2026-11-27）：Windows 服务端 **1.8.3**；Android 客户端 **1.8.11**（`versionCode` 20）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
 
 > 下文保留早期技术决策与里程碑记录；历史版本号描述当时状态，不代表当前版本。
 
@@ -390,6 +390,13 @@
 - **版本**：Android `versionCode` 19 / `versionName` 1.8.10；产物 `release/linNas-1.8.10-debug.apk`（附 SHA-256）。
 - **验证**：`:app:compileDebugKotlin`、`:app:testDebugUnitTest`（15 个单测）、`:app:assembleDebug` 均 BUILD SUCCESSFUL。
 
+### M13.11 添加存储库路径自动创建与新建文件夹（2026-11-27，服务端 1.8.3 + Android 1.8.11）
+用户反馈「手动输入路径」只是跳转，服务端并不会创建目录；且希望能在添加存储库界面直接新建文件夹。本轮：
+- **服务端**：`POST /api/libs`（`handleAddLib`）对不存在的绝对路径改为 `os.MkdirAll` 自动创建（非绝对路径/文件路径仍 400）；新增 `POST /api/fs/mkdir`（`handleFsMkdir`，`fsops.go`）按电脑绝对路径创建目录（MkdirAll 补建父目录、拒绝盘符根），仅管理员（`authorize` 拦截）；新增 `fsops_mkdir_test.go`，`go test ./...`/`go vet ./...` 全绿。
+- **Android**：`LinNasClient.fsMkdir(path)`；「添加存储库」的「手动输入路径」改为**先在服务端创建目录再进入**（标题与副文案注明「不存在时会自动创建」，主按钮「创建并进入」，校验绝对路径）；新增**「新建文件夹」**入口，在当前浏览位置下按名称创建目录（校验非法字符），成功后刷新列表。
+- **版本**：服务端 `const Version = "1.8.3"`（`server/config.go`），产物 `server/linNas-server.exe` 13,674,496B（SHA-256 `d5a18beb…467c2c0`）；Android `versionCode` 20 / `versionName` 1.8.11，产物 `release/linNas-1.8.11-debug.apk` 11,142,985B（SHA-256 `79914d7d…ac37b`）。
+- **验证**：`:app:compileDebugKotlin`、`:app:testDebugUnitTest`（15 个单测）、`:app:assembleDebug` 均 BUILD SUCCESSFUL。
+
 ### M13.9 Android v1.8.9 服务器名称与 IP 同时展示（2026-11-27，Android v1.8.9）
 v1.8.8 只把「名 · host」拼成一行，用户反馈希望**名称和 IP 都要看得见**，不是用名称替换 IP。本版改为两行结构：
 - **设置页「当前服务器」行**：`activity_main.xml` 新增 `setServerAddr`（次级色小字，默认 gone）；`MainActivity.bindSettings()` 里 `setServer` 显示自定义名（无名称时退回 host，都没有显示「未连接」），`setServerAddr` 单独显示 `ServerConfig.host()`（含端口），名称为空时自动隐藏该行。
@@ -478,3 +485,5 @@ v1.8.8 只把「名 · host」拼成一行，用户反馈希望**名称和 IP �
 - **侧栏行高修复**：根因是 `.sidebar` flex 列下 `.lib-list` 被 `flex-shrink` 压缩且自身 `overflow:auto`；改为 `flex:0 0 auto; overflow:visible`，`.lib-item{min-height:40px}`，选中/悬停竖条 `top:6px;bottom:6px` 贯穿整行。
 - **登录会话持久化**：`authStore` 增加 `sessions.json`（`loadSessions` / `saveSessionsLocked`，0600，60s 限流落盘），Login/Logout/Revoke/DeleteUser/闲置清理时同步；重启后恢复会话（跳过已删/禁用用户），停机时间不计入闲置超时；新增 `server/security_session_test.go`。
 - **验证**：`go test -count=1 ./...` ok、`go vet` 干净、`node --check app.js` 通过；隔离实例实测三态循环、睡眠倒计时与自定义校验、侧栏无裁剪；已重建部署 52700（`/api/health` = 1.8.2）。
+- **部署后小修（同日，随 1.8.3 发布）**：睡眠倒计时徽标从控制按钮行移到播放器右上角（.music-box 相对定位 + .music-sleep-left 绝对定位 top:12px/right:14px，悬浮显示不挤压按钮）；手机连接页热点名称/密码输入框改纵向卡片式（圆角 10px、聚焦 accent 光圈）。
+ode --check 通过，已重建部署 52700。
