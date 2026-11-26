@@ -369,7 +369,13 @@ class ImageActivity : AppCompatActivity() {
     /** 把 GIF 字节解码成可播放动画的 Drawable:API 28+ 用 ImageDecoder,旧版本退回 Movie。 */
     private fun decodeAnimated(bytes: ByteArray): Drawable? = try {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            ImageDecoder.decodeDrawable(ImageDecoder.createSource(ByteBuffer.wrap(bytes)))
+            // AnimatedImageDrawable 不会自己开始播放,必须显式 start(),否则只停在第一帧。
+            val d = ImageDecoder.decodeDrawable(ImageDecoder.createSource(ByteBuffer.wrap(bytes)))
+            if (d is android.graphics.drawable.AnimatedImageDrawable) {
+                d.repeatCount = android.graphics.drawable.AnimatedImageDrawable.REPEAT_INFINITE
+                d.start()
+            }
+            d
         } else {
             Movie.decodeByteArray(bytes, 0, bytes.size)?.let { MovieDrawable(it) }
         }

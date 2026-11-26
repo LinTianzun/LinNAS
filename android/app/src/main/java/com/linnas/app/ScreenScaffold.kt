@@ -709,6 +709,21 @@ abstract class ScreenScaffold : AppCompatActivity() {
  *       .tonal("取消") { ... }
  *       .show()
  */
+/**
+ * 弹层里的滚动内容区:高度最多占屏幕 58%,超出就内部滚动。
+ * 之前直接用 WRAP_CONTENT 的 NestedScrollView,内容一多(比如「添加存储库」的目录列表)
+ * 整块弹层会被撑得比屏幕还高,底部按钮区(手动输入路径 / 添加为存储库)被挤出屏幕看不见。
+ */
+private class SheetScrollView(ctx: Context) : NestedScrollView(ctx) {
+    private val capPx: Int = (resources.displayMetrics.heightPixels * 0.58f).toInt()
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        // Kotlin 不继承父类的嵌套类型,MeasureSpec 需全限定。
+        val capped = android.view.View.MeasureSpec.makeMeasureSpec(capPx, android.view.View.MeasureSpec.AT_MOST)
+        super.onMeasure(widthMeasureSpec, capped)
+    }
+}
+
 class Sheet(private val ctx: Context, title: String, subtitle: String? = null) {
 
     private val dialog = BottomSheetDialog(ctx)
@@ -744,7 +759,7 @@ class Sheet(private val ctx: Context, title: String, subtitle: String? = null) {
             )
         }
         root.addView(
-            NestedScrollView(ctx).apply {
+            SheetScrollView(ctx).apply {
                 isVerticalScrollBarEnabled = false
                 addView(body)
                 layoutParams = LinearLayout.LayoutParams(

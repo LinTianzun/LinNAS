@@ -1,6 +1,6 @@
 # LinNAS — 本地云盘/NAS 方案与版本路线图
 
-> 当前组件版本（2026-11-27）：Windows 服务端 **1.8.1**；Android 客户端 **1.8.9**（`versionCode` 18）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
+> 当前组件版本（2026-11-27）：Windows 服务端 **1.8.1**；Android 客户端 **1.8.10**（`versionCode` 19）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
 
 > 下文保留早期技术决策与里程碑记录；历史版本号描述当时状态，不代表当前版本。
 
@@ -381,6 +381,13 @@
 - **图库支持 GIF 动图**：`ImageActivity` 原先交给 Coil，动图只显示首帧。新增 `isGifUrl()` 判定 + `fetchBytes()`（http 走含 token 的 URL，本地读文件）+ `decodeAnimated()`：API 28+ 用 `ImageDecoder` 解成 `AnimatedImageDrawable`，旧版本退回 `android.graphics.Movie` 的 `MovieDrawable` 逐帧绘制；缩放/双击/翻页/保存/分享逻辑不变。
 - **添加存储库「手动输入路径」统一弹层**：`MainActivity.showAddLibrary()` 里该兜底入口原为裸 `AlertDialog` + 独立输入框，改为 `Sheet` + `input()` + `onEnter`（回车即进入），与其余弹层一致；至此该页面弹层全部走 `Sheet`。
 - **版本**：Android `versionCode` 17 / `versionName` 1.8.8；产物 `release/linNas-1.8.8-debug.apk`（附 SHA-256）。
+- **验证**：`:app:compileDebugKotlin`、`:app:testDebugUnitTest`（15 个单测）、`:app:assembleDebug` 均 BUILD SUCCESSFUL。
+
+### M13.10 Android v1.8.10 GIF 动图与添加存储库弹层修复（2026-11-27，Android v1.8.10）
+真机反馈两个「装了新版还是没有」的问题，均定位为真实缺陷：
+- **GIF 仍只显示第一帧**：`ImageActivity.decodeAnimated()` 用 `ImageDecoder` 拿到的 `AnimatedImageDrawable` **不会自动播放**，必须显式 `start()`；之前只 `setImageDrawable`，所以停在首帧。现在判定为 `AnimatedImageDrawable` 时设 `repeatCount = REPEAT_INFINITE` 并 `start()`；API 28 以下的 `Movie` 兜底路径不变。
+- **「手动输入路径」看不到**：`ScreenScaffold.Sheet` 的内容区是 `WRAP_CONTENT` 的 `NestedScrollView`，且 `show()` 直接 `STATE_EXPANDED`；「添加存储库」的目录列表一多，弹层被撑得比屏幕还高，底部按钮区（手动输入路径 / 添加为存储库）被挤出屏幕。新增私有 `SheetScrollView`（`NestedScrollView` 子类，`onMeasure` 用 `AT_MOST` 把高度限制在屏幕 58%，超出则内部滚动），保证底部按钮始终可见。
+- **版本**：Android `versionCode` 19 / `versionName` 1.8.10；产物 `release/linNas-1.8.10-debug.apk`（附 SHA-256）。
 - **验证**：`:app:compileDebugKotlin`、`:app:testDebugUnitTest`（15 个单测）、`:app:assembleDebug` 均 BUILD SUCCESSFUL。
 
 ### M13.9 Android v1.8.9 服务器名称与 IP 同时展示（2026-11-27，Android v1.8.9）
