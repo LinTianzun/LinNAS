@@ -160,12 +160,16 @@ func main() {
 	} else {
 		srv.index = ix
 		defer func() { _ = ix.Close() }()
+		// 扫描/对账完成后异步触发内容索引增量入队(不阻塞索引与 HTTP)。
+		ix.SetAfterIndex(func() { srv.enqueueContentIndex() })
 		go func() {
 			time.Sleep(1500 * time.Millisecond)
 			if ix.NeedsScan(6 * time.Hour) {
 				ix.ScanAll(cfg) // 后台建索引,不阻塞启动
 			} else {
 				log.Printf("索引较新(%s),跳过启动扫描", ix.lastScanText())
+				// 索引较新时也补一次内容索引(可能上次未完成)。
+				srv.enqueueContentIndex()
 			}
 		}()
 		// 周期性增量对账:发现资源管理器等外部改动(移动/删除/重命名)。

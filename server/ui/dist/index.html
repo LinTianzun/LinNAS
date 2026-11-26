@@ -319,7 +319,15 @@
       <div class="page-head"><h1><span data-icon="search" class="title-ic"></span>搜索</h1></div>
       <div class="search search-lg">
         <span data-icon="search"></span>
-        <input id="in-global-search" type="search" placeholder="搜索所有存储库中的文件名…" autocomplete="off">
+        <input id="in-global-search" type="search" placeholder="搜索文件名或内容…" autocomplete="off">
+      </div>
+      <div class="cs-toolbar">
+        <div class="seg" id="search-scope" role="tablist" aria-label="搜索范围">
+          <button type="button" data-scope="file" role="tab">文件名</button>
+          <button type="button" data-scope="content" role="tab">内容</button>
+          <button type="button" data-scope="all" class="on" role="tab">全部</button>
+        </div>
+        <span class="cs-status" id="search-content-status"></span>
       </div>
       <p class="page-sub" id="search-sub"></p>
       <div class="file-list" id="search-list"></div>

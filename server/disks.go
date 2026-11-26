@@ -28,8 +28,8 @@ func (s *Server) handleDisks(w http.ResponseWriter, r *http.Request) {
 }
 
 var (
-	modkernel32      = syscall.NewLazyDLL("kernel32.dll")
-	procGetDiskFree  = modkernel32.NewProc("GetDiskFreeSpaceExW")
+	modkernel32     = syscall.NewLazyDLL("kernel32.dll")
+	procGetDiskFree = modkernel32.NewProc("GetDiskFreeSpaceExW")
 )
 
 // diskUsage returns free and total bytes for the volume containing dir.

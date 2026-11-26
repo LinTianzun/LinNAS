@@ -97,8 +97,12 @@ func (c *diskHealthCache) peek() []diskHealthEntry {
 	return out
 }
 
-// handleDisksHealth GET /api/disks/health?lib=<库ID> — 物理磁盘健康状态(缓存 5 分钟)。
-// 无 lib 或 lib=all 返回全部磁盘;指定库时只返回承载该库路径的磁盘(在缓存副本上过滤)。
+// handleDisksHealth GET /api/disks/health?lib=<libs|all|库ID> — 物理磁盘健康状态(缓存 5 分钟)。
+// lib 语义:
+//   - 不传 / lib=libs(默认):只返回承载所有已添加存储库的磁盘(各库路径盘符并集)。
+//   - lib=all:返回全部物理磁盘。
+//   - lib=<库ID>:只返回承载该库路径的磁盘(在缓存副本上过滤)。
+//   - lib=<不存在>:404 library not found。
 func (s *Server) handleDisksHealth(w http.ResponseWriter, r *http.Request) {
 	var resp diskHealthResp
 	if c := s.diskHealth; c == nil {
@@ -111,9 +115,30 @@ func (s *Server) handleDisksHealth(w http.ResponseWriter, r *http.Request) {
 		c.set(resp)
 	}
 
-	// 按存储库过滤:只对缓存结果做过滤,不按库分缓存。
 	libID := strings.TrimSpace(r.URL.Query().Get("lib"))
-	if libID != "" && !strings.EqualFold(libID, "all") {
+	switch {
+	case libID == "" || strings.EqualFold(libID, "libs"):
+		// 默认:各已添加存储库的盘符并集。
+		var libs []Library
+		if s.cfg != nil {
+			libs = s.cfg.Libraries
+		}
+		drives := drivesOfLibraries(libs)
+		if len(drives) == 0 {
+			resp.Disks = []diskHealthEntry{}
+			resp.Note = "没有承载已添加存储库的磁盘"
+			break
+		}
+		filtered := filterDisksByDrives(resp.Disks, drives)
+		if len(filtered) == 0 {
+			resp.Disks = []diskHealthEntry{}
+			resp.Note = "已添加存储库所在磁盘不在本机物理磁盘列表内"
+		} else {
+			resp.Disks = filtered
+		}
+	case strings.EqualFold(libID, "all"):
+		// 全部物理磁盘:保持原行为。
+	default:
 		var lib *Library
 		if s.cfg != nil {
 			lib = s.cfg.LibraryByID(libID)
@@ -131,6 +156,45 @@ func (s *Server) handleDisksHealth(w http.ResponseWriter, r *http.Request) {
 		resp.Disks = filtered
 	}
 	writeJSON(w, 200, resp)
+}
+
+// drivesOfLibraries 返回一组存储库路径涉及的盘符并集(去重、升序)。
+// 非盘符路径(UNC/相对路径等)被忽略;没有任何盘符时返回空切片(非 nil)。
+func drivesOfLibraries(libs []Library) []string {
+	out := []string{}
+	seen := map[string]bool{}
+	for _, l := range libs {
+		d := driveOfPath(l.Path)
+		if d == "" || seen[d] {
+			continue
+		}
+		seen[d] = true
+		out = append(out, d)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// filterDisksByDrives 按一组盘符过滤磁盘列表(大小写不敏感),结果按 Drive 升序。
+func filterDisksByDrives(disks []diskHealthEntry, drives []string) []diskHealthEntry {
+	out := []diskHealthEntry{}
+	if len(drives) == 0 {
+		return out
+	}
+	want := make(map[string]bool, len(drives))
+	for _, d := range drives {
+		d = strings.ToUpper(strings.TrimSpace(d))
+		if d != "" {
+			want[d] = true
+		}
+	}
+	for _, disk := range disks {
+		if want[strings.ToUpper(strings.TrimSpace(disk.Drive))] {
+			out = append(out, disk)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Drive < out[j].Drive })
+	return out
 }
 
 // driveOfPath 返回 Windows 路径的盘符(如 "E:");非盘符路径(UNC/相对路径等)返回 ""。

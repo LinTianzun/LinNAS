@@ -16,7 +16,7 @@
   - 服务端：核心文件 API / Range、媒体库索引与增量 + 对账、转码、WebDAV、安全（多用户 / 会话 / 分享 / 审计）、Zip、WoL、音乐、存储分析、媒体库排除。
   - Android：连接 / 发现、浏览 / 上传 / 下载、播放器、主题、保险箱、回收站、分享、多用户、离线缓存、传输中心、生物识别、版本检查。
 - **M10（Android 端到端验收）已通过真机基本回归**：2026-11-26 用户单设备实测未发现阻断问题；完整 Android 7 / 14 多机型矩阵与只读账号场景列为可选补测。
-- **M15 已全部交付**：批次 1（趋势快照 / 磁盘健康 / 空间告警）与批次 2（校验巡检 + 磁盘健康按存储库过滤），2026-11-26 部署到本机 52700；**M16（内容搜索 / 自动整理）已排定实施计划**，下一步进入批次 3（见 [PLAN.md](../PLAN.md) 与 [ROADMAP_BACKLOG.md](ROADMAP_BACKLOG.md)）。
+- **M15 已全部交付**：批次 1（趋势快照 / 磁盘健康 / 空间告警）与批次 2（校验巡检 + 磁盘健康按存储库过滤），2026-11-26 部署到本机 52700；**M16 批次 3（正文索引与内容搜索）已交付**：2026-11-26 部署到本机 52700（服务端仍为 1.7.0；文本类 UTF-8 优先 / GB18030 兜底，PDF 未索引；磁盘健康默认只显示承载已添加存储库的磁盘），下一步进入批次 4 自动整理规则（见 [PLAN.md](../PLAN.md) 与 [ROADMAP_BACKLOG.md](ROADMAP_BACKLOG.md)）。
 
 ## 测试与 CI
 
@@ -26,6 +26,7 @@
 
 ## 最近改动
 
+- 2026-11-26 内容搜索（批次 3）：新增 `server/content.go`（`content` / `content_meta` 表、后台抽取并发 2、单文件 ≤2MB、文本截断 1MB、UTF-8 优先 / GB18030 兜底；txt/md/log/csv/json/xml/html/htm/srt/ass/vtt 直读 + docx/xlsx/pptx 抽取，PDF 未索引）与 `GET /api/search/content`、`GET /api/content/status`；索引扫描 / 对账完成后异步增量入队；UI 搜索范围切换（文件名 / 内容 / 全部）、片段高亮与索引状态提示；磁盘健康默认只显示承载已添加存储库的磁盘（`lib=all` 才返回全部）。新增 `content_test.go`，扩充 `disk_health_test.go`；`go build/vet/test` 全绿。已构建并部署到本机 52700（工作区待提交）。
 - 2026-11-26 存储空间分析增强（批次 2）：新增**校验巡检** `server/patrol.go`（`file_sig` 表、quick/deep 签名、单飞可取消、只报告不修改、`patrol.json` 保留 20 条）与 `POST/GET /api/storage/patrol/{start,status,cancel,last}`；`GET /api/disks/health` 支持 `?lib=` 按存储库过滤磁盘（`driveOfPath` / `filterDisksByDrive`，库不存在 404）。UI 存储空间页新增「巡检」页签（快速/深度、进度与取消、内容已变化 / 文件缺失 / 读取失败三组、上次巡检摘要）与磁盘健康「存储库」下拉。新增 `patrol_test.go`，扩充 `disk_health_test.go`；`go build/vet/test` 全绿，Playwright 实测巡检 125/125 与缺失项、下拉切库后仅显示 E:。已构建并部署到本机 52700。
 - 2026-11-26 存储空间分析增强（批次 1）：`GET /api/storage/trend` 增长趋势与总览 sparkline、`GET /api/disks/health` 磁盘健康（5 分钟缓存）、`storage_snapshots` 表与 `Index.Snapshot()`、空间告警阈值 `spaceWarnPercent`/`spaceCriticalPercent` 可配置、告警存储与已读（`GET /api/alerts`、`POST /api/alerts/ack`）；新增 `server/{trend,disk_health,alerts}.go` 与三个单测文件；`go build/vet/test` 全绿，Playwright 实测趋势图 3 张、磁盘健康 7 行、告警「全部已读」。已构建并部署到本机 52700。
 - 2026-11-26 M10 真机基本回归通过（单设备，未发现阻断问题）。

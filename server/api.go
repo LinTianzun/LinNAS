@@ -32,6 +32,8 @@ type Server struct {
 	diskHealth *diskHealthCache
 	// patrol 保存校验巡检的单飞状态与历史(DataDir/patrol.json)。
 	patrol *patrolManager
+	// content 保存正文索引的后台抽取队列与统计。
+	content *contentIndexer
 }
 
 // NewServer creates the HTTP mux with all routes registered.
@@ -49,6 +51,7 @@ func NewServer(cfg *Config) *Server {
 		alerts:     newAlertStore(cfg.DataDir),
 		diskHealth: &diskHealthCache{},
 		patrol:     newPatrolManager(cfg.DataDir),
+		content:    &contentIndexer{},
 	}
 
 	api := http.NewServeMux()
@@ -84,6 +87,8 @@ func NewServer(cfg *Config) *Server {
 	api.HandleFunc("GET /api/stream", s.handleStream)
 	api.HandleFunc("GET /api/thumb", s.handleThumb)
 	api.HandleFunc("GET /api/search", s.handleSearch)
+	api.HandleFunc("GET /api/search/content", s.handleSearchContent)
+	api.HandleFunc("GET /api/content/status", s.handleContentStatus)
 	api.HandleFunc("GET /api/media", s.handleMedia)
 	api.HandleFunc("GET /api/index/status", s.handleIndexStatus)
 	api.HandleFunc("POST /api/reindex", s.handleReindex)

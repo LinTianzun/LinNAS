@@ -29,8 +29,8 @@ type tailscaleInfo struct {
 	DNSName     string   `json:"dnsName"`
 	TailnetName string   `json:"tailnetName"`
 	IPs         []string `json:"ips"`
-	URL         string   `json:"url"`     // http://<tailscale-ip>:port/ui/
-	DNSURL      string   `json:"dnsUrl"`  // http://<magicdns-name>:port/ui/
+	URL         string   `json:"url"`    // http://<tailscale-ip>:port/ui/
+	DNSURL      string   `json:"dnsUrl"` // http://<magicdns-name>:port/ui/
 	ServeOn     bool     `json:"serveOn"`
 	ServeURL    string   `json:"serveUrl"` // https://<magicdns-name>/
 	Hint        string   `json:"hint"`

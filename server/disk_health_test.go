@@ -200,13 +200,23 @@ func TestHandleDisksHealthLibFilter(t *testing.T) {
 		t.Errorf("all 应返回 3 块盘,得到 %d", len(rAll.Disks))
 	}
 
-	// 无 lib → 全部 3 块(向后兼容)
+	// 无 lib(新默认)→ 只返回承载已添加存储库的盘符并集。
+	// 库:E:\media、\\nas\share、G:\x → 盘符并集 {E:,G:};物理磁盘只有 E: 命中 → 1 块。
 	rec = httptest.NewRecorder()
 	s.handleDisksHealth(rec, httptest.NewRequest(http.MethodGet, "/api/disks/health", nil))
 	var rNone diskHealthResp
 	_ = json.Unmarshal(rec.Body.Bytes(), &rNone)
-	if len(rNone.Disks) != 3 {
-		t.Errorf("无 lib 应返回 3 块盘,得到 %d", len(rNone.Disks))
+	if len(rNone.Disks) != 1 || rNone.Disks[0].Drive != "E:" {
+		t.Errorf("无 lib 应只返回库所在盘 E:,得到 %#v", rNone.Disks)
+	}
+
+	// lib=libs 等价于默认。
+	rec = httptest.NewRecorder()
+	s.handleDisksHealth(rec, httptest.NewRequest(http.MethodGet, "/api/disks/health?lib=libs", nil))
+	var rLibs diskHealthResp
+	_ = json.Unmarshal(rec.Body.Bytes(), &rLibs)
+	if len(rLibs.Disks) != 1 || rLibs.Disks[0].Drive != "E:" {
+		t.Errorf("lib=libs 应只返回库所在盘 E:,得到 %#v", rLibs.Disks)
 	}
 
 	// 不存在的库 → 404 且错误信息为 library not found
@@ -243,5 +253,75 @@ func TestHandleDisksHealthLibFilter(t *testing.T) {
 	}
 	if rG.Note == "" {
 		t.Errorf("G 库应带 note")
+	}
+}
+
+// TestDrivesOfLibraries 覆盖盘符并集、去重与排序,忽略非盘符路径。
+func TestDrivesOfLibraries(t *testing.T) {
+	libs := []Library{
+		{ID: "a", Path: `E:\media`},
+		{ID: "b", Path: `f:\data`},
+		{ID: "c", Path: `E:\other`},     // 重复盘符
+		{ID: "d", Path: `\\nas\share`},  // UNC
+		{ID: "e", Path: `relative\dir`}, // 相对路径
+		{ID: "f", Path: ``},             // 空
+	}
+	got := drivesOfLibraries(libs)
+	want := []string{"E:", "F:"}
+	if len(got) != len(want) {
+		t.Fatalf("drivesOfLibraries = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("drivesOfLibraries = %#v, want %#v", got, want)
+			break
+		}
+	}
+	if empty := drivesOfLibraries(nil); empty == nil || len(empty) != 0 {
+		t.Errorf("无库应返回空切片(非 nil),得到 %#v", empty)
+	}
+}
+
+// TestHandleDisksHealthDefaultScope 覆盖默认并集范围、lib=all、无库提示。
+func TestHandleDisksHealthDefaultScope(t *testing.T) {
+	s := &Server{
+		diskHealth: newDiskHealthTestCache(), // C: / E: / F:
+		cfg: &Config{Libraries: []Library{
+			{ID: "libE", Name: "媒体", Path: `E:\media`, Enabled: true},
+			{ID: "libF", Name: "备份", Path: `F:\backup`, Enabled: true},
+		}},
+	}
+
+	// 默认 → 只返回 E:、F:,不含 C:,且按 Drive 排序。
+	rec := httptest.NewRecorder()
+	s.handleDisksHealth(rec, httptest.NewRequest(http.MethodGet, "/api/disks/health", nil))
+	var def diskHealthResp
+	if err := json.Unmarshal(rec.Body.Bytes(), &def); err != nil {
+		t.Fatalf("响应不是合法 JSON: %v", err)
+	}
+	if len(def.Disks) != 2 || def.Disks[0].Drive != "E:" || def.Disks[1].Drive != "F:" {
+		t.Fatalf("默认应返回 E:/F:,得到 %#v", def.Disks)
+	}
+
+	// lib=all → 全部 3 块。
+	rec = httptest.NewRecorder()
+	s.handleDisksHealth(rec, httptest.NewRequest(http.MethodGet, "/api/disks/health?lib=all", nil))
+	var all diskHealthResp
+	_ = json.Unmarshal(rec.Body.Bytes(), &all)
+	if len(all.Disks) != 3 {
+		t.Errorf("lib=all 应返回 3 块盘,得到 %d", len(all.Disks))
+	}
+
+	// 没有任何库 → disks 为空数组 + note。
+	empty := &Server{diskHealth: newDiskHealthTestCache(), cfg: &Config{}}
+	rec = httptest.NewRecorder()
+	empty.handleDisksHealth(rec, httptest.NewRequest(http.MethodGet, "/api/disks/health", nil))
+	var e diskHealthResp
+	_ = json.Unmarshal(rec.Body.Bytes(), &e)
+	if rec.Code != 200 || len(e.Disks) != 0 || e.Disks == nil {
+		t.Errorf("无库应 200 且 disks 为空数组,得到 %d %#v", rec.Code, e.Disks)
+	}
+	if e.Note == "" {
+		t.Errorf("无库应带 note")
 	}
 }

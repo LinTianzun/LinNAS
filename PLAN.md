@@ -372,10 +372,12 @@
 - UI：存储空间页新增「巡检」tab：开始（快/深）、进度、取消、结果三组（内容变更 / 文件缺失 / 读取失败）每条可跳转到所在目录；「上次巡检」时间与耗时。
 - 验收：≥1GB 目录 quick 模式在分钟级完成且可取消；人为改动一个文件内容后 quick 巡检能报出该文件；deep 模式 CPU/IO 不占满（限速生效）。
 
-### M16 内容搜索与自动整理（规划，分两批实现）
+### M16 内容搜索与自动整理（批次 3 已交付，批次 4 待开始）
 总览页「规划中」第一张卡片的落地计划。两项能力共用「后台抽取/执行 + 预览 + 记录 + 可撤销」的骨架，故合并为一个大里程碑、分两批交付。
 
-**批次 3：正文索引与内容搜索**
+**批次 3：正文索引与内容搜索**（✅ 已完成并部署 2026-11-26）
+
+> 状态：批次 3 已实现、测试并部署到本机 52700（服务端版本仍为 1.7.0）。新增 `server/content.go` 与 `server/content_test.go`；`index.go` 增加 `content` / `content_meta` 表与扫描/对账完成后的异步回调；`GET /api/search/content`、`GET /api/content/status`；文本编码 UTF-8 优先、失败按 GB18030 兜底（`golang.org/x/text`，兼容 GBK 文档），PDF 未索引。UI 搜索页新增「文件名 / 内容 / 全部」范围切换、内容片段高亮与索引状态提示。同时磁盘健康默认范围改为只显示承载已添加存储库的磁盘（`lib=all` 才返回全部，`lib=<库ID>` 仍按库过滤）。
 - 支持类型（v1，仅标准库）：`.txt .md .log .csv .json .xml .html .htm .srt .ass .vtt` 直读；`.docx .xlsx .pptx` 用 `archive/zip` + `encoding/xml` 抽取 `word/document.xml`、`xl/sharedStrings.xml`、`ppt/slides/*.xml` 的文本；PDF 暂不支持（标准库无解析器，需引依赖 → 留作 v2 选项，UI 明确标注「PDF 未索引」）。
 - 限制：单文件 ≤ 2MB、抽取文本截断至 1MB 入库；跳过保险箱、回收站、`MediaHide` 无关（照常索引）与二进制内容；编码按 UTF-8 优先、失败按 GB18030 兜底。
 - 表：`content(lib_id TEXT, path TEXT, mtime INTEGER, size INTEGER, text TEXT, indexed_at INTEGER, PRIMARY KEY(lib_id, path))`；`content_meta(k,v)` 存最近一次抽取批次信息。

@@ -27,6 +27,27 @@ type Index struct {
 	lastScan    time.Time
 	scanNote    string
 	fileCount   int
+
+	// afterIndexMu / afterIndex 是「扫描或对账完成后」的后台回调(用于触发内容索引增量入队)。
+	afterIndexMu sync.Mutex
+	afterIndex   func()
+}
+
+// SetAfterIndex 注册扫描/对账完成后调用的回调(在后台 goroutine 中执行,不阻塞索引)。
+func (ix *Index) SetAfterIndex(fn func()) {
+	ix.afterIndexMu.Lock()
+	ix.afterIndex = fn
+	ix.afterIndexMu.Unlock()
+}
+
+// fireAfterIndex 异步触发已注册的完成回调(若存在)。
+func (ix *Index) fireAfterIndex() {
+	ix.afterIndexMu.Lock()
+	fn := ix.afterIndex
+	ix.afterIndexMu.Unlock()
+	if fn != nil {
+		go fn()
+	}
 }
 
 // IndexHit is one search/media result row.
@@ -86,6 +107,17 @@ func OpenIndex(dataDir string) (*Index, error) {
 			sig_at   INTEGER NOT NULL,
 			PRIMARY KEY (lib_id, path)
 		)`,
+		`CREATE TABLE IF NOT EXISTS content (
+			lib_id     TEXT NOT NULL,
+			path       TEXT NOT NULL,
+			mtime      INTEGER NOT NULL,
+			size       INTEGER NOT NULL,
+			text       TEXT NOT NULL,
+			indexed_at INTEGER NOT NULL,
+			PRIMARY KEY (lib_id, path)
+		)`,
+		`CREATE TABLE IF NOT EXISTS content_meta (k TEXT PRIMARY KEY, v TEXT NOT NULL)`,
+		`CREATE INDEX IF NOT EXISTS idx_content_lib ON content(lib_id)`,
 	} {
 		if _, err := db.Exec(stmt); err != nil {
 			return nil, err
@@ -267,6 +299,8 @@ func (ix *Index) ScanAll(cfg *Config) {
 		note := ix.scanNote
 		ix.mu.Unlock()
 		log.Printf("索引扫描结束: %s (用时 %s)", note, time.Since(start).Round(time.Second))
+		// 扫描结束后触发内容索引增量入队(异步,不阻塞)。
+		ix.fireAfterIndex()
 	}()
 }
 
@@ -884,6 +918,8 @@ func (ix *Index) ReconcileAll(cfg *Config) {
 	if err := ix.Snapshot(); err != nil {
 		log.Printf("记录存储空间快照失败: %v", err)
 	}
+	// 对账结束后触发内容索引增量入队(异步,不阻塞)。
+	ix.fireAfterIndex()
 }
 
 // RemoveLibRows drops every indexed row of one library (used when a library is

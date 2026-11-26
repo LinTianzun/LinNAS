@@ -39,6 +39,10 @@ const state = {
   mediaItems: [],
   mediaCollapsed: Object.create(null), // 分组模式下已收起的目录
   searchResults: [],
+  searchScope: "all",        // 搜索范围: file(文件名) | content(内容) | all(全部)
+  searchContentStatus: null, // GET /api/content/status 的缓存结果
+  searchStatusTimer: null,   // 内容索引状态轮询定时器
+  searchSeq: 0,              // 防止并发搜索把旧结果覆盖新结果
   devices: [],
   trash: [],
   trashView: localStorage.getItem("linnas_trash_view") || "list",
@@ -50,7 +54,7 @@ const state = {
   trendDays: 30,             // 趋势页签的时间范围(天)
   diskHealth: null,          // GET /api/disks/health 的缓存结果
   diskHealthSeq: 0,          // 防止并发请求把旧结果追加两遍
-  diskLib: "all",            // 磁盘健康按存储库过滤: all 或库 id
+  diskLib: "libs",           // 磁盘健康按存储库过滤: libs(已添加的存储库,默认) | all(全部磁盘) | 库 id
   storageLibs: [],           // /api/storage/summary 返回的库列表(磁盘健康下拉用)
   // 校验巡检(批次 2)
   patrolMode: "quick",       // quick | deep
@@ -463,7 +467,12 @@ function showBrowse() { state.view = "browse"; showView("view-browse"); renderSi
 function showVault() { state.view = "vault"; showView("view-vault"); renderSidebar(); }
 function showMedia() { state.view = "media"; showView("view-media"); renderSidebar(); }
 function showMusic() { state.view = "music"; showView("view-music"); renderSidebar(); }
-function showSearch() { state.view = "search"; showView("view-search"); renderSidebar(); setTimeout(() => $("#in-global-search").focus(), 60); }
+function showSearch() {
+  state.view = "search"; showView("view-search"); renderSidebar();
+  syncSearchScope();
+  loadSearchContentStatus();
+  setTimeout(() => $("#in-global-search").focus(), 60);
+}
 function showDevices() { state.view = "devices"; showView("view-devices"); renderSidebar(); }
 function showTrash() { state.view = "trash"; showView("view-trash"); renderSidebar(); }
 
@@ -3044,44 +3053,238 @@ function renderMediaGrid() {
 
 /* ============================================================ 全局搜索 */
 let searchTimer = null;
-$("#btn-search").onclick = () => { showSearch(); if (state.searchResults.length) renderSearchResults(); };
+$("#btn-search").onclick = () => { showSearch(); };
 $("#in-global-search").oninput = (e) => {
   const q = e.target.value.trim();
   clearTimeout(searchTimer);
-  if (!q) { state.searchResults = []; $("#search-sub").textContent = ""; $("#search-list").innerHTML = ""; return; }
+  if (!q) { clearSearchView(); return; }
   searchTimer = setTimeout(() => doGlobalSearch(q), 250);
 };
+
+// 搜索范围分段: 文件名 / 内容 / 全部
+$$("#search-scope button").forEach((b) => {
+  b.onclick = () => {
+    const s = b.dataset.scope;
+    state.searchScope = (s === "file" || s === "content") ? s : "all";
+    syncSearchScope();
+    const q = $("#in-global-search").value.trim();
+    if (q) doGlobalSearch(q); else clearSearchView();
+  };
+});
+function syncSearchScope() {
+  const scope = state.searchScope || "all";
+  $$("#search-scope button").forEach((b) => {
+    b.classList.toggle("on", (b.dataset.scope || "all") === scope);
+    b.setAttribute("aria-selected", (b.dataset.scope || "all") === scope ? "true" : "false");
+  });
+}
+
+// 内容索引状态(搜索页顶部小字): GET /api/content/status
+async function loadSearchContentStatus() {
+  const el = $("#search-content-status");
+  if (!el) return;
+  clearTimeout(state.searchStatusTimer);
+  let st = null;
+  try { st = await api("/api/content/status"); } catch (e) { st = null; }
+  state.searchContentStatus = st;
+  renderSearchContentStatus();
+  const running = st && Number(st.running) > 0;
+  if (running && state.view === "search" && st.enabled !== false) {
+    state.searchStatusTimer = setTimeout(() => { if (state.view === "search") loadSearchContentStatus(); }, 2000);
+  }
+}
+function renderSearchContentStatus() {
+  const el = $("#search-content-status");
+  if (!el) return;
+  const st = state.searchContentStatus;
+  if (!st) { el.textContent = ""; return; }
+  if (st.enabled === false) { el.textContent = "内容索引：未启用"; return; }
+  const qn = Number(st.queued) || 0, rn = Number(st.running) || 0;
+  el.textContent = `内容索引：队列 ${qn} / 进行中 ${rn}`;
+}
+
+function clearSearchView() {
+  state.searchResults = [];
+  const sub = $("#search-sub"); if (sub) sub.textContent = "";
+  const list = $("#search-list");
+  if (list) { list.className = "file-list"; list.innerHTML = ""; }
+}
+
 async function doGlobalSearch(q) {
+  q = (q || "").trim();
+  if (!q) { clearSearchView(); return; }
+  const scope = state.searchScope || "all";
+  const seq = (state.searchSeq || 0) + 1;
+  state.searchSeq = seq;
   const list = $("#search-list");
   list.className = "file-list";
   list.innerHTML = '<div class="pempty">搜索中…</div>';
+  $("#search-sub").textContent = "";
   try {
-    const items = await api("/api/search?q=" + enc(q) + "&limit=200");
-    state.searchResults = items || [];
-    $("#search-sub").textContent = `找到 ${state.searchResults.length} 个文件`;
-    renderSearchResults();
-  } catch (e) { list.innerHTML = `<div class="pempty">搜索失败: ${e.message}</div>`; }
+    if (scope === "file") {
+      const items = await api("/api/search?q=" + enc(q) + "&limit=200");
+      if (seq !== state.searchSeq) return;
+      state.searchResults = Array.isArray(items) ? items : [];
+      renderSearchResults();
+      $("#search-sub").textContent = `找到 ${state.searchResults.length} 个文件`;
+    } else if (scope === "content") {
+      const r = await api("/api/search/content?q=" + enc(q) + "&limit=50");
+      if (seq !== state.searchSeq) return;
+      renderContentResults(q, r);
+    } else {
+      const both = await Promise.all([
+        api("/api/search?q=" + enc(q) + "&limit=200").catch(() => []),
+        api("/api/search/content?q=" + enc(q) + "&limit=50").catch(() => ({ hits: [], total: 0 })),
+      ]);
+      if (seq !== state.searchSeq) return;
+      state.searchResults = Array.isArray(both[0]) ? both[0] : [];
+      renderSearchAll(q, state.searchResults, both[1] || { hits: [], total: 0 });
+    }
+  } catch (e) {
+    if (seq !== state.searchSeq) return;
+    list.className = "file-list";
+    list.innerHTML = "";
+    list.appendChild(csEmpty("搜索失败：" + (e && e.message ? e.message : "未知错误")));
+  }
 }
+
+// 单个文件名搜索结果行(复用现有样式)
+function fileResultRow(it) {
+  const kind = it.kind || "other";
+  const row = document.createElement("div"); row.className = "frow sr-row";
+  const icon = document.createElement("div"); icon.className = "fi t-" + kind;
+  icon.innerHTML = svgIcon(kind === "video" ? "video" : kind === "image" ? "image" : kind === "audio" ? "music" : kind === "dir" ? "folder" : "file");
+  const meta = document.createElement("div"); meta.className = "fmain";
+  const nm = document.createElement("div"); nm.className = "fname"; nm.textContent = it.name;
+  const sp = document.createElement("div"); sp.className = "spath"; sp.textContent = it.path;
+  meta.appendChild(nm); meta.appendChild(sp);
+  const acts = document.createElement("div"); acts.className = "facts";
+  const ab = (ic, t, fn) => { const b = document.createElement("button"); b.className = "btn icon-btn"; b.title = t; b.innerHTML = svgIcon(ic); b.onclick = (ev) => { ev.stopPropagation(); fn(); }; acts.appendChild(b); };
+  if (kind === "video" || kind === "audio" || kind === "image") ab("play", "预览", () => openPreview(kind, it.path, it.name));
+  ab("folder", "打开位置", () => { openPath(it.path.replace(/\/[^/]*$/, "") || "/"); });
+  row.appendChild(icon); row.appendChild(meta); row.appendChild(acts);
+  if (kind === "video" || kind === "audio" || kind === "image") row.onclick = () => openPreview(kind, it.path, it.name);
+  return row;
+}
+
 function renderSearchResults() {
   const list = $("#search-list"); list.className = "file-list"; list.innerHTML = "";
   if (!state.searchResults.length) { list.innerHTML = '<div class="pempty">没有找到匹配文件</div>'; return; }
-  for (const it of state.searchResults) {
-    const kind = it.kind || "other";
-    const row = document.createElement("div"); row.className = "frow sr-row";
-    const icon = document.createElement("div"); icon.className = "fi t-" + kind;
-    icon.innerHTML = svgIcon(kind === "video" ? "video" : kind === "image" ? "image" : kind === "audio" ? "music" : kind === "dir" ? "folder" : "file");
-    const meta = document.createElement("div"); meta.className = "fmain";
-    const nm = document.createElement("div"); nm.className = "fname"; nm.textContent = it.name;
-    const sp = document.createElement("div"); sp.className = "spath"; sp.textContent = it.path;
-    meta.appendChild(nm); meta.appendChild(sp);
-    const acts = document.createElement("div"); acts.className = "facts";
-    const ab = (ic, t, fn) => { const b = document.createElement("button"); b.className = "btn icon-btn"; b.title = t; b.innerHTML = svgIcon(ic); b.onclick = (ev) => { ev.stopPropagation(); fn(); }; acts.appendChild(b); };
-    if (kind === "video" || kind === "audio" || kind === "image") ab("play", "预览", () => openPreview(kind, it.path, it.name));
-    ab("folder", "打开位置", () => { openPath(it.path.replace(/\/[^/]*$/, "") || "/"); });
-    row.appendChild(icon); row.appendChild(meta); row.appendChild(acts);
-    if (kind === "video" || kind === "audio" || kind === "image") row.onclick = () => openPreview(kind, it.path, it.name);
-    list.appendChild(row);
+  for (const it of state.searchResults) list.appendChild(fileResultRow(it));
+}
+
+// ---- 内容搜索结果(批次 3) ----
+function escHtml(s) {
+  return String(s === null || s === undefined ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+function csEmpty(text) {
+  const d = document.createElement("div"); d.className = "cs-empty"; d.textContent = text; return d;
+}
+function csGroupHead(title, count) {
+  const h = document.createElement("div"); h.className = "cs-group-head";
+  const t = document.createElement("span"); t.className = "cs-group-title"; t.textContent = title; h.appendChild(t);
+  if (count !== undefined && count !== null) {
+    const c = document.createElement("span"); c.className = "cs-group-count"; c.textContent = count + " 项"; h.appendChild(c);
   }
+  return h;
+}
+// 先 HTML 转义，再对命中区间用 <mark> 包裹，避免 XSS
+function highlightSnippet(text, start, len, q) {
+  text = String(text === null || text === undefined ? "" : text);
+  const s = (typeof start === "number" && start >= 0 && start < text.length) ? start : -1;
+  const L = (typeof len === "number" && len > 0) ? len : 0;
+  if (s >= 0 && L > 0 && s + L <= text.length) {
+    return escHtml(text.slice(0, s)) + "<mark>" + escHtml(text.slice(s, s + L)) + "</mark>" + escHtml(text.slice(s + L));
+  }
+  // 后端未给区间时的兜底: 按查询词首个命中位置高亮
+  const sq = q ? String(q) : "";
+  if (!sq) return escHtml(text);
+  const idx = text.toLowerCase().indexOf(sq.toLowerCase());
+  if (idx < 0) return escHtml(text);
+  return escHtml(text.slice(0, idx)) + "<mark>" + escHtml(text.slice(idx, idx + sq.length)) + "</mark>" + escHtml(text.slice(idx + sq.length));
+}
+function contentHitEl(hit, q) {
+  hit = hit || {};
+  const el = document.createElement("div");
+  el.className = "cs-hit"; el.tabIndex = 0; el.setAttribute("role", "button");
+  el.title = "跳转到文件所在目录";
+  const head = document.createElement("div"); head.className = "cs-file";
+  const ic = document.createElement("div"); ic.className = "cs-ic"; ic.innerHTML = svgIcon("file");
+  const meta = document.createElement("div"); meta.className = "cs-meta";
+  const nm = document.createElement("div"); nm.className = "cs-name";
+  nm.textContent = hit.name || (hit.path ? String(hit.path).split("/").pop() : "文件");
+  const sub = document.createElement("div"); sub.className = "cs-path";
+  const bits = [];
+  if (hit.path) bits.push(String(hit.path));
+  if (hit.size !== undefined && hit.size !== null) bits.push(fmtSize(hit.size));
+  if (hit.modTime) bits.push(fmtTime(hit.modTime));
+  sub.textContent = bits.join(" · ");
+  meta.appendChild(nm); meta.appendChild(sub);
+  head.appendChild(ic); head.appendChild(meta);
+  el.appendChild(head);
+  const snips = Array.isArray(hit.snippets) ? hit.snippets : [];
+  if (snips.length) {
+    const box = document.createElement("div"); box.className = "cs-snippets";
+    for (const sn of snips) {
+      const d = document.createElement("div"); d.className = "cs-snippet";
+      d.innerHTML = highlightSnippet(sn && sn.text, sn && sn.start, sn && sn.len, q);
+      box.appendChild(d);
+    }
+    el.appendChild(box);
+  }
+  el.onclick = () => openContentHit(hit);
+  el.onkeydown = (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); openContentHit(hit); } };
+  return el;
+}
+// 点击内容命中: 跳到所在目录(复用 openPath); 不可靠时复制路径 + toast
+function openContentHit(hit) {
+  if (!hit) { toast("无法定位该文件"); return; }
+  let vp = hit.path ? String(hit.path) : "";
+  if (/^[A-Za-z]:[\\/]/.test(vp)) { copyText(vp); toast("已复制路径，无法自动定位目录"); return; }
+  if (vp && vp.charAt(0) !== "/" && hit.libId) vp = "/" + hit.libId + "/" + vp.replace(/^\/+/, "");
+  if (vp && /^\/lib[^/]+/.test(vp)) {
+    const dir = vp.replace(/\/[^/]*$/, "") || "/";
+    openPath(dir);
+    return;
+  }
+  if (vp) { copyText(vp); toast("已复制路径，无法自动定位目录"); return; }
+  toast("无法定位该文件");
+}
+const CONTENT_EMPTY_HINT = "仅索引 UTF-8 文本类文档，PDF 未支持";
+function renderContentResults(q, r) {
+  const list = $("#search-list"); list.className = "file-list"; list.innerHTML = "";
+  const hits = (r && Array.isArray(r.hits)) ? r.hits : [];
+  const total = (r && typeof r.total === "number") ? r.total : hits.length;
+  if (!hits.length) {
+    $("#search-sub").textContent = "内容搜索：没有找到匹配";
+    list.appendChild(csEmpty(CONTENT_EMPTY_HINT));
+    return;
+  }
+  $("#search-sub").textContent = `内容搜索：${total} 个文件${(r && r.truncated) ? "（已截断）" : ""}`;
+  for (const h of hits) list.appendChild(contentHitEl(h, q));
+  if (r && r.truncated) list.appendChild(csEmpty("结果较多，仅显示前 " + hits.length + " 个文件"));
+}
+function renderSearchAll(q, fileItems, contentR) {
+  const list = $("#search-list"); list.className = "file-list"; list.innerHTML = "";
+  const files = Array.isArray(fileItems) ? fileItems : [];
+  const hits = (contentR && Array.isArray(contentR.hits)) ? contentR.hits : [];
+  const cTotal = (contentR && typeof contentR.total === "number") ? contentR.total : hits.length;
+
+  const fg = document.createElement("div"); fg.className = "cs-group";
+  fg.appendChild(csGroupHead("文件名匹配", files.length));
+  if (files.length) { for (const it of files) fg.appendChild(fileResultRow(it)); }
+  else fg.appendChild(csEmpty("没有匹配的文件名"));
+  list.appendChild(fg);
+
+  const cg = document.createElement("div"); cg.className = "cs-group";
+  cg.appendChild(csGroupHead("内容匹配", cTotal));
+  if (hits.length) { for (const h of hits) cg.appendChild(contentHitEl(h, q)); }
+  else cg.appendChild(csEmpty(CONTENT_EMPTY_HINT));
+  list.appendChild(cg);
+
+  $("#search-sub").textContent = `文件名 ${files.length} 个 · 内容 ${cTotal} 个文件${(contentR && contentR.truncated) ? "（已截断）" : ""}`;
 }
 
 /* ============================================================ 设备管理 */
@@ -3623,12 +3826,15 @@ function renderTrend(r, days) {
 
 /* ============================================================ 磁盘健康(批次 1) */
 async function loadDiskHealth(lib) {
-  if (lib === undefined) lib = state.diskLib || "all";
-  state.diskLib = lib || "all";
+  if (lib === undefined) lib = state.diskLib || "libs";
+  state.diskLib = lib || "libs";
   const seq = (state.diskHealthSeq || 0) + 1;
   state.diskHealthSeq = seq;
   let h = null;
-  const q = (state.diskLib && state.diskLib !== "all") ? "?lib=" + enc(state.diskLib) : "";
+  // libs(默认): 不传参数 → 后端只返回承载已添加存储库的磁盘; all: 全部磁盘; 其它: 指定库
+  let q = "";
+  if (state.diskLib === "all") q = "?lib=all";
+  else if (state.diskLib && state.diskLib !== "libs") q = "?lib=" + enc(state.diskLib);
   try { h = await api("/api/disks/health" + q); } catch (e) { h = null; }
   if (seq !== state.diskHealthSeq) return; // 已有更新的请求,丢弃旧结果
   state.diskHealth = h;
@@ -3649,21 +3855,23 @@ function renderDiskHealth() {
   const head = document.createElement("div"); head.className = "dh-head";
   head.appendChild(ovEl("span", "dh-h", "磁盘健康"));
 
-  // 存储库下拉(全部存储库 + summary.libs)
+  // 存储库下拉: 已添加的存储库(默认) + 各库 + 全部磁盘
   const tools = document.createElement("div"); tools.className = "dh-tools";
   const libs = (Array.isArray(state.storageLibs) && state.storageLibs.length)
     ? state.storageLibs
     : (Array.isArray(state.libs) ? state.libs : []);
-  if (state.diskLib && state.diskLib !== "all" && !libs.some((l) => l && l.id === state.diskLib)) state.diskLib = "all";
+  const known = state.diskLib === "libs" || state.diskLib === "all" || libs.some((l) => l && l.id === state.diskLib);
+  if (!known) state.diskLib = "libs";
   const sel = document.createElement("select");
   sel.className = "dh-lib-select"; sel.title = "按存储库筛选磁盘";
   sel.setAttribute("aria-label", "按存储库筛选磁盘");
-  const optAll = document.createElement("option"); optAll.value = "all"; optAll.textContent = "全部存储库"; sel.appendChild(optAll);
+  const optLibs = document.createElement("option"); optLibs.value = "libs"; optLibs.textContent = "已添加的存储库"; sel.appendChild(optLibs);
   for (const lib of libs) {
     if (!lib || !lib.id) continue;
     const o = document.createElement("option"); o.value = lib.id; o.textContent = lib.name || lib.id; sel.appendChild(o);
   }
-  sel.value = state.diskLib || "all";
+  const optAll = document.createElement("option"); optAll.value = "all"; optAll.textContent = "全部磁盘"; sel.appendChild(optAll);
+  sel.value = state.diskLib || "libs";
   sel.onchange = () => { loadDiskHealth(sel.value); };
   tools.appendChild(sel);
   if (h.at) tools.appendChild(ovEl("span", "dh-at", "检测于 " + fmtTime(h.at)));
@@ -3674,9 +3882,11 @@ function renderDiskHealth() {
 
   if (!disks.length) {
     if (!h.note) {
-      const msg = (state.diskLib && state.diskLib !== "all")
-        ? "该存储库所在磁盘不在本机物理磁盘列表内"
-        : "未检测到本机物理磁盘信息";
+      const msg = state.diskLib === "libs"
+        ? "尚未添加存储库，或存储库所在磁盘不在本机物理磁盘列表内"
+        : (state.diskLib && state.diskLib !== "all")
+          ? "该存储库所在磁盘不在本机物理磁盘列表内"
+          : "未检测到本机物理磁盘信息";
       card.appendChild(ovEl("div", "dh-empty", msg));
     }
     host.appendChild(card);

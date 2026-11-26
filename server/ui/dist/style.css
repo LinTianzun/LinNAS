@@ -1441,5 +1441,68 @@ dialog.wide { width: min(94vw, 600px); }
 .pt-last-stat.pt-failed::before { background: var(--accent-hi); }
 @media (max-width: 620px) { .pt-stat { min-width: 0; } }
 
+/* ============================================================ 搜索范围 + 内容搜索(批次 3) */
+.cs-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 2px 0 6px; }
+.cs-toolbar .seg button { padding: 5px 14px; }
+.cs-status { font-size: 11.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+
+.cs-group { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+.cs-group:first-child { margin-top: 2px; }
+.cs-group-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 2px 6px; border-bottom: 1px solid var(--line-soft);
+}
+.cs-group-title { font-size: 12.5px; font-weight: 600; color: var(--text); letter-spacing: .02em; }
+.cs-group-count {
+  font-size: 11px; font-variant-numeric: tabular-nums;
+  padding: 0 8px; border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent); border: 1px solid transparent;
+}
+
+.cs-hit {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 10px 12px; border-radius: var(--radius-sm);
+  background: var(--panel); border: 1px solid transparent;
+  cursor: pointer;
+  transition: background .12s var(--ease-out), border-color .12s var(--ease-out);
+}
+.cs-hit:hover, .cs-hit:focus-visible { background: var(--panel-2); border-color: var(--line-2); }
+.cs-file { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.cs-ic {
+  width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0;
+  display: grid; place-items: center;
+  background: var(--panel-2); color: var(--muted);
+}
+.cs-ic svg.ic { width: 17px; height: 17px; }
+.cs-meta { flex: 1; min-width: 0; }
+.cs-name { font-size: 14px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cs-path {
+  font-size: 11.5px; color: var(--faint); font-family: var(--font-mono);
+  word-break: break-all; margin-top: 1px;
+}
+.cs-snippets { display: flex; flex-direction: column; gap: 4px; padding-left: 42px; }
+.cs-snippet {
+  font-size: 12.5px; line-height: 1.6; color: var(--muted);
+  background: var(--bg-soft); border: 1px solid var(--line-soft);
+  border-radius: 7px; padding: 6px 9px;
+  white-space: pre-wrap; word-break: break-word;
+}
+.cs-snippet mark {
+  background: var(--accent-soft); color: var(--accent-hi);
+  border-radius: 3px; padding: 0 2px; font-weight: 600;
+}
+[data-theme="light"] .cs-snippet mark { color: var(--accent); }
+
+.cs-empty {
+  font-size: 12.5px; color: var(--faint);
+  padding: 14px 12px; text-align: center;
+  border: 1px dashed var(--line); border-radius: var(--radius-sm);
+  background: var(--bg-soft);
+}
+@media (max-width: 620px) {
+  .cs-snippets { padding-left: 0; }
+  .cs-toolbar .seg button { padding: 5px 10px; }
+}
+
 
 
