@@ -27,7 +27,16 @@ var (
 	procMessageBoxW      = user32.NewProc("MessageBoxW")
 	kernel32             = windows.NewLazySystemDLL("kernel32.dll")
 	procGetConsoleWindow = kernel32.NewProc("GetConsoleWindow")
+	procGetConsoleProcs  = kernel32.NewProc("GetConsoleProcessList")
 )
+
+// launchedFromTerminal 报告本进程是否挂在「已存在的终端窗口」上(例如用户先开了
+// cmd/PowerShell 再运行 exe)。此时不应隐藏窗口,否则会把用户的终端一起藏掉。
+func launchedFromTerminal() bool {
+	var pids [8]uint32
+	n, _, _ := procGetConsoleProcs.Call(uintptr(unsafe.Pointer(&pids[0])), uintptr(len(pids)))
+	return n > 1
+}
 
 // hideConsoleWindow 把自己的控制台窗口藏起来(托盘模式下不该留一个黑框)。
 func hideConsoleWindow() {

@@ -18,6 +18,9 @@ func traySupported() bool { return false }
 
 func hideConsoleWindow() {}
 
+// launchedFromTerminal 非 Windows 平台无「双击隐藏控制台」概念。
+func launchedFromTerminal() bool { return false }
+
 func showErrorBox(title, msg string) { log.Printf("%s: %s", title, msg) }
 
 func copyToClipboard(text string) error {

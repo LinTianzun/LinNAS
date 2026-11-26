@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -10,6 +11,7 @@ import (
 func (s *Server) handleSettingsInfo(w http.ResponseWriter, r *http.Request) {
 	info := map[string]any{
 		"version":              Version,
+		"serverName":           s.cfg.ServerName,
 		"port":                 s.cfg.Port,
 		"host":                 s.cfg.Host,
 		"dataDir":              s.cfg.DataDir,
@@ -46,6 +48,7 @@ func (s *Server) handleSettingsInfo(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Token                *string `json:"token"`
+		ServerName           *string `json:"serverName"`
 		IdleLockMinutes      *int    `json:"idleLockMinutes"`
 		TrashRetentionDays   *int    `json:"trashRetentionDays"`
 		TranscodeCacheMB     *int    `json:"transcodeCacheMB"`
@@ -59,6 +62,13 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Token != nil {
 		s.cfg.Token = *req.Token
+	}
+	if req.ServerName != nil {
+		n := strings.TrimSpace(*req.ServerName)
+		if r := []rune(n); len(r) > 40 {
+			n = string(r[:40])
+		}
+		s.cfg.ServerName = n
 	}
 	if req.IdleLockMinutes != nil {
 		m := *req.IdleLockMinutes
@@ -127,6 +137,7 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]any{
 		"ok":                   true,
+		"serverName":           s.cfg.DisplayName(),
 		"tokenSet":             s.cfg.Token != "",
 		"idleLockMinutes":      s.auth.IdleMinutes(),
 		"trashRetentionDays":   s.cfg.TrashRetentionDays,

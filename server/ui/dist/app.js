@@ -320,15 +320,26 @@ $("#btn-theme").onclick = () => setTheme(resolvedTheme() === "light" ? "dark" : 
 matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => { if (state.theme === "system") applyTheme(); });
 
 /* ============================================================ 连接状态 */
+// 把自定义服务器名应用到标题、品牌、锁屏等处
+function applyServerName() {
+  const nm = state.serverName || "LinNAS";
+  document.title = nm;
+  const bn = document.querySelector(".brand-name"); if (bn) bn.textContent = nm;
+  const lb = document.querySelector(".lock-brand");
+  if (lb) lb.innerHTML = '<span class="brand-led"></span> ' + nm;
+  const cb = document.querySelector(".brand"); if (cb) cb.title = "回到主页 · " + nm;
+}
 async function checkHealth() {
   const conn = $("#conn");
   try {
     const h = await api("/api/health");
     state.version = h.version;
+    state.serverName = h.name || "LinNAS";
     conn.className = "conn ok";
     $("#conn-text").textContent = "在线";
-    conn.title = `linNas v${h.version}`;
+    conn.title = `${state.serverName} v${h.version}`;
     $("#ver-text").textContent = `v${h.version}`;
+    applyServerName();
     return true;
   } catch (e) {
     conn.className = "conn err";
@@ -489,21 +500,6 @@ function showDevices() { state.view = "devices"; showView("view-devices"); rende
 function showTrash() { state.view = "trash"; showView("view-trash"); renderSidebar(); }
 
 /* ============================================================ 总览(overview) */
-const OV_ROADMAP = [
-  {
-    title: "内容搜索 / 自动整理",
-    tag: "中大",
-    value: "文件多后查找/归档效率",
-    scope: "少量文档类型正文索引；规则先预览+执行记录+可撤销",
-  },
-  {
-    title: "存储空间分析增强",
-    tag: "增强",
-    value: "基础版（概览/大文件/重复候选）已随 v1.7.0 上线",
-    scope: "增长趋势、校验巡检、磁盘健康/空间告警",
-  },
-];
-
 function ovEl(tag, cls, text) {
   const el = document.createElement(tag);
   if (cls) el.className = cls;
@@ -758,28 +754,7 @@ function renderOverview(ov) {
     }
   }
 
-  // 规划中(不跳转,仅展示)
-  const road = $("#ov-roadmap-body");
-  if (road) {
-    road.innerHTML = "";
-    for (const p of OV_ROADMAP) {
-      const card = ovEl("div", "ov-plan");
-      const top = ovEl("div", "ov-plan-top");
-      top.appendChild(ovEl("span", "ov-plan-title", p.title));
-      top.appendChild(ovEl("span", "ov-plan-tag", p.tag));
-      top.appendChild(ovEl("span", "ov-plan-badge", "规划中"));
-      card.appendChild(top);
-      const row = ovEl("div", "ov-plan-row");
-      row.appendChild(ovEl("span", "k", "价值"));
-      row.appendChild(ovEl("span", "v", p.value));
-      card.appendChild(row);
-      const row2 = ovEl("div", "ov-plan-row");
-      row2.appendChild(ovEl("span", "k", "范围"));
-      row2.appendChild(ovEl("span", "v", p.scope));
-      card.appendChild(row2);
-      road.appendChild(card);
-    }
-  }
+  // 规划中的功能均已交付,M16 完成后不再展示占位卡。
 }
 
 // 总览:存储容量卡片底部的迷你趋势行(sparkline + 较上周)
@@ -1401,16 +1376,19 @@ function srcForItem(it) {
 function buildPlaylist(kind, vp) {
   state.playlist = [];
   state.playlistOpen = false;
-  if (kind === "video" || kind === "audio") {
-    const playable = (k) => k === "video" || k === "audio";
+  // 视频/音频混合成播放列表;图片单独成组,支持同组内上一张/下一张。
+  if (kind === "video" || kind === "audio" || kind === "image") {
+    const match = kind === "image"
+      ? (k) => k === "image"
+      : (k) => k === "video" || k === "audio";
     let items = [];
     if (state.view === "media") {
-      items = state.mediaItems.filter((x) => playable(x.kind)).map((x) => ({ kind: x.kind, vp: x.path, name: x.name }));
+      items = state.mediaItems.filter((x) => match(x.kind)).map((x) => ({ kind: x.kind, vp: x.path, name: x.name }));
     } else if (state.view === "search") {
-      items = state.searchResults.filter((x) => playable(x.kind)).map((x) => ({ kind: x.kind, vp: x.path, name: x.name }));
+      items = state.searchResults.filter((x) => match(x.kind)).map((x) => ({ kind: x.kind, vp: x.path, name: x.name }));
     } else {
       const base = state.curPath.replace(/\/$/, "");
-      items = state.entries.filter((e) => !e.isDir).map((e) => ({ kind: kindOf(e.name), vp: base + "/" + e.name, name: e.name })).filter((x) => playable(x.kind));
+      items = state.entries.filter((e) => !e.isDir).map((e) => ({ kind: kindOf(e.name), vp: base + "/" + e.name, name: e.name })).filter((x) => match(x.kind));
     }
     if (items.length) {
       const i = items.findIndex((x) => x.vp === vp);
@@ -1450,6 +1428,9 @@ function openPreviewSrc(kind, src, name, key, vp) {
   $("#player-title").textContent = name + (n > 1 && state.playIndex >= 0 ? "  (" + (state.playIndex + 1) + "/" + n + ")" : "");
   $("#player-speed").textContent = "1×";
   if (kind === "video") v.playbackRate = 1;
+  const isVid = kind === "video";
+  $("#player-speed").hidden = !isVid; // 播放速度/画中画只对视频有意义
+  $("#player-pip").hidden = !isVid;
   modal.hidden = false;
   renderPlaylist(); applyPlaylistVisibility();
   if (kind === "video") { loadSubtitles(v); }
@@ -1581,7 +1562,15 @@ document.addEventListener("keydown", (e) => {
   if (modal.hidden) return;
   const v = $("#player-video");
   if (e.key === "Escape") { closePreview(); return; }
-  if (v.hidden) return;
+  if (v.hidden) {
+    // 图片预览:左右方向键切换上一张 / 下一张
+    const img = $("#player-img");
+    if (img && !img.hidden) {
+      if (e.key === "ArrowLeft" && state.playIndex > 0) { e.preventDefault(); playItem(state.playIndex - 1); }
+      else if (e.key === "ArrowRight" && state.playIndex >= 0 && state.playIndex < state.playlist.length - 1) { e.preventDefault(); playItem(state.playIndex + 1); }
+    }
+    return;
+  }
   if (e.code === "Space") { e.preventDefault(); v.paused ? v.play().catch(() => {}) : v.pause(); }
   else if (e.key === "ArrowLeft") { v.currentTime = Math.max(0, v.currentTime - 5); }
   else if (e.key === "ArrowRight") { v.currentTime = Math.min(v.duration || 1e9, v.currentTime + 5); }
@@ -1872,7 +1861,7 @@ function setPairQR() {
   const ip = pairState.ip;
   $("#pair-qr").src = apiUrl("/api/pair/qr?size=340&ip=" + enc(ip));
   const port = pairState.info ? pairState.info.port : "";
-  $("#pair-qr-cap").textContent = "扫码连接 · " + ip + ":" + port;
+  $("#pair-qr-cap").textContent = "扫码连接 · " + (state.serverName ? state.serverName + " · " : "") + ip + ":" + port;
 }
 function renderPairAddrs() {
   const box = $("#pair-addrs"); box.innerHTML = "";
@@ -2330,7 +2319,7 @@ async function openSettings() {
   };
 
   // 关于
-  group("关于", [
+  const aboutGroup = group("关于", [
     row("版本", "v" + s.version),
     row("监听端口", String(s.port)),
     row("数据目录", s.dataDir),
@@ -2338,6 +2327,22 @@ async function openSettings() {
     row("ffmpeg", s.ffmpeg ? "已检测到(缩略图/转码可用)" : "未安装(仅图标)"),
     row("存储库", String(s.libCount) + " 个"),
   ]);
+  // 服务器名称:自定义显示名(替代默认的 linNas / IP)
+  const nameInput = document.createElement("input");
+  nameInput.type = "text"; nameInput.value = s.serverName || "";
+  nameInput.placeholder = "默认 LinNAS"; nameInput.maxLength = 40;
+  nameInput.style.cssText = "padding:6px 9px;background:var(--bg-soft);color:var(--text);border:1px solid var(--line);border-radius:8px;font:inherit;font-size:13px;width:180px";
+  if (!isAdmin()) nameInput.disabled = true;
+  const nameSave = document.createElement("button"); nameSave.className = "btn primary"; nameSave.textContent = "保存"; nameSave.disabled = !isAdmin();
+  nameSave.onclick = async () => {
+    try {
+      const r = await api("/api/settings", { method: "POST", body: { serverName: nameInput.value } });
+      state.serverName = r.serverName || "LinNAS"; applyServerName(); toast("服务器名称已更新");
+    } catch (e) { toast("失败: " + e.message); }
+  };
+  const nameWrap = document.createElement("div"); nameWrap.style.cssText = "display:flex;gap:8px;align-items:center;flex-wrap:wrap";
+  nameWrap.appendChild(nameInput); nameWrap.appendChild(nameSave);
+  aboutGroup.appendChild(row("服务器名称", nameWrap));
 
   // 索引
   const idxGroup = group("文件索引", [
@@ -2613,13 +2618,59 @@ $("#btn-sel-vault").onclick = async () => {
 function vaultImport() { /* 兼容占位:改用 vaultImportFiles / 存入保险箱 */ }
 
 /* ============================================================ 音乐播放器 */
-const musicState = { list: [], index: -1, playing: false, miniClosed: false, shuffle: false, repeat: "off", filter: "", saveAt: 0, pendingPos: 0 };
+const musicState = { list: [], index: -1, playing: false, miniClosed: false, shuffle: false, repeat: "off", filter: "", saveAt: 0, pendingPos: 0, favOnly: false, sleepMin: 0, sleepTimer: null };
 
 function fmtClock(sec) {
   sec = Math.max(0, Math.floor(sec || 0));
   return Math.floor(sec / 60) + ":" + String(sec % 60).padStart(2, "0");
 }
 function musicAudio() { return $("#music-audio"); }
+
+/* ---- 音量:记忆 + 百分比 + 静音 ---- */
+function savedMusicVolume() {
+  try { const v = parseFloat(localStorage.getItem("linnas_music_vol")); if (isFinite(v)) return Math.min(1, Math.max(0, v)); } catch (e) {}
+  return 1;
+}
+function applyMusicVolume() {
+  const a = musicAudio();
+  const v = savedMusicVolume();
+  if (a) a.volume = v;
+  const mv = $("#music-vol"); if (mv) mv.value = String(v);
+  const pct = $("#music-vol-pct"); if (pct) pct.textContent = Math.round(v * 100) + "%";
+  const mb = $("#music-mute");
+  if (mb) {
+    const m = !!(a && a.muted);
+    mb.classList.toggle("on", m);
+    mb.textContent = m ? "🔇" : "🔊";
+    mb.title = m ? "取消静音" : "静音";
+    mb.setAttribute("aria-pressed", m ? "true" : "false");
+  }
+}
+/* ---- 收藏(localStorage 持久化) ---- */
+function musicFavSet() {
+  try { const arr = JSON.parse(localStorage.getItem("linnas_music_favs") || "[]"); return new Set(Array.isArray(arr) ? arr : []); } catch (e) { return new Set(); }
+}
+function toggleMusicFav(path) {
+  const s = musicFavSet();
+  if (s.has(path)) s.delete(path); else s.add(path);
+  try { localStorage.setItem("linnas_music_favs", JSON.stringify([...s])); } catch (e) {}
+  renderMusicList();
+}
+/* ---- 睡眠定时(到点暂停播放) ---- */
+function setSleepTimer(min) {
+  musicState.sleepMin = min;
+  if (musicState.sleepTimer) { clearTimeout(musicState.sleepTimer); musicState.sleepTimer = null; }
+  if (min > 0) {
+    musicState.sleepTimer = setTimeout(() => {
+      const a = musicAudio(); if (a) a.pause();
+      setMusicPlaying(false);
+      musicState.sleepMin = 0; musicState.sleepTimer = null;
+      syncMusicToggles();
+      toast("睡眠定时:已暂停播放");
+    }, min * 60000);
+  }
+  syncMusicToggles();
+}
 
 /* 唱片旋转交给 CSS 动画(停播就移除 class,避免每帧改 DOM) */
 function startRotation() { const disc = $("#music-disc"); if (disc) disc.classList.add("spinning"); }
@@ -2631,6 +2682,7 @@ function setMusicPlaying(playing) {
   const btn = $("#music-play");
   if (btn) btn.innerHTML = svgIcon(playing ? "pause" : "play");
   if (playing) startRotation(); else stopRotation();
+  const eq = $("#music-eq"); if (eq) eq.classList.toggle("on", playing);
   const cur = $("#music-list li.playing .ml-idx");
   if (cur) cur.textContent = (playing && musicState.index >= 0) ? "♪" : String(musicState.index + 1);
   updateMiniPlayer();
@@ -2660,6 +2712,7 @@ function updateMiniPlayer() {
 async function loadMusic() {
   const ul = $("#music-list");
   if (ul) ul.innerHTML = '<li class="music-empty">加载中…</li>';
+  applyMusicVolume();
   try {
     const items = await api("/api/media?type=audio&sort=name&limit=500&offset=0");
     musicState.list = items || [];
@@ -2673,22 +2726,32 @@ function renderMusicList() {
   const ul = $("#music-list");
   if (!ul) return;
   const q = (musicState.filter || "").trim().toLowerCase();
-  const items = q ? musicState.list.filter((it) => it.name.toLowerCase().includes(q)) : musicState.list;
+  const favs = musicFavSet();
+  let items = q ? musicState.list.filter((it) => it.name.toLowerCase().includes(q)) : musicState.list;
+  if (musicState.favOnly) items = items.filter((it) => favs.has(it.path));
+  const favCount = musicState.list.filter((it) => favs.has(it.path)).length;
+  const fc = $("#music-fav-count"); if (fc) fc.textContent = favCount ? "(" + favCount + ")" : "";
   $("#music-count").textContent = musicState.list.length
-    ? (q ? items.length + " / " + musicState.list.length + " 首" : musicState.list.length + " 首") : "";
+    ? (q || musicState.favOnly ? items.length + " / " + musicState.list.length + " 首" : musicState.list.length + " 首") : "";
   ul.innerHTML = "";
   if (!items.length) {
-    ul.innerHTML = '<li class="music-empty">' + (musicState.list.length ? "没有匹配的歌名" : "暂无音乐文件(索引建好后才有)") + "</li>";
+    ul.innerHTML = '<li class="music-empty">' +
+      (musicState.favOnly ? "还没有收藏的歌曲（点列表右侧 ♥ 即可收藏）" : musicState.list.length ? "没有匹配的歌名" : "暂无音乐文件(索引建好后才有)") + "</li>";
     return;
   }
   items.forEach((it) => {
     const i = musicState.list.indexOf(it);
     const li = document.createElement("li");
     if (i === musicState.index) li.className = "playing";
-    li.innerHTML = '<span class="ml-idx"></span><span class="ml-main"><span class="ml-name"></span><span class="ml-sub"></span></span>';
+    li.innerHTML = '<span class="ml-idx"></span><span class="ml-main"><span class="ml-name"></span><span class="ml-sub"></span></span><span class="ml-ext"></span><span class="ml-fav" title="收藏 / 取消收藏">♥</span>';
     li.querySelector(".ml-idx").textContent = (i === musicState.index && musicState.playing) ? "♪" : String(i + 1);
     li.querySelector(".ml-name").textContent = it.name.replace(/\.[^.]+$/, "");
     li.querySelector(".ml-sub").textContent = fmtSize(it.size) + (it.modTime ? " · " + fmtTime(it.modTime) : "");
+    const ext = (it.name.match(/\.([^.]+)$/) || [, ""])[1].toUpperCase();
+    li.querySelector(".ml-ext").textContent = ext;
+    const favEl = li.querySelector(".ml-fav");
+    favEl.classList.toggle("on", favs.has(it.path));
+    favEl.onclick = (ev) => { ev.stopPropagation(); toggleMusicFav(it.path); };
     li.title = it.name;
     li.onclick = () => playMusic(i);
     ul.appendChild(li);
@@ -2707,10 +2770,7 @@ function initMusicTrack() {
   $("#music-artist").textContent = artist;
   a.src = apiUrl("/api/raw?vpath=" + enc(it.path));
   // 音量(记忆) + 上次播放位置(记忆,>3s 才续播)
-  let vol = 1;
-  try { const v = parseFloat(localStorage.getItem("linnas_music_vol") || ""); if (isFinite(v)) vol = Math.min(1, Math.max(0, v)); } catch (e) {}
-  a.volume = vol;
-  const mv = $("#music-vol"); if (mv) mv.value = String(vol);
+  applyMusicVolume();
   musicState.pendingPos = 0;
   try { const p = parseFloat(localStorage.getItem("linnas_mpos:" + it.path) || ""); if (isFinite(p) && p > 3) musicState.pendingPos = p; } catch (e) {}
   const seek = $("#music-seek");
@@ -2762,6 +2822,13 @@ function syncMusicToggles() {
     rp.title = "循环:" + (musicState.repeat === "one" ? "单曲循环" : musicState.repeat === "all" ? "列表循环" : "关");
     rp.textContent = musicState.repeat === "one" ? "⥂" : "⥁";
   }
+  const sl = $("#music-sleep");
+  if (sl) {
+    const on = musicState.sleepMin > 0;
+    sl.classList.toggle("on", on);
+    sl.setAttribute("aria-pressed", on ? "true" : "false");
+    sl.title = on ? "睡眠定时:" + musicState.sleepMin + " 分钟后暂停" : "睡眠定时:关";
+  }
 }
 function refreshMusicPos() {
   const a = musicAudio();
@@ -2778,7 +2845,7 @@ function refreshMusicPos() {
   } catch (e) {}
 }
 
-$("#btn-music").onclick = () => { showMusic(); loadMusic(); };
+$("#btn-music").onclick = () => { showMusic(); applyMusicVolume(); loadMusic(); };
 $("#music-play").onclick = toggleMusic;
 $("#music-prev").onclick = () => musicStep(-1);
 $("#music-next").onclick = () => musicStep(1);
@@ -2852,8 +2919,21 @@ window.addEventListener("beforeunload", () => stopRotation());
   if (vol) vol.oninput = () => {
     const a = musicAudio(); const v = parseFloat(vol.value);
     if (a) a.volume = isFinite(v) ? Math.min(1, Math.max(0, v)) : 1;
+    const pct = $("#music-vol-pct"); if (pct) pct.textContent = Math.round((isFinite(v) ? v : 1) * 100) + "%";
     try { localStorage.setItem("linnas_music_vol", String(isFinite(v) ? v : 1)); } catch (e) {}
   };
+  const mute = $("#music-mute");
+  if (mute) mute.onclick = () => { const a = musicAudio(); if (a) a.muted = !a.muted; applyMusicVolume(); };
+  const sleep = $("#music-sleep");
+  if (sleep) sleep.onclick = () => { const order = [0, 15, 30, 60]; const i = order.indexOf(musicState.sleepMin); setSleepTimer(order[(i + 1) % order.length]); };
+  document.querySelectorAll("#music-chips .music-chip").forEach((chip) => {
+    chip.onclick = () => {
+      musicState.favOnly = chip.dataset.fav === "1";
+      document.querySelectorAll("#music-chips .music-chip").forEach((c) => c.classList.toggle("on", c === chip));
+      renderMusicList();
+    };
+  });
+  applyMusicVolume();
   if (filter) filter.oninput = () => { musicState.filter = filter.value; renderMusicList(); };
   syncMusicToggles();
 
@@ -3912,7 +3992,10 @@ function renderDiskHealth() {
   const list = document.createElement("div"); list.className = "dh-list";
   for (const dk of disks) {
     const bad = (dk.healthStatus || "") !== "Healthy";
-    const row = document.createElement("div"); row.className = "dh-row" + (bad ? " warn" : "");
+    const row = document.createElement("div"); row.className = "dh-item" + (bad ? " warn" : "");
+
+    // 第一行:盘符 · 型号 · 介质 · 健康状态
+    const top = document.createElement("div"); top.className = "dh-row";
     const parts = [
       ["dh-drive", dk.drive || "—"],
       ["dh-model", dk.model || "未知型号"],
@@ -3920,11 +4003,30 @@ function renderDiskHealth() {
       ["dh-health", dk.healthStatus || "—"],
     ];
     parts.forEach(([cls, txt], i) => {
-      if (i) row.appendChild(ovEl("span", "dh-sep", "·"));
-      row.appendChild(ovEl("span", cls, txt));
+      if (i) top.appendChild(ovEl("span", "dh-sep", "·"));
+      top.appendChild(ovEl("span", cls, txt));
     });
-    const sz = Number(dk.sizeGB);
-    row.appendChild(ovEl("span", "dh-size", isFinite(sz) && sz > 0 ? Math.round(sz) + " GB" : "—"));
+    row.appendChild(top);
+
+    // 第二行:容量进度条 + 已用/可用/总量(与存储库卡片一致:绿条=剩余可用)
+    const totalGB = Number(dk.totalGB), freeGB = Number(dk.freeGB);
+    const hasCap = isFinite(totalGB) && totalGB > 0 && isFinite(freeGB) && freeGB >= 0;
+    if (hasCap) {
+      const freePct = Math.max(0, Math.min(100, Math.round((freeGB / totalGB) * 100)));
+      const usedPct = 100 - freePct;
+      const cap = document.createElement("div"); cap.className = "dh-cap";
+      const bar = document.createElement("div"); bar.className = "bar" + (freePct < 8 ? " hot" : "");
+      const fill = document.createElement("i"); fill.style.width = freePct + "%";
+      bar.appendChild(fill);
+      cap.appendChild(bar);
+      cap.appendChild(ovEl("span", "dh-cap-text",
+        `已用 ${usedPct}% · 可用 ${fmtSize(freeGB * 1073741824)} / ${fmtSize(totalGB * 1073741824)}`));
+      row.appendChild(cap);
+    } else {
+      const sz = Number(dk.sizeGB);
+      row.appendChild(ovEl("span", "dh-cap-text dh-cap-na",
+        isFinite(sz) && sz > 0 ? `物理磁盘 ${Math.round(sz)} GB` : "容量未知"));
+    }
     list.appendChild(row);
   }
   card.appendChild(list);

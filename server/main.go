@@ -3,6 +3,7 @@ package main
 import (
 	"embed"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net"
@@ -94,6 +95,26 @@ func main() {
 		}
 	}
 
+	// 双击 exe(无命令行参数)启动:隐藏控制台黑窗、自动打开浏览器;托架可用时
+	// 同时驻留托盘,方便随时「打开管理界面 / 退出」。从已有终端里启动则保留窗口。
+	// LINNAS_QUIET=1 可强制安静启动(给快捷方式 / 计划任务用)。
+	forceQuiet := false
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("LINNAS_QUIET"))) {
+	case "1", "true", "yes", "on":
+		forceQuiet = true
+	}
+	quietLaunch := false
+	if (len(args) == 0 && !launchedFromTerminal()) || forceQuiet {
+		hideConsoleWindow()
+		quietLaunch = true
+		if traySupported() {
+			trayMode = true
+			if len(args) == 0 {
+				openBrowser = true // 托盘模式默认不开浏览器,但双击启动仍要跳转网页
+			}
+		}
+	}
+
 	resolvedUIFS, uiSource, uiErr := resolveUIFS(uiDir)
 	if uiErr != nil {
 		log.Printf("Web UI 回退: %v", uiErr)
@@ -127,6 +148,14 @@ func main() {
 	cfg, err := LoadConfig(dataDir)
 	if err != nil {
 		log.Fatalf("读取配置失败: %v", err)
+	}
+
+	// 双击启动时控制台已隐藏,把日志同时写进 dataDir/linnas.log,便于排查。
+	if quietLaunch {
+		if lf, lerr := os.OpenFile(filepath.Join(dataDir, "linnas.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); lerr == nil {
+			log.SetOutput(io.MultiWriter(lf))
+			log.Printf("===== %s 启动 (pid %d) =====", Version, os.Getpid())
+		}
 	}
 
 	// 首次运行:自动注册存在的 H:\、I:\ 外置盘,省得手动添加
@@ -191,7 +220,7 @@ func main() {
 		}()
 	}
 	// mDNS 广播:手机端可直接发现本机,无需手输 IP。
-	if adv := startMDNS(cfg.Port, "linNas"); adv != nil {
+	if adv := startMDNS(cfg.Port, cfg.DisplayName()); adv != nil {
 		defer adv.Close()
 		log.Printf("mDNS 广播已启动: %s", mdnsServiceType)
 	}

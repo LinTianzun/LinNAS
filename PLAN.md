@@ -1,6 +1,6 @@
 # LinNAS — 本地云盘/NAS 方案与版本路线图
 
-> 当前组件版本（2026-11-27）：Windows 服务端 **1.8.0**；Android 客户端 **1.8.7**（`versionCode` 16）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
+> 当前组件版本（2026-11-27）：Windows 服务端 **1.8.1**；Android 客户端 **1.8.7**（`versionCode` 16）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
 
 > 下文保留早期技术决策与里程碑记录；历史版本号描述当时状态，不代表当前版本。
 
@@ -435,3 +435,15 @@
 - 验收记录（2026-11-27，本机 52700 真实数据）：用 `I:\NAS\.orgtest` 下 6 个 txt + 1 个 jpg 建规则「lib2 / 前缀 `.orgtest` / 扩展名 `.txt` → `归档`」，预览返回 6 条且与执行数一致（jpg 不在规则内，正确留原地）；执行后 6 个文件落到 `I:\NAS\归档\` 且 `/api/search` 立即返回新路径；撤销后 6 个文件与索引全部回原位；作业表记 6 移动 0 失败，撤销后整理作业不再提供「撤销」。测试数据、规则与作业日志已清理。
 
 **依赖与顺序**：批次 1 → 批次 2（复用 housekeeping 与后台任务骨架）→ 批次 3（抽取 worker 与批次 2 的限速/进度骨架同构）→ 批次 4（复用 `UpdatePaths` 与回收站/保险箱边界判断）。每批独立可发布、独立补测试与文档，全部完成后版本升 1.8.0（已完成：2026-11-27 服务端由 1.7.0 升到 **1.8.0**，`server/config.go` 的 `const Version`，并同步 README / PLAN / RELEASING / CHANGELOG）。
+
+### M17 界面与体验改进（2026-11-27，服务端 1.8.1）
+> 状态：已实现、测试并部署到本机 52700。用户反馈 8 项，逐项落地。
+- **磁盘健康容量**：`GET /api/disks/health` 在物理磁盘信息外追加 `Win32_LogicalDisk`（DriveType=3）卷容量，条目新增 `totalGB` / `freeGB`（`attachVolumes` 按盘符大小写不敏感映射，1<<30 取整），修复同一 6TB 物理盘上 H:/I: 都显示 5589 GB 的问题；UI 磁盘健康卡改为「型号 · 介质 · 健康」+ 容量进度条（可用占比）+「已用 X% · 可用 A / B」。
+- **双击启动**：无命令行参数且非从已有终端启动（或 `LINNAS_QUIET=1`）时，隐藏控制台窗口、自动打开浏览器并驻留托盘；日志改写入 `<DataDir>/linnas.log`（UTF-8）；`launchedFromTerminal()`（`GetConsoleProcessList`）避免把用户终端一起隐藏；mDNS 实例名改用 `cfg.DisplayName()`。
+- **图片上一张 / 下一张**：`buildPlaylist` 图片单独成组（`kind==="image"`），左右按钮与 `ArrowLeft/ArrowRight` 在同组图片间切换；非视频隐藏倍速与画中画。
+- **音乐音量记忆**：`linnas_music_vol` 存本机，`applyMusicVolume()` 统一应用到音频元素、滑块与百分比，进入播放器即恢复。
+- **音乐播放器增强**：均衡器律动（7 条，播放时 `.on`）、睡眠定时（0/15/30/60 分钟，到点暂停）、静音、收藏筛选（`linnas_music_favs`）、列表扩展名徽标。
+- **服务器自定义名称**：`Config.ServerName`（`serverName`）+ `Config.DisplayName()`（空回退 LinNAS）；`/api/health` 返回 `name`，`/api/settings` 可读写（trim + 40 字上限，仅管理员）；UI 应用到标题、品牌、锁屏与扫码说明。
+- **移除总览「规划中」占位卡**（M14–M16 功能均已交付）。
+- **侧边栏选中态**：`.lib-item.active` 改用左侧 3px 竖条（`::before`），不再被圆角挤压。
+- **验证**：`go test ./...` / `go vet` / `go build` 全绿；`node --check app.js` 通过；隔离实例（独立 DataDir 与端口）实测磁盘健康容量、服务器改名、图片上一张/下一张与左右键、音乐音量恢复 35%、设置页服务器名称保存、总览无占位卡、侧栏选中竖条；`LINNAS_QUIET=1` 启动验证控制台隐藏且写入 `linnas.log`；已构建并部署到本机 52700。

@@ -4,7 +4,8 @@
 
 ## 进行中
 
-- M16 两个批次均已完成并发布：批次 3（正文索引与内容搜索）与批次 4（自动整理规则）均已实现、测试、端到端验证并部署到本机 52700；服务端版本已由 1.7.0 升至 **1.8.0**（`server/config.go` 的 `const Version`，同步 README / PLAN / RELEASING / CHANGELOG），已重新构建并部署到本机 52700。
+- M16 两个批次（正文索引与内容搜索、自动整理规则）均已交付，服务端已升至 **1.8.0** 并部署到本机 52700。
+- 2026-11-27 服务端 **1.8.1**（M17 界面与体验改进）：按用户 8 项反馈完成磁盘健康容量进度条与按卷容量、双击 exe 静默启动、图片上一张/下一张、音乐音量记忆与播放器增强、服务器自定义名称、移除总览「规划中」占位卡、侧栏选中态竖条；已测试、构建并部署到本机 52700，待提交推送。
 
 ## 下一步（待办）
 
@@ -18,6 +19,8 @@
 - APK 为 debug 签名，不是生产签名包。
 
 ## 最近完成
+
+- 2026-11-27 服务端 **1.8.1（M17）体验改进**：`GET /api/disks/health` 增加 `totalGB` / `freeGB`（卷容量）与 UI 容量进度条；双击 exe 静默启动（隐藏控制台、自动开浏览器、托盘、`LINNAS_QUIET=1`、日志 `linnas.log`）；图片预览上一张/下一张与方向键；音乐音量记忆 + 均衡器/睡眠/静音/收藏；服务器自定义名称（`serverName`，作用于标题/品牌/扫码）；移除总览「规划中」占位卡；侧栏选中竖条。`go test/vet/build` 全绿，已重建部署 52700。## 最近完成
 
 - 2026-11-27 服务端 **1.8.0 发布**：M16（内容搜索 + 自动整理）全部交付后，把 `server/config.go` 的 `const Version` 从 1.7.0 升到 1.8.0，并同步 README / PLAN / RELEASING / CHANGELOG / ARCHITECTURE / DEVELOPMENT_STATUS / TASK_HISTORY；重新构建 `linNas-server.exe` 并部署到本机 52700（启动信息与 `/api/health` 返回 1.8.0）。
 - 2026-11-27 服务端 1.7.0：自动整理（批次 4）——新增 `server/organize.go` 与 `server/organize_test.go`；规则模型 `organizeRule{match{matchPathPrefix,exts,nameContains,kind,minSizeMB,maxSizeMB,olderThanDays}, action{moveTo,groupBy}}` 存 `organize.json`，`GET/POST/PUT/DELETE /api/organize/rules`；`POST /api/organize/preview` 只读预览、`/run` 单飞执行（`os.Rename`、同名加序号、跨库/只读/保险箱/回收站/排除跳过、上限 5000、`journal-<jobID>.jsonl`、完成后 `Index.UpdatePaths`）、`/undo` 倒序回搬、`/jobs` 最近 50 条、`/cancel`；全部接口 admin only，不删除文件。UI 存储空间页新增「自动整理」页签（规则列表 / 编辑对话框 / 预览前 50 条 / 执行确认 / 进度 / 作业历史与撤销）。真实环境端到端验收通过（6 文件预览=执行、索引即时可见、撤销完全回原位）。已构建并部署到本机 52700。

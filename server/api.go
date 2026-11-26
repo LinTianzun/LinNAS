@@ -388,7 +388,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{
 		"ok":      true,
 		"version": Version,
-		"name":    "linNas",
+		"name":    s.cfg.DisplayName(),
 	})
 }
 

@@ -1,9 +1,12 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Version of linNas server.
-const Version = "1.8.0"
+const Version = "1.8.1"
 
 // DefaultPort is the port linNas listens on by default.
 const DefaultPort = 52700
@@ -32,6 +35,16 @@ type Config struct {
 	SpaceCriticalPercent int `json:"spaceCriticalPercent"`
 	// WolHosts 记住的 Wake-on-LAN 主机列表。
 	WolHosts []WolHost `json:"wolHosts,omitempty"`
+	// ServerName 用户自定义的服务器显示名(如「客厅NAS」),空 = 默认 "LinNAS"。
+	ServerName string `json:"serverName,omitempty"`
+}
+
+// DisplayName 返回用于界面展示的服务器名(未设置则回退 "LinNAS")。
+func (c Config) DisplayName() string {
+	if n := strings.TrimSpace(c.ServerName); n != "" {
+		return n
+	}
+	return "LinNAS"
 }
 
 // 默认值(0 表示用户显式关闭,与「未设置」区分)。

@@ -142,11 +142,18 @@ body {
   width: 100%; padding: 9px 10px;
   background: none; border: 0; border-radius: var(--radius-sm);
   color: var(--text); font: inherit; font-size: 14px; text-align: left;
-  cursor: pointer;
-  transition: background .15s var(--ease-out), transform .15s var(--ease-out), box-shadow .15s var(--ease-out);
+  cursor: pointer; position: relative;
+  transition: background .15s var(--ease-out), box-shadow .15s var(--ease-out);
 }
-.lib-item:hover { background: var(--panel); transform: translateX(2px); }
-.lib-item.active { background: var(--panel-2); box-shadow: inset 3px 0 0 var(--accent); }
+.lib-item:hover { background: var(--panel); }
+.lib-item.active { background: var(--panel-2); }
+.lib-item.active::before {
+  content: ""; position: absolute; left: 3px; top: 50%;
+  transform: translateY(-50%);
+  width: 3px; height: 18px; border-radius: 99px;
+  background: var(--accent);
+  box-shadow: 0 0 8px rgba(232,163,61,.45);
+}
 .lib-item .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex-shrink: 0; opacity: .9; transition: transform .2s var(--ease-out); }
 .lib-item:hover .dot { transform: scale(1.35); }
 .lib-item.active .dot { box-shadow: 0 0 8px rgba(232,163,61,.6); }
@@ -947,6 +954,30 @@ dialog.wide { width: min(94vw, 600px); }
 .music-empty { color: var(--muted); font-size: 13px; padding: 20px 4px; text-align: center; }
 .music-volume { display: flex; align-items: center; gap: 9px; width: 100%; margin-top: 2px; color: var(--faint); }
 .music-volume svg { width: 14px; height: 14px; flex: 0 0 auto; }
+.music-vol-pct { font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; min-width: 34px; text-align: right; }
+.mc-btn.mc-mini { width: 30px; height: 30px; font-size: 13px; }
+/* 播放时的均衡器律动(装饰) */
+.music-eq { display: flex; align-items: flex-end; justify-content: center; gap: 3px; height: 16px; margin-top: 9px; opacity: .3; transition: opacity .25s var(--ease-out); }
+.music-eq.on { opacity: 1; }
+.music-eq i { width: 3px; height: 4px; border-radius: 2px; background: linear-gradient(180deg, var(--accent-hi), var(--accent)); transform-origin: bottom; }
+.music-eq.on i { animation: eq-bounce .9s ease-in-out infinite; }
+.music-eq.on i:nth-child(2) { animation-delay: .12s; }
+.music-eq.on i:nth-child(3) { animation-delay: .24s; }
+.music-eq.on i:nth-child(4) { animation-delay: .36s; }
+.music-eq.on i:nth-child(5) { animation-delay: .18s; }
+.music-eq.on i:nth-child(6) { animation-delay: .30s; }
+.music-eq.on i:nth-child(7) { animation-delay: .06s; }
+@keyframes eq-bounce { 0%, 100% { height: 4px; } 50% { height: 16px; } }
+/* 收藏 / 筛选 chips / 格式徽标 */
+.music-chips { display: flex; gap: 6px; margin-bottom: 8px; }
+.music-chip { font: inherit; font-size: 11.5px; color: var(--muted); background: var(--bg-soft); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; cursor: pointer; transition: color .15s, background .15s, border-color .15s; }
+.music-chip:hover { color: var(--text); border-color: var(--faint); }
+.music-chip.on { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+.music-list .ml-ext { font-size: 9.5px; font-weight: 600; letter-spacing: .04em; color: var(--faint); background: var(--bg-soft); border: 1px solid var(--line-soft); border-radius: 4px; padding: 1px 4px; flex: 0 0 auto; }
+.music-list .ml-fav { flex: 0 0 auto; width: 22px; text-align: center; color: var(--faint); font-size: 13px; opacity: 0; transition: opacity .15s, color .15s, transform .15s; cursor: pointer; }
+.music-list li:hover .ml-fav { opacity: 1; }
+.music-list .ml-fav.on { opacity: 1; color: #e8637a; }
+.music-list .ml-fav:hover { transform: scale(1.18); }
 #music-vol { flex: 1 1 auto; -webkit-appearance: none; appearance: none; height: 4px; border-radius: 3px; background: var(--line); outline: none; cursor: pointer; }
 #music-vol::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 11px; height: 11px; border-radius: 50%; background: var(--muted); cursor: pointer; }
 #music-vol::-moz-range-thumb { width: 11px; height: 11px; border-radius: 50%; background: var(--muted); cursor: pointer; }
@@ -1329,20 +1360,32 @@ dialog.wide { width: min(94vw, 600px); }
 .dh-card.warn .dh-h::before { background: var(--err); }
 .dh-at { font-size: 11px; color: var(--faint); font-family: var(--font-mono); }
 .dh-list { display: flex; flex-direction: column; gap: 2px; }
+.dh-item { display: flex; flex-direction: column; gap: 5px; padding: 7px 0; min-width: 0; }
+.dh-item + .dh-item { border-top: 1px solid var(--line-soft); }
 .dh-row {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  padding: 5px 0; font-size: 12.5px; color: var(--muted);
+  font-size: 12.5px; color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
-.dh-row + .dh-row { border-top: 1px solid var(--line-soft); }
 .dh-drive { font-family: var(--font-mono); font-weight: 600; color: var(--accent); }
 .dh-model { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .dh-media, .dh-health { color: var(--muted); }
 .dh-sep { color: var(--faint); }
 .dh-size { margin-left: auto; color: var(--muted); font-family: var(--font-mono); }
-.dh-row.warn { color: var(--err); }
-.dh-row.warn .dh-drive, .dh-row.warn .dh-health { color: var(--err); }
-.dh-row.warn .dh-model { color: var(--text); }
+.dh-cap { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.dh-cap .bar { flex: 1 1 auto; height: 7px; background: var(--track, #1d231f); border-radius: 99px; overflow: hidden; box-shadow: inset 0 1px 2px rgba(0,0,0,.4); }
+.dh-cap .bar > i {
+  display: block; height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-hi));
+  border-radius: 99px; position: relative; transition: width .35s var(--ease-out);
+}
+.dh-cap .bar > i::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(255,255,255,.25), transparent 55%); border-radius: inherit; }
+.dh-cap .bar.hot > i { background: linear-gradient(90deg, var(--err), #eb7a6b); }
+.dh-cap-text { font-size: 11.5px; color: var(--muted); font-family: var(--font-mono); white-space: nowrap; }
+.dh-cap-na { color: var(--faint); }
+.dh-item.warn .dh-drive, .dh-item.warn .dh-health { color: var(--err); }
+.dh-item.warn .dh-model { color: var(--text); }
+.dh-item.warn .dh-cap .bar > i { background: linear-gradient(90deg, var(--err), #eb7a6b); }
 
 /* ============================================================ 磁盘健康:存储库筛选(批次 2) */
 .dh-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

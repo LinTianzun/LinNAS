@@ -114,11 +114,6 @@
           <div class="ov-card-head"><span data-icon="list" class="ov-c-ic"></span><h3>近期活动</h3></div>
           <div class="ov-card-body" id="ov-activity-body"></div>
         </section>
-
-        <section class="ov-card ov-roadmap" id="ov-roadmap">
-          <div class="ov-card-head"><span data-icon="check-square" class="ov-c-ic"></span><h3>规划中</h3></div>
-          <div class="ov-card-body" id="ov-roadmap-body"></div>
-        </section>
       </div>
     </section>
 
@@ -259,6 +254,7 @@
           <div class="music-info">
             <div class="music-title" id="music-title">未选择歌曲</div>
             <div class="music-artist" id="music-artist">在右侧列表中选择一首开始播放</div>
+            <div class="music-eq" id="music-eq" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
           </div>
           <div class="music-progress">
             <span class="music-time" id="music-cur">0:00</span>
@@ -271,10 +267,12 @@
             <button class="mc-btn mc-primary" id="music-play" title="播放 / 暂停">▶</button>
             <button class="mc-btn" id="music-next" title="下一首">⏭</button>
             <button class="mc-btn mc-sq" id="music-repeat" title="循环:关" aria-pressed="false">⥁</button>
+            <button class="mc-btn mc-sq" id="music-sleep" title="睡眠定时:关" aria-pressed="false">🌙</button>
           </div>
           <div class="music-volume">
-            <span data-icon="music"></span>
+            <button class="mc-btn mc-sq mc-mini" id="music-mute" title="静音" aria-pressed="false">🔊</button>
             <input type="range" id="music-vol" min="0" max="1" step="0.01" value="1" aria-label="音量">
+            <span class="music-vol-pct" id="music-vol-pct">100%</span>
           </div>
           <audio id="music-audio" preload="metadata"></audio>
         </div>
@@ -283,6 +281,10 @@
           <div class="music-search">
             <span data-icon="search"></span>
             <input id="music-filter" type="search" placeholder="筛选歌名…" autocomplete="off">
+          </div>
+          <div class="music-chips" id="music-chips">
+            <button class="music-chip on" data-fav="0" id="music-chip-all">全部</button>
+            <button class="music-chip" data-fav="1" id="music-chip-fav">♥ 收藏 <span id="music-fav-count"></span></button>
           </div>
           <ul class="music-list" id="music-list"></ul>
         </div>

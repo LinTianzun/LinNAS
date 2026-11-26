@@ -325,3 +325,47 @@ func TestHandleDisksHealthDefaultScope(t *testing.T) {
 		t.Errorf("无库应带 note")
 	}
 }
+
+// TestAttachVolumes 卷容量按盘符补入磁盘列表(大小写不敏感、缺失保持 0)。
+func TestAttachVolumes(t *testing.T) {
+	entries := []diskHealthEntry{
+		{Drive: "H:", Model: "ST6000", SizeGB: 5589},
+		{Drive: "I:", Model: "ST6000", SizeGB: 5589},
+		{Drive: "Z:", Model: "unknown", SizeGB: 0},
+	}
+	vols := []byte(`[
+		{"DeviceID":"H:","Size":3298744594432,"FreeSpace":1953330569216},
+		{"DeviceID":"i:","Size":2702413131776,"FreeSpace":1733788123136}
+	]`)
+	got := attachVolumes(entries, vols)
+	if len(got) != 3 {
+		t.Fatalf("应保持 3 条,得到 %d", len(got))
+	}
+	if got[0].TotalGB != 3072 || got[0].FreeGB != 1819 {
+		t.Errorf("H: 卷容量不正确: total=%d free=%d", got[0].TotalGB, got[0].FreeGB)
+	}
+	if got[1].TotalGB != 2516 || got[1].FreeGB != 1614 {
+		t.Errorf("I: 卷容量不正确(大小写不敏感应匹配): total=%d free=%d", got[1].TotalGB, got[1].FreeGB)
+	}
+	if got[2].TotalGB != 0 || got[2].FreeGB != 0 {
+		t.Errorf("Z: 无对应卷应保持 0,得到 total=%d free=%d", got[2].TotalGB, got[2].FreeGB)
+	}
+	// 原始切片不应被修改。
+	if entries[0].TotalGB != 0 || entries[1].TotalGB != 0 {
+		t.Errorf("attachVolumes 不应修改入参切片")
+	}
+	// 非法 JSON 原样返回。
+	if out := attachVolumes(entries, []byte(`{bad`)); len(out) != 3 || out[0].TotalGB != 0 {
+		t.Errorf("非法卷 JSON 应原样返回")
+	}
+}
+
+// TestAttachVolumesSingleObject 单对象形式(Win32_LogicalDisk 只返回一个卷时)。
+func TestAttachVolumesSingleObject(t *testing.T) {
+	entries := []diskHealthEntry{{Drive: "E:"}}
+	vols := []byte(`{"DeviceID":"E:","Size":215822102528,"FreeSpace":123001905152}`)
+	got := attachVolumes(entries, vols)
+	if len(got) != 1 || got[0].TotalGB != 200 || got[0].FreeGB != 114 {
+		t.Fatalf("单对象卷容量不正确: %#v", got)
+	}
+}

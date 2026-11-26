@@ -28,7 +28,9 @@ type diskHealthEntry struct {
 	MediaType         string `json:"mediaType"`         // SSD / HDD / Unspecified
 	HealthStatus      string `json:"healthStatus"`      // Healthy / Warning / Unhealthy
 	OperationalStatus string `json:"operationalStatus"` // OK / Degraded / ...
-	SizeGB            int64  `json:"sizeGB"`
+	SizeGB            int64  `json:"sizeGB"`            // 物理磁盘总容量(GB)
+	TotalGB           int64  `json:"totalGB"`           // 该盘符对应卷的总容量(GB),来自 Win32_LogicalDisk
+	FreeGB            int64  `json:"freeGB"`            // 该卷的可用容量(GB)
 }
 
 // diskHealthResp 是 GET /api/disks/health 的响应。
@@ -53,6 +55,9 @@ const (
 		`Get-PhysicalDisk | Select-Object DeviceId,FriendlyName,MediaType,HealthStatus,OperationalStatus,Size | ConvertTo-Json -Compress`
 	psDiskPartitionScript = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ` +
 		`Get-Partition | Where-Object { $_.DriveLetter } | Select-Object DriveLetter,DiskNumber | ConvertTo-Json -Compress`
+	// 按盘符读取卷的总容量与可用容量(逻辑卷,而非物理磁盘),用于进度条与用量展示。
+	psDiskVolumeScript = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ` +
+		`Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' | Select-Object DeviceID,Size,FreeSpace | ConvertTo-Json -Compress`
 )
 
 // diskHealthCache 缓存最近一次采集结果(受 mu 保护,后台采集、HTTP 读)。
@@ -260,6 +265,10 @@ func collectDiskHealth() diskHealthResp {
 		resp.Reason = "未读取到带盘符的物理磁盘"
 		return resp
 	}
+	// 卷容量(总量/可用)用于进度条;读取失败不影响磁盘健康本身,只是容量留空。
+	if volsJSON, verr := runPowershellJSON(psDiskVolumeScript); verr == nil {
+		entries = attachVolumes(entries, volsJSON)
+	}
 	resp.Supported = true
 	resp.Disks = entries
 	return resp
@@ -357,6 +366,43 @@ func parseDiskHealth(disksJSON, partsJSON []byte) ([]diskHealthEntry, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Drive < out[j].Drive })
 	return out, nil
+}
+
+// psVolume 是 Get-CimInstance Win32_LogicalDisk 序列化出来的一行(按盘符给出卷容量)。
+type psVolume struct {
+	DeviceID  json.RawMessage `json:"DeviceID"`
+	Size      json.RawMessage `json:"Size"`
+	FreeSpace json.RawMessage `json:"FreeSpace"`
+}
+
+// attachVolumes 把卷的总容量/可用容量(GB)按盘符补进磁盘列表(大小写不敏感)。
+// 找不到对应卷或字段缺失时保持 0,UI 会显示为「—」。返回新的切片。
+func attachVolumes(entries []diskHealthEntry, volsJSON []byte) []diskHealthEntry {
+	vols, err := decodeJSONList[psVolume](volsJSON)
+	if err != nil || len(vols) == 0 {
+		return entries
+	}
+	type volInfo struct{ totalGB, freeGB int64 }
+	byDrive := make(map[string]volInfo, len(vols))
+	for _, v := range vols {
+		letter := psDriveLetter(v.DeviceID)
+		if letter == "" {
+			continue
+		}
+		byDrive[letter+":"] = volInfo{
+			totalGB: psInt64(v.Size) / (1 << 30),
+			freeGB:  psInt64(v.FreeSpace) / (1 << 30),
+		}
+	}
+	out := make([]diskHealthEntry, len(entries))
+	copy(out, entries)
+	for i := range out {
+		if v, ok := byDrive[strings.ToUpper(strings.TrimSpace(out[i].Drive))]; ok {
+			out[i].TotalGB = v.totalGB
+			out[i].FreeGB = v.freeGB
+		}
+	}
+	return out
 }
 
 // decodeJSONList 兼容 PowerShell 的两种输出:单个对象或对象数组;空输出视为空列表。
