@@ -260,7 +260,10 @@
 - **文件夹 Zip 打包下载**：`GET /api/zip?vpaths=a,b&name=x.zip` 服务端 `archive/zip` 流式打包（媒体/压缩包按存储直出，其余压缩），跳过保险箱/回收站/排除目录/`.part`；浏览页工具栏与多选栏新增「打包下载」。
 - **网络唤醒（Wake-on-LAN）**：`GET/POST/DELETE /api/wol` 管理主机（名称+MAC），`POST /api/wol/send` 发送 102 字节 magic packet（默认 `255.255.255.255:9`）；设置页新增「网络唤醒」分组。
 - **在线音乐播放器**：Web UI「音乐」视图，渐变背景 + 旋转唱片 + 自绘进度条 + 播放列表，支持上一/下一、自动连播、拖动进度、当前曲高亮。
-- **测试**：新增索引增量、登录防爆破/会话、维护清理、Zip、WoL 单元测试；`go vet`/`go test`/竞态检测全绿。
+- **索引定时自动对账**：配置项 `indexRefreshSeconds`（默认 120 秒，0 关闭）驱动 `Index.ReconcileAll` 周期对账，发现资源管理器等外部移动/删除/重命名；启动后延迟 30 秒首次执行，全量扫描进行中自动跳过。
+- **存储空间分析**：`GET /api/storage/summary`、`GET /api/storage/large` 与重复文件 `GET /api/storage/duplicates`、`POST /api/storage/duplicates/scan`——库占用概览、大文件 Top N、重复文件候选（按大小分组 + 抽样 SHA-256，后台异步单飞、结果缓存）；删除复用 `POST /api/delete` 移入回收站，必须人工确认。
+- **媒体库排除（不在媒体库展示）**：`POST /api/libs/media-hide` 增删路径，`Library.MediaHide` 记录相对库根、正斜杠的路径；这些路径仍索引、仍可在文件浏览/搜索访问，只是不出现在媒体库（视频/图片/音乐）。
+- **测试**：新增索引增量、登录防爆破/会话、维护清理、Zip、WoL、存储空间分析、媒体库排除单元测试；`go vet`/`go test`/竞态检测全绿。
 
 ### M12 Android 端对齐服务端 v1.7.0（2026-11-26，Android v1.7.0）
 - **活跃会话管理**：新增「活跃会话」页，列出在线会话（账号、角色、当前会话标记、ID 前缀、IP、最近活动），可吊销指定会话（非管理员仅限本人）；顶栏「改密码」修改本人登录密码（至少 4 位）。
