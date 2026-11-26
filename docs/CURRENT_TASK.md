@@ -4,14 +4,12 @@
 
 ## 进行中
 
-- **文档补全**：依据代码与现有文档补齐 `AGENTS.md`、`CHANGELOG.md`、`docs/ARCHITECTURE.md`、`docs/DEVELOPMENT_STATUS.md`、`docs/TASK_HISTORY.md`、`docs/CURRENT_TASK.md`，并删除拼写错误的 `RELEGSING.md`。（本次）
-- **待提交**：`README.md` 的未提交修改 + 上述新增 / 修改文档，等待人工复核后提交。
+- （当前无进行中的代码或文档任务。）
 
 ## 下一步（待办）
 
-1. 人工复核本次文档内容与措辞。
-2. 走查 [ANDROID_TESTING.md](../ANDROID_TESTING.md) 清单，在 Android 7 / 14 真机 + 真实服务端完成 M10 发布验收并记录结果。
-3. 按 [RELEASING.md](../RELEASING.md) 流程发布（若递增版本号，同步更新 `server/config.go` / `android/app/build.gradle.kts` 与 README、PLAN）。
+1. 走查 [ANDROID_TESTING.md](../ANDROID_TESTING.md) 清单，在 Android 7 / 14 真机 + 真实服务端完成 M10 发布验收并记录结果。
+2. 按 [RELEASING.md](../RELEASING.md) 流程发布（若递增版本号，同步更新 `server/config.go` / `android/app/build.gradle.kts` 与 README、PLAN、CHANGELOG）。
 
 ## 阻塞 / 风险
 
@@ -20,6 +18,7 @@
 
 ## 最近完成
 
+- 文档补全与对齐：commit `f72a517`、`faefea0`，已推送 GitHub `origin/main`。
 - M13：Android v1.8.0 体验升级（传输中心 / 多选批量 / 生物识别 / 版本检查 / 播放器重做 / 媒体分组 / 视觉打磨）。
 - M12：Android v1.7.0 对齐服务端 v1.7.0。
 - M11：服务端 v1.7.0（索引增量 + 对账、安全加固、多媒体增强、存储分析、媒体库排除）。

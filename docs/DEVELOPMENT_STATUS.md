@@ -23,10 +23,11 @@
 - Android：`:app:testDebugUnitTest` 通过（当前 11 个单测，含 `FileFiltersTest`）；`:app:assembleDebug` BUILD SUCCESSFUL（镜像 Gradle 8.7 + JDK 21）。
 - CI：`.github/workflows/ci.yml` 三个任务 —— `go-windows`（测试 / vet / 构建 + Android 单测与 debug 构建并上传产物）、`go-race`（竞态检测）、`android-emulator`（API 34 模拟器跑 `connectedDebugAndroidTest`）。
 
-## 进行中 / 最近改动
+## 最近改动
 
-- `README.md` 有一处未提交修改：补充「存储空间分析 / 媒体库排除 / 索引定时自动对账」等特性与状态描述。
-- 本次新增并填充文档：`AGENTS.md`、`CHANGELOG.md`、`docs/ARCHITECTURE.md`、`docs/DEVELOPMENT_STATUS.md`、`docs/TASK_HISTORY.md`、`docs/CURRENT_TASK.md`（并删除了拼写错误的 `RELEGSING.md`）。
+- 已完成文档补全并对齐，提交并推送到 GitHub `origin/main`：
+  - `f72a517` 新增 `AGENTS.md`、`CHANGELOG.md`、`docs/{ARCHITECTURE,DEVELOPMENT_STATUS,TASK_HISTORY,CURRENT_TASK}.md`，README 补充存储空间分析 / 媒体库排除 / 自动对账（并删除拼写错误的 `RELEGSING.md`）。
+  - `faefea0` 对齐 `README.md`、`android/README.md`、`server/README.md`、`docs/FEATURE_ROADMAP.md` 的版本与功能描述。
 
 ## 风险 / 已知限制
 
