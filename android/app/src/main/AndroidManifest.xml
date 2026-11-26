@@ -95,6 +95,11 @@
             android:name=".VersionCheckActivity"
             android:exported="false"
             android:configChanges="orientation|screenSize|keyboardHidden" />
+        <activity
+            android:name=".ImageActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:theme="@style/Theme.LinNas" />
         <!-- M3 内置播放器页;P1 支持画中画 -->
         <activity
             android:name=".PlayerActivity"

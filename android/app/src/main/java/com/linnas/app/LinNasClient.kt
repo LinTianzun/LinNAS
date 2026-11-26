@@ -22,6 +22,10 @@ object Prefs {
     private const val KEY_SESS_BASE = "sess_base_url"
     private const val KEY_AUTO_LOGIN = "auto_login"
 
+    // 指纹登录用的加密凭据键（存于 BiometricGate 的 linnas_secure，不明文落盘）。
+    private const val KEY_BIO_USER = "bio_user"
+    private const val KEY_BIO_PASS = "bio_pass"
+
     private lateinit var sp: android.content.SharedPreferences
     private var appCtx: Context? = null
 
@@ -142,6 +146,56 @@ object Prefs {
             .remove("session_role")
             .remove(KEY_AUTO_LOGIN)
             .apply()
+    }
+
+    // ---------- 退出登录后仍保留的「身份」与「指纹凭据」 ----------
+
+    /** 记住身份（明文，与现有 sess_* 语义一致）：退出登录后仍保留，供登录页展示与指纹登录使用。 */
+    fun saveIdentity(user: String, baseUrl: String) {
+        sp.edit()
+            .putString(KEY_SESS_USER, user)
+            .putString(KEY_SESS_BASE, baseUrl)
+            .apply()
+    }
+
+    /**
+     * 只清除会话 token（加密存储 + 内存激活态），不动 sess_user/sess_role/sess_base_url/auto_login，
+     * 也不动指纹凭据。退出登录后因此仍能凭指纹用保存的账号密码重新换取新 token。
+     */
+    fun clearSessionToken() {
+        activeSessionToken = null
+        appCtx?.let { BiometricGate.clearSecret(it, KEY_SESS_TOKEN) }
+        sp.edit().remove(KEY_SESS_TOKEN).apply()
+    }
+
+    /** 加密保存用于指纹登录的账号密码（best effort，任一失败返回 false）。 */
+    fun saveBioCredentials(ctx: Context, user: String, pass: String): Boolean {
+        val okUser = BiometricGate.saveSecret(ctx, KEY_BIO_USER, user)
+        val okPass = BiometricGate.saveSecret(ctx, KEY_BIO_PASS, pass)
+        return okUser && okPass
+    }
+
+    /** 已保存的指纹登录用户名（加密读取，仅用于展示；没有则 null）。 */
+    fun bioUser(): String? =
+        appCtx?.let { BiometricGate.loadSecret(it, KEY_BIO_USER) }?.takeIf { it.isNotBlank() }
+
+    /** 是否已保存可用于指纹重登的账号密码。 */
+    fun hasBioCredentials(ctx: Context): Boolean =
+        !BiometricGate.loadSecret(ctx, KEY_BIO_USER).isNullOrBlank() &&
+            !BiometricGate.loadSecret(ctx, KEY_BIO_PASS).isNullOrBlank()
+
+    /** 读取加密保存的账号密码；任一为空返回 null。 */
+    fun loadBioCredentials(ctx: Context): Pair<String, String>? {
+        val u = BiometricGate.loadSecret(ctx, KEY_BIO_USER)
+        val p = BiometricGate.loadSecret(ctx, KEY_BIO_PASS)
+        if (u.isNullOrBlank() || p.isNullOrBlank()) return null
+        return u to p
+    }
+
+    /** 清除指纹登录凭据（密码失效 / 用户关闭指纹时调用）。 */
+    fun clearBioCredentials(ctx: Context) {
+        BiometricGate.clearSecret(ctx, KEY_BIO_USER)
+        BiometricGate.clearSecret(ctx, KEY_BIO_PASS)
     }
 }
 
@@ -509,19 +563,19 @@ class LinNasClient {
         )
     }
 
-    /** POST /api/auth/logout;成功后清空本地会话（含加密保存的指纹会话）。 */
+    /**
+     * POST /api/auth/logout;只退出「本次会话」，不抹身份与指纹凭据。
+     *
+     * 旧实现 finally 里 Prefs.clearSession()+clearSessionMeta() 会把 sess_user/sess_base_url
+     * 与加密凭据一并清掉，导致退出登录后指纹按钮还在、点开却报「还没有保存登录信息」。
+     * 现在只清 token（clearSessionToken），保留身份与 bio 凭据，供指纹重登换新 token。
+     */
     fun logout() {
         val st = ServerConfig.sessionToken
-        if (st.isNotBlank()) {
-            try {
-                post("/api/auth/logout", "{}")
-            } finally {
-                Prefs.clearSession()
-                Prefs.clearSessionMeta()
-            }
-        } else {
-            Prefs.clearSession()
-            Prefs.clearSessionMeta()
+        try {
+            if (st.isNotBlank()) post("/api/auth/logout", "{}")
+        } finally {
+            Prefs.clearSessionToken()
         }
     }
 

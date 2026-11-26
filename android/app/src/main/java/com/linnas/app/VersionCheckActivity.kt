@@ -1,5 +1,6 @@
 package com.linnas.app
 
+import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -60,11 +61,30 @@ class VersionCheckActivity : ScreenScaffold() {
         }
     }
 
+    /**
+     * 安装器返回后的回调:RESULT_OK 表示系统已接受安装,顺手清掉缓存里的更新包,
+     * 避免 linnas-update*.apk 越堆越多,也避免旧包被安装器/包管理器再次复用。
+     */
+    private val installResultLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            cleanCachedUpdateApks()
+        }
+    }
+
     private data class ServerVer(
         val code: Long,
         val name: String,
         val url: String,
         val notes: String,
+    )
+
+    /** 从 APK 包内读到的真实标识与版本(用于安装前核对,防止装到旧版本包)。 */
+    private data class ApkInfo(
+        val packageName: String,
+        val versionName: String,
+        val versionCode: Long,
     )
 
     override fun title() = "版本检查"
@@ -143,13 +163,13 @@ class VersionCheckActivity : ScreenScaffold() {
         lifecycleScope.launch {
             val speed = SpeedMeter()
             try {
-                val file = withContext(Dispatchers.IO) { downloadApk(ver.url, speed) { p, total ->
+                val file = withContext(Dispatchers.IO) { downloadApk(ver, speed) { p, total ->
                     status.text = if (total > 0)
                         "已下载 $p% · ${SpeedMeter.format(speed.latest())}"
                     else "已下载 ${SpeedMeter.format(speed.latest())}"
                 } }
-                status.text = "下载完成:${file.name}(${file.length() / 1024 / 1024} MB),正在打开安装器…"
-                installApk(file)
+                status.text = "下载完成:${file.name}(${file.length() / 1024 / 1024} MB),正在校验安装包…"
+                installApk(file, ver, status)
             } catch (e: Exception) {
                 status.text = "下载失败:${e.message ?: "未知错误"}"
                 addButton("重试") { downloadUpdate(ver) }
@@ -175,13 +195,58 @@ class VersionCheckActivity : ScreenScaffold() {
         return tv
     }
 
-    private fun downloadApk(url: String, speed: SpeedMeter, onProgress: (Int, Long) -> Unit): File {
-        val req = Request.Builder().url(url).get().build()
+    /**
+     * 清理缓存目录里的历史更新包(linnas-update*.apk),可排除本次目标文件。
+     * 只删非空文件;失败静默,避免影响下载/安装主流程。
+     */
+    private fun cleanCachedUpdateApks(except: File? = null) {
+        try {
+            cacheDir.listFiles()?.forEach { f ->
+                if (f.isFile &&
+                    f.name.startsWith("linnas-update") &&
+                    (except == null || f.absolutePath != except.absolutePath) &&
+                    f.length() > 0
+                ) {
+                    f.delete()
+                }
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    /** 版本名里的非字母数字点替换成 "_",用于安全地拼进文件名。 */
+    private fun safeName(name: String): String {
+        val s = name.replace(Regex("[^A-Za-z0-9.]"), "_")
+        return s.ifBlank { "ver" }
+    }
+
+    /** 读取 APK 包内真实的应用标识与版本号;解析失败返回 null。 */
+    private fun readApkInfo(file: File): ApkInfo? = try {
+        val info = packageManager.getPackageArchiveInfo(file.absolutePath, 0)
+        if (info == null) {
+            null
+        } else {
+            val code = if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
+            ApkInfo(
+                packageName = info.packageName ?: "",
+                versionName = info.versionName ?: "",
+                versionCode = code,
+            )
+        }
+    } catch (_: Exception) {
+        null
+    }
+
+    private fun downloadApk(ver: ServerVer, speed: SpeedMeter, onProgress: (Int, Long) -> Unit): File {
+        val req = Request.Builder().url(ver.url).get().build()
         http.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}")
             val body = resp.body ?: throw IllegalStateException("服务器返回空响应")
             val total = body.contentLength()
-            val out = File(cacheDir, "linnas-update.apk")
+            // 文件名按版本唯一化:不同版本落到不同文件,避免安装器/PackageInstaller 复用同一 content URI 对应的旧包。
+            val out = File(cacheDir, "linnas-update-${ver.code}-${safeName(ver.name)}.apk")
+            // 顺势清掉其它历史更新包(排除本次目标),防止旧包残留被安装器再次复用。
+            cleanCachedUpdateApks(except = out)
             if (out.exists()) out.delete()
             var received = 0L
             var lastPct = -1
@@ -212,12 +277,44 @@ class VersionCheckActivity : ScreenScaffold() {
      * 用户会以为「点了没反应」。这里检查三件事 —— 存在、体积合理(>1MB)、文件头是 "PK"(APK 本质是 ZIP);
      * 任一不满足就删掉坏包并提示重新下载。
      */
-    private fun installApk(file: File) {
+    private fun installApk(file: File, expected: ServerVer, status: TextView? = null) {
         if (!file.exists() || file.length() <= 1024L * 1024L || !hasZipHeader(file)) {
             file.delete()
             toast("安装包损坏,请重新下载")
             return
         }
+        // 核心:安装前核对包内真实版本号,防止装到上一个版本的包(不能只靠界面显示)。
+        val info = readApkInfo(file)
+        if (info == null) {
+            file.delete()
+            toast("安装包无法解析,请重新下载")
+            return
+        }
+        if (info.packageName != packageName) {
+            file.delete()
+            toast("安装包应用标识不符(${info.packageName}),已删除")
+            return
+        }
+        val mismatch = if (expected.code > 0) {
+            info.versionCode != expected.code
+        } else {
+            // 服务端未给版本码的兜底扫描模式:仅在双方版本名都非空且不一致时判定不符。
+            expected.name.isNotBlank() && info.versionName.isNotBlank() && expected.name != info.versionName
+        }
+        if (mismatch) {
+            file.delete()
+            Sheet(
+                this,
+                "安装包版本不符",
+                "服务器给的是 v${info.versionName}(版本码 ${info.versionCode}),页面显示 v${expected.name}(版本码 ${expected.code})",
+            )
+                .text("已删除错误的安装包,不会安装旧版本。\n请先「再次检查」;若仍是旧包,说明服务端 release 目录里的 android-version.json / apk 文件不一致。\n也可用下面的网页更新入口手动安装。")
+                .primary("再次检查") { checkUpdate(readLocalVersion().second) }
+                .tonal("取消") {}
+                .show()
+            return
+        }
+        status?.text = "校验通过:v${info.versionName}(版本码 ${info.versionCode}),正在打开安装器…"
         // API 26+ 必须由用户显式允许「安装未知来源应用」,否则系统安装器会静默失败/被拒。
         if (!canInstallPackages()) {
             pendingInstallFile = file
@@ -225,7 +322,8 @@ class VersionCheckActivity : ScreenScaffold() {
                 .text("接下来会跳转到系统的「安装未知应用」设置页,请找到本应用并打开允许开关。")
                 .primary("去开启") {
                     try {
-                        startActivity(
+                        // 走 launcher:从设置页返回时会回调,若已授权就自动继续安装(否则用户还得再点一次「下载并安装」)。
+                        installPermissionLauncher.launch(
                             Intent(
                                 Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                                 Uri.parse("package:$packageName"),
@@ -263,7 +361,8 @@ class VersionCheckActivity : ScreenScaffold() {
         try {
             val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
             // setDataAndType 必须一次性设置:分两步 setData / setType 会互相清空(Android 7+ 常见坑)。
-            startActivity(Intent(Intent.ACTION_VIEW).apply {
+            // 走 installResultLauncher 以便安装结束(RESULT_OK)后清理缓存更新包。
+            installResultLauncher.launch(Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(uri, "application/vnd.android.package-archive")
                 // Activity 上下文不需要 FLAG_ACTIVITY_NEW_TASK,加上反而可能让返回落到桌面;只需临时读授权。
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)

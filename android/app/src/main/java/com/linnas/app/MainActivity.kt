@@ -691,15 +691,7 @@ class MainActivity : AppCompatActivity() {
         val f = OfflineStore.localFile(this, o.vpath)
         if (f == null) { toast("本地缓存文件不存在,请重新缓存"); return }
         val ext = o.name.substringAfterLast('.', "").lowercase()
-        if (ext in FileListAdapter.IMAGE) {
-            try {
-                startActivity(Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(Uri.fromFile(f), "image/*")
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                })
-            } catch (_: Exception) { toast("没有可用的图片查看器") }
-            return
-        }
+        if (ext in FileListAdapter.IMAGE) { openOfflineGallery(o); return }
         val (pl, idx) = playlistFor(o.vpath)
         startPlayer("file://" + f.absolutePath, o.name, o.vpath, null, pl, idx)
     }
@@ -845,9 +837,8 @@ class MainActivity : AppCompatActivity() {
                     val (pl, idx) = playlistFor(vp)
                     startPlayer(client.streamUrl(vp), e.name, vp, null, pl, idx)
                 }
-                ext in FileListAdapter.IMAGE -> startActivity(
-                    Intent(Intent.ACTION_VIEW).apply { setDataAndType(Uri.parse(client.rawUrl(vp)), "image/*") }
-                )
+                ext in FileListAdapter.IMAGE ->
+                    openImageGallery(vp, allRows.mapNotNull { (it as? ListRow.FileRow)?.e })
                 else -> {
                     startDownload(client.rawUrl(vp, true), e.name, TransferStore.KIND_DOWNLOAD)
                 }
@@ -855,6 +846,42 @@ class MainActivity : AppCompatActivity() {
         } catch (_: Exception) {
             toast("没有可用的打开方式")
         }
+    }
+
+    /** 把一组图片交给应用内浏览器(左右滑动切换),currentVp 用于定位起始页。 */
+    private fun openImageGallery(currentVp: String, rows: List<Entry>) {
+        val imgs = rows.filter {
+            !it.isDir && it.name.substringAfterLast('.', "").lowercase() in FileListAdapter.IMAGE
+        }
+        if (imgs.isEmpty()) { toast("没有可浏览的图片"); return }
+        val vpaths = ArrayList<String>()
+        val names = ArrayList<String>()
+        val urls = ArrayList<String>()
+        for (e in imgs) {
+            val vp = e.vpath ?: (curPath.trimEnd('/') + "/" + e.name)
+            vpaths.add(vp)
+            names.add(e.name)
+            urls.add(client.rawUrl(vp))
+        }
+        ImageActivity.start(this, vpaths, names, urls, vpaths.indexOf(currentVp).coerceAtLeast(0))
+    }
+
+    /** 浏览已缓存的图片(本地 file://,无网也能看)。 */
+    private fun openOfflineGallery(cur: OfflineStore.Item) {
+        val items = OfflineStore.all(this).filter {
+            it.name.substringAfterLast('.', "").lowercase() in FileListAdapter.IMAGE
+        }
+        val vpaths = ArrayList<String>()
+        val names = ArrayList<String>()
+        val urls = ArrayList<String>()
+        for (item in items) {
+            val f = OfflineStore.localFile(this, item.vpath) ?: continue
+            vpaths.add(item.vpath)
+            names.add(item.name)
+            urls.add("file://" + f.absolutePath)
+        }
+        if (vpaths.isEmpty()) { toast("没有可浏览的缓存图片"); return }
+        ImageActivity.start(this, vpaths, names, urls, vpaths.indexOf(cur.vpath).coerceAtLeast(0))
     }
 
     /** P2:从当前浏览上下文(目录列表/全局搜索/媒体页)构建可播放列表,返回 (JSON 数组, 当前下标)。 */
@@ -1251,7 +1278,30 @@ class MainActivity : AppCompatActivity() {
         val (pl, idx) = playlistFor(vp)
         when {
             ext in transcode -> startPlayer(client.streamUrl(vp), e.name, vp, null, pl, idx)
-            ext in FileListAdapter.IMAGE -> toast("图片请在文件页打开")
+            ext in FileListAdapter.IMAGE -> {
+                // 用应用内图片浏览器打开:从媒体页列表筛出所有图片,支持左右滑动
+                val imgs = mediaAll.filter { en ->
+                    !en.isDir && en.name.substringAfterLast('.', "").lowercase() in FileListAdapter.IMAGE
+                }.let { if (it.isEmpty()) listOf(e) else it }
+                val vpaths = ArrayList<String>()
+                val names = ArrayList<String>()
+                val urls = ArrayList<String>()
+                var start = 0
+                imgs.forEachIndexed { i, en ->
+                    val ivp = en.vpath ?: ""
+                    vpaths.add(ivp)
+                    names.add(en.name)
+                    urls.add(client.rawUrl(ivp))
+                    if (ivp == vp) start = i
+                }
+                ImageActivity.start(
+                    ctx = this,
+                    vpaths = vpaths,
+                    names = names,
+                    urls = urls,
+                    startIndex = start,
+                )
+            }
             else -> lifecycleScope.launch {
                 val local = OfflineStore.localFile(this@MainActivity, vp)
                 val sub = withContext(Dispatchers.IO) { findSubtitle(vp) }
@@ -1714,66 +1764,156 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** 手机端添加存储库:选择电脑盘符/目录,把一个目录注册为存储库(改用 Sheet)。 */
+    /** 手机端添加存储库:单个 Sheet 内逐级浏览电脑目录 + 明确的下一步。 */
     private fun showAddLibrary() {
-        val sheet = Sheet(this, "添加存储库", "选一个电脑上的目录,手机上即可像云盘一样浏览")
-        sheet.section("选择磁盘")
-        val list = sheet.customArea()
-        sheet.input("或直接输入完整路径(如 D:\\电影)", "", InputType.TYPE_CLASS_TEXT)
-        sheet.input("显示名称(留空 = 用目录名)", "")
-        val pathEt = sheet.inputView(0)
+        val sheet = Sheet(this, "添加存储库", "选一个电脑上的目录,添加后手机上即可像云盘一样浏览")
+        var cur = ""             // 当前浏览的电脑路径("" = 磁盘列表)
+        var seq = 0              // 请求序号:丢弃过期/乱序回调,防连点闪烁
+        var nameEdited = false   // 用户是否手动改过名称
+        var suppressWatch = false // 程序自动填名时抑制 TextWatcher 误标记
 
-        // 磁盘快捷列表:点一下就把它填进路径输入框;真正多级浏览交给「浏览目录」
-        fun renderDrives() {
-            list.removeAllViews()
-            val selected = pathEt?.text?.toString().orEmpty()
-            lifecycleScope.launch {
-                val o = try { withContext(Dispatchers.IO) { client.fsDirs("") } } catch (e: Exception) {
-                    toast("读取失败: ${e.message}"); return@launch
-                }
-                if (!sheet.isShowing()) return@launch
-                fun addDrive(label: String, path: String) {
-                    list.addView(ScreenUi.row(this@MainActivity, R.drawable.ic_server, label,
-                        checked = selected.startsWith(path),
-                        onClick = { pathEt?.setText(path); renderDrives() }))
-                }
-                val drives = o.optJSONArray("drives")
-                if (drives != null) for (i in 0 until drives.length()) {
-                    val el = drives.opt(i)
-                    if (el is org.json.JSONObject) {
-                        val letter = el.optString("letter").ifBlank { el.optString("name") }
-                        val free = el.optLong("freeMB", 0L)
-                        addDrive("磁盘 " + letter.trimEnd('\\') + if (free > 0) " · 剩余 " + fmtGB(free) else "", letter)
-                    } else {
-                        val s = drives.optString(i)
-                        addDrive("磁盘 $s", s)
-                    }
-                }
-            }
+        sheet.section("选择目录")
+        val area = sheet.customArea()
+        val crumb = TextView(this).apply {
+            setTextColor(ThemeColors.textDim(this@MainActivity)); textSize = 12f
+            setPadding(dp(4), 0, dp(4), dp(8))
+            text = "位置:电脑(选择磁盘)"
         }
-        sheet.tonal("浏览目录") {
-            showPcDirPicker { path ->
-                pathEt?.setText(path)
-                renderDrives()
-            }
+        area.addView(crumb)
+        val rowsBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        area.addView(rowsBox)
+
+        sheet.section("存储库名称")
+        sheet.input("显示名称(留空 = 用目录名)", "")
+        val nameEt = sheet.inputView(0)
+        nameEt?.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) { if (!suppressWatch) nameEdited = true }
+        })
+
+        // 父级:盘符根(C:\)回到磁盘列表;其余回到上一级目录
+        fun parentOf(p: String): String {
+            if (p.isBlank()) return ""
+            val t = p.trimEnd('\\', '/')
+            if (t.length <= 2) return ""                    // "C:" -> 磁盘列表
+            val i = t.lastIndexOf('\\')
+            if (i < 0) return ""
+            val par = t.substring(0, i)
+            return if (par.length == 2 && par[1] == ':') par + "\\" else par  // "C:" -> "C:\"
         }
-        sheet.primary("添加") {
-            val path = sheet.value(0)
-            if (path.isBlank()) { toast("先选择一个磁盘/目录"); return@primary }
-            val nm = sheet.value(1).ifBlank {
-                path.substringAfterLast('\\').substringAfterLast('/').ifBlank { path }
-            }
+
+        // 未手动改名时,自动填成当前目录名(盘符根用「C盘」)
+        fun nameAuto() {
+            if (nameEdited) return
+            var nm = cur.trimEnd('\\', '/').substringAfterLast('\\').substringAfterLast('/')
+            if (nm.isBlank()) return
+            if (nm.length == 2 && nm[1] == ':') nm = nm.substring(0, 1) + "盘"
+            suppressWatch = true
+            nameEt?.setText(nm)
+            nameEt?.setSelection(nm.length)
+            suppressWatch = false
+        }
+
+        fun addCurrent() {
+            if (cur.isBlank()) { toast("先选择一个目录"); return }
+            val nm = sheet.value(0).ifBlank {
+                cur.trimEnd('\\', '/').substringAfterLast('\\').substringAfterLast('/').ifBlank { cur }
+            }.trim()
             lifecycleScope.launch {
                 try {
-                    withContext(Dispatchers.IO) { client.addLibrary(nm, path) }
+                    withContext(Dispatchers.IO) { client.addLibrary(nm, cur) }
                     sheet.dismiss()
                     toast("已添加 $nm")
                     connectAndLoad(silent = true)
                 } catch (e: Exception) { toast("添加失败: ${e.message}") }
             }
         }
+
+        // 只在这一层数据变化时整体重建 rowsBox,请求期间先放「加载中…」占位,避免逐行异步 addView 闪烁
+        fun reload() {
+            val mySeq = ++seq
+            val path = cur
+            crumb.text = if (path.isEmpty()) "位置:电脑(选择磁盘)" else "位置:$path"
+            rowsBox.removeAllViews()
+            if (path.isNotEmpty()) {
+                rowsBox.addView(ScreenUi.row(this@MainActivity, R.drawable.ic_folder, ".. 返回上一级", onClick = {
+                    cur = parentOf(path); nameAuto(); reload()
+                }))
+            }
+            val loading = TextView(this).apply {
+                text = "加载中…"; setTextColor(ThemeColors.textDim(this@MainActivity)); textSize = 12f
+                setPadding(dp(8), dp(8), dp(8), dp(8))
+            }
+            rowsBox.addView(loading)
+            lifecycleScope.launch {
+                val o = try { withContext(Dispatchers.IO) { client.fsDirs(path) } } catch (e: Exception) {
+                    if (mySeq == seq && sheet.isShowing()) {
+                        rowsBox.removeView(loading)
+                        rowsBox.addView(TextView(this@MainActivity).apply {
+                            text = if (path.isEmpty()) "读取失败: ${e.message}" else "路径不存在或不可读: ${e.message}"
+                            setTextColor(ThemeColors.textDim(this@MainActivity)); textSize = 12f
+                            setPadding(dp(8), dp(8), dp(8), dp(8))
+                        })
+                        if (path.isNotEmpty()) toast("路径不存在或不可读")
+                    }
+                    return@launch
+                }
+                if (mySeq != seq || !sheet.isShowing()) return@launch
+                rowsBox.removeView(loading)
+                if (path.isEmpty()) {
+                    val drives = o.optJSONArray("drives")
+                    if (drives != null) for (i in 0 until drives.length()) {
+                        val el = drives.opt(i)
+                        if (el is org.json.JSONObject) {
+                            val letter = el.optString("letter").ifBlank { el.optString("name") }
+                            val free = el.optLong("freeMB", 0L)
+                            rowsBox.addView(ScreenUi.row(this@MainActivity, R.drawable.ic_server,
+                                "磁盘 " + letter.trimEnd('\\') + if (free > 0) " · 剩余 " + fmtGB(free) else "",
+                                onClick = { cur = letter; nameAuto(); reload() }))
+                        } else {
+                            val s = drives.optString(i)
+                            rowsBox.addView(ScreenUi.row(this@MainActivity, R.drawable.ic_server, "磁盘 $s",
+                                onClick = { cur = s; nameAuto(); reload() }))
+                        }
+                    }
+                } else {
+                    val dirs = o.optJSONArray("dirs")
+                    if (dirs != null) for (i in 0 until dirs.length()) {
+                        val d = dirs.optJSONObject(i) ?: continue
+                        rowsBox.addView(ScreenUi.row(this@MainActivity, R.drawable.ic_folder,
+                            d.optString("name") + "  /",
+                            onClick = { cur = d.optString("path"); nameAuto(); reload() }))
+                    }
+                    rowsBox.addView(ScreenUi.row(this@MainActivity, R.drawable.ic_sheet_check,
+                        "✓ 就选这个目录", onClick = { addCurrent() }))
+                }
+            }
+        }
+
+        // 兜底:手动粘贴完整路径,进入后照常逐级浏览/校验
+        sheet.tonal("手动输入路径") {
+            val et = EditText(this).apply {
+                hint = "完整路径,如 D:\\电影"
+                setText(cur)
+                setSelection(text?.length ?: 0)
+                this.inputType = InputType.TYPE_CLASS_TEXT
+                setSingleLine()
+                setPadding(dp(16), dp(12), dp(16), dp(12))
+            }
+            AlertDialog.Builder(this)
+                .setTitle("手动输入路径")
+                .setView(et)
+                .setPositiveButton("进入") { _, _ ->
+                    val p = et.text?.toString()?.trim().orEmpty()
+                    if (p.isBlank()) toast("请输入完整路径") else { cur = p; nameAuto(); reload() }
+                }
+                .setNegativeButton("取消", null)
+                .show()
+        }
+        sheet.primary("添加为存储库") { addCurrent() }
         sheet.show()
-        renderDrives()
+        reload()
     }
 
     /** 逐级浏览电脑目录,选中后回调完整路径。 */

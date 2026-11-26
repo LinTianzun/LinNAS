@@ -1,6 +1,6 @@
 # LinNAS — 本地云盘/NAS 方案与版本路线图
 
-> 当前组件版本（2026-11-27）：Windows 服务端 **1.8.0**；Android 客户端 **1.8.6**（`versionCode` 15）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
+> 当前组件版本（2026-11-27）：Windows 服务端 **1.8.0**；Android 客户端 **1.8.7**（`versionCode` 16）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
 
 > 下文保留早期技术决策与里程碑记录；历史版本号描述当时状态，不代表当前版本。
 
@@ -365,6 +365,15 @@
 - **设备图标重做**：`ic_device_phone` / `ic_device_desktop` 改为实心形状 + `fillType="evenOdd"` 镂空（纯描边在 24dp 下会发虚），新建 `ic_device_unknown`（加粗问号 + 实心圆点）。`devicePlatform()`：空 UA → 未知设备；`python|curl|wget|go-http|libwww|java/` → 「命令行/脚本」；去掉易误判的 `pc` 子串；`okhttp` 保留在 Android 侧（本 App 自身 UA 就是 okhttp，归脚本会把本机标错）。
 - **版本**：Android `versionCode` 15 / `versionName` 1.8.6；产物 `release/linNas-1.8.6-debug.apk`（附 SHA-256）。
 - **验证**：`:app:compileDebugKotlin --rerun-tasks`（全量重编，仅既有 deprecation 警告）、`:app:testDebugUnitTest`（15 个单测）、`:app:assembleDebug` 均 BUILD SUCCESSFUL。
+
+### M13.7 Android v1.8.7 更新包版本核对、指纹登录可用与应用内图片浏览（2026-11-27，Android v1.8.7）
+用户反馈（m01654）：应用内更新下载完却装成上个版本的包；退出登录后点指纹登录报「还没有保存登录信息」；媒体页点图片不能浏览（只能外部打开）；添加存储库选完磁盘没有后续且列表闪烁。
+- **更新包装成旧版**：`VersionCheckActivity.downloadApk()` 原固定写 `cacheDir/linnas-update.apk`（跨版本同名，安装器可能复用同一 content URI 的旧包），`installApk()` 也从不校验包内版本。改为按版本命名 `linnas-update-<code>-<name>.apk`，并新增 `readApkInfo()`（`PackageManager.getPackageArchiveInfo`）在打开安装器前校验包名与 `versionCode == expected.code`（服务端未给 code 时退化为比 `versionName`）；不符则删包 + `Sheet("安装包版本不符")` + 「再次检查」。安装返回后 `cleanCachedUpdateApks()` 清理旧包；未知来源授权弹窗改走 `installPermissionLauncher`，授权返回自动继续安装。
+- **退出登录后指纹登录失效**：根因是 `LinNasClient.logout()` 的 `finally` 里 `Prefs.clearSession(); Prefs.clearSessionMeta()` 把身份信息全删，且从未保存过账号密码。新增 `Prefs.saveBioCredentials/loadBioCredentials/hasBioCredentials/clearBioCredentials`（用 `BiometricGate.saveSecret` 加密存 `bio_user`/`bio_pass`）与 `clearSessionToken()`（只清 token，保留身份与指纹凭据）；`logout()` 只 `clearSessionToken()`。密码登录成功且生物识别开启时保存凭据；`doBioAuth()` 指纹通过后先用 `enterWithSession(silent=true)` 试旧 token，失败再用保存的账号密码 `login()` 换新 token 进入；401 清凭据提示重登，网络异常不清凭据。
+- **应用内图片浏览**：新增 `ImageActivity`（`ViewPager2` + 自绘 `ZoomableImageView`：双指 1x–5x、双击 2.5x/复原、放大时不拦截横向滑动），Coil 加载、点击切换顶/底栏、顶栏显示文件名与 `i / n`，支持保存到下载目录（SAF）、分享（FileProvider）、详情（`Sheet.keyValue`）；`AndroidManifest.xml` 注册（`exported=false`、`Theme.LinNas`）。`MainActivity` 新增 `openImageGallery()`/`openOfflineGallery()`，媒体页点图、文件页点图、离线缓存点图都进应用内浏览，不再依赖外部查看器打不开 http。
+- **添加存储库逐级浏览**：`showAddLibrary()` 重做为单个 `Sheet`——顶部面包屑 + 目录行容器，`reload()` 用 `seq` 版本号 + `isShowing()` 三重校验丢弃过期回调，整体重建行容器（不再逐行异步 addView，消除闪烁）；空路径列磁盘、非空先「.. 返回上一级」再列子目录，末尾固定「✓ 就选这个目录」；名称随目录自动填（盘符根填「C盘」）；选中即 `client.addLibrary()` 并 `connectAndLoad(silent=true)`。
+- **版本**：Android `versionCode` 16 / `versionName` 1.8.7；产物 `release/linNas-1.8.7-debug.apk`（附 SHA-256）。
+- **验证**：`:app:compileDebugKotlin`（仅 VersionCheckActivity 两处 `versionCode` deprecation 警告）、`:app:testDebugUnitTest`（15 个单测）、`:app:assembleDebug` 均 BUILD SUCCESSFUL。
 
 ### M14 Web UI 总览页与侧栏分组重构（2026-11-26，服务端 1.7.0）
 - **问题**：主区 `.app` 限制 `max-width:1180px` 并居中，宽屏（1586px）左侧约 200px 死区；侧栏入口全塞在「更多」里，层级混乱。

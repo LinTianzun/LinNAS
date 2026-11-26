@@ -2,6 +2,7 @@ package com.linnas.app
 
 import android.animation.ObjectAnimator
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.text.InputType
 import android.view.View
@@ -36,9 +37,6 @@ class LoginActivity : AppCompatActivity() {
 
     /** 防止进入页面后重复自动弹指纹。 */
     private var bioPrompted = false
-
-    /** 当前指纹按钮是否处于「有会话可恢复」模式（决定指纹验证成功后的去向）。 */
-    private var bioHasSaved = false
 
     /** 扫描发现进行中标记，防止重复点击「扫描局域网」叠加任务。 */
     private var scanning = false
@@ -100,6 +98,11 @@ class LoginActivity : AppCompatActivity() {
                         ServerConfig.sessionRole,
                         ServerConfig.baseUrl,
                     )
+                    // 开启指纹时顺便加密记住账号密码（仅本地 Keystore 加密存储），
+                    // 供退出登录后指纹登录换新 token。不打日志、不外传。
+                    if (BiometricGate.isEnabled(this@LoginActivity) && BiometricGate.canUse(this@LoginActivity)) {
+                        Prefs.saveBioCredentials(this@LoginActivity, u, p)
+                    }
                     Prefs.setBool(KEY_AUTO_LOGIN, cbBio.isChecked)
                     setResult(RESULT_OK)
                     finish()
@@ -136,39 +139,47 @@ class LoginActivity : AppCompatActivity() {
      * - 设置里关掉或设备不支持：隐藏指纹按钮，有已保存会话时退化为「使用已保存的登录信息进入」。
      */
     private fun setupBioEntry(btn: MaterialButton, cb: MaterialCheckBox, divider: View, error: TextView) {
-        val meta = Prefs.sessionMeta()
-        val hasSaved = meta != null
-        val user = meta?.get(1)?.takeIf { it.isNotBlank() }
+        // 「身份」与「指纹凭据」是两件事：
+        // - hasBioCred：加密保存过账号密码 → 指纹按钮可真正换新 token 登录；
+        // - hasSaved：存在已登录身份 sess_user（退出登录后仍保留）→ 无指纹时退化为「用已保存信息进入」。
+        val hasBioCred = Prefs.hasBioCredentials(this)
+        val bioUserName = Prefs.bioUser()
+        val savedUser = Prefs.get("sess_user", "").takeIf { it.isNotBlank() }
+        val hasSaved = savedUser != null
         val bioReady = BiometricGate.isEnabled(this) && BiometricGate.canUse(this)
         val hint = findViewById<TextView>(R.id.tvBioHint)
-        bioHasSaved = hasSaved
 
         cb.visibility = if (bioReady) View.VISIBLE else View.GONE
 
         when {
-            // 1) 指纹可用（设置开启 + 硬件支持）→ 无条件显示，不看 hasSaved：
+            // 1) 指纹可用（设置开启 + 硬件支持）→ 无条件显示，不看有没有已保存会话：
             //    老用户升级后没有加密会话，旧逻辑直接藏按钮，用户以为功能丢了。
             bioReady -> {
                 btn.visibility = View.VISIBLE
                 divider.visibility = View.VISIBLE
-                btn.text = if (hasSaved && user != null) "指纹登录 · $user" else "指纹登录"
+                btn.text = if (hasBioCred && !bioUserName.isNullOrBlank()) {
+                    "指纹登录 · $bioUserName"
+                } else {
+                    "指纹登录"
+                }
                 btn.setOnClickListener { doBioAuth(btn, error) }
-                // 没会话时按钮只是引导态：副标题提示先登录一次；自动弹验证只在有会话时做。
-                hint.visibility = if (hasSaved) View.GONE else View.VISIBLE
-                if (hasSaved && !bioPrompted) {
+                // 有凭据 → 可直接指纹登录；没有 → 引导态，副标题提示先登录一次。
+                hint.visibility = if (hasBioCred) View.GONE else View.VISIBLE
+                // 仅当仍存在「已保存会话(token)」时才自动弹一次，避免刚退出登录就弹窗打扰。
+                if (Prefs.sessionMeta() != null && !bioPrompted) {
                     bioPrompted = true
                     btn.post { doBioAuth(btn, error) }
                 }
             }
-            // 2) 指纹关闭/不可用但有已保存会话：不显示指纹按钮，但仍允许用加密保存的会话直接进入。
+            // 2) 指纹关闭/不可用但有已保存身份：不显示指纹，退化为用已保存信息进入。
             hasSaved -> {
                 btn.visibility = View.VISIBLE
                 divider.visibility = View.VISIBLE
-                btn.text = if (user != null) "使用已保存的登录信息进入 · $user" else "使用已保存的登录信息进入"
-                btn.setOnClickListener { enterWithSession(btn, error) }
+                btn.text = if (savedUser.isNotBlank()) "使用已保存的登录信息进入 · $savedUser" else "使用已保存的登录信息进入"
+                btn.setOnClickListener { lifecycleScope.launch { enterWithSession(btn, error) } }
                 hint.visibility = View.GONE
             }
-            // 3) 都没有：隐藏按钮与分隔线（维持现状）。
+            // 3) 都没有：隐藏按钮与分隔线。
             else -> {
                 btn.visibility = View.GONE
                 divider.visibility = View.GONE
@@ -178,20 +189,54 @@ class LoginActivity : AppCompatActivity() {
     }
 
     /**
-     * 指纹验证。成功后的去向由 [bioHasSaved] 决定：
-     * - 有会话：走 [enterWithSession]（写回会话 + 服务端校验，都通过才 finish）；
-     * - 无会话（引导态）：提示先登录一次并把焦点交回用户名框。
+     * 指纹验证 = 真正的「指纹登录」。成功后：
+     * 1) 先试已保存会话（token）：[enterWithSession] 写回会话 + /api/auth/me 校验，通过即进入；
+     * 2) token 不存在/已过期 → 用加密保存的账号密码换一个新 token 再进入；
+     * 3) 没有保存的凭据 → 提示先登录一次并把焦点交回用户名框。
+     *
+     * 这样用户「退出登录」后（token 被清、身份与凭据仍在），点指纹仍能真正登录，
+     * 不再出现「还没有保存登录信息」的死路。
      */
     private fun doBioAuth(btn: MaterialButton, error: TextView) {
         btn.isEnabled = false
         val onSuccess: () -> Unit = {
-            if (bioHasSaved) {
-                // 校验期间保持禁用，避免重复点按造成重复弹窗/重复校验
-                enterWithSession(btn, error)
-            } else {
+            // 验证通过后进入校验/换票流程；期间保持按钮禁用，避免重复点按造成重复登录
+            lifecycleScope.launch {
+                // 1) 先用已保存会话（token）尝试进入；silent=true 避免 token 失效时先闪「登录已过期」
+                if (enterWithSession(btn, error, silent = true)) return@launch
+
+                // 2) token 不存在/过期 → 用加密保存的账号密码换新 token
+                val cred = Prefs.loadBioCredentials(this@LoginActivity)
+                if (cred == null) {
+                    btn.isEnabled = true
+                    error.visibility = View.VISIBLE
+                    error.text = "还没有保存登录信息,请先用账号密码登录一次"
+                    etUserView?.requestFocus()
+                    return@launch
+                }
+                val result = withContext(Dispatchers.IO) {
+                    runCatching { client.login(cred.first, cred.second) }
+                }
+                val resp = result.getOrNull()
+                if (resp != null) {
+                    Prefs.saveSessionMeta(resp.token, resp.username, resp.role, ServerConfig.baseUrl)
+                    Prefs.saveIdentity(resp.username, ServerConfig.baseUrl)
+                    // 与 enterWithSession 一致：LoginActivity 是 MainActivity 的 for-result 子页，
+                    // setResult(RESULT_OK)+finish 后由 MainActivity 的 loginLauncher 回调继续加载主流程。
+                    setResult(RESULT_OK)
+                    finish()
+                    return@launch
+                }
                 btn.isEnabled = true
-                toast("还没有保存的登录信息,请先用账号密码登录一次")
-                etUserView?.requestFocus()
+                error.visibility = View.VISIBLE
+                if (result.exceptionOrNull() is ApiException) {
+                    // 401 等 API 错误：保存的密码已失效，清凭据让用户重新用密码登录
+                    Prefs.clearBioCredentials(this@LoginActivity)
+                    error.text = "保存的密码已失效,请用密码重新登录"
+                } else {
+                    // 纯网络异常：不清凭据，稍后重试
+                    error.text = "无法连接服务器,请确认服务端已启动后重试"
+                }
             }
         }
         val onFail: (String) -> Unit = { msg ->
@@ -207,57 +252,65 @@ class LoginActivity : AppCompatActivity() {
     }
 
     /**
-     * 恢复已保存会话并进入主界面。与旧版「直接 finish」的区别：
-     * 先把会话写回 ServerConfig，再调一次服务端 /api/auth/me 校验——
-     * 旧版把过期 token 带回主界面，主界面第一发请求就 401 弹回登录页，
-     * 用户看到的就是「指纹验证通过了却没进去」。
+     * 恢复已保存会话并进入主界面。返回 true 表示已成功进入并 finish。
+     *
+     * - silent=false（「使用已保存信息进入」按钮）：失败时把原因写到登录页红字并引导。
+     * - silent=true（指纹登录的第一步）：token 不存在/过期/网络异常时只返回 false，
+     *   不闪错误，交由 doBioAuth 接着用账号密码换新 token。
      */
-    private fun enterWithSession(btn: MaterialButton, error: TextView) {
-        lifecycleScope.launch {
-            // 服务器地址没配：谈不上恢复会话，先引导设置地址并高亮「切换」
-            if (ServerConfig.baseUrl.isBlank()) {
-                btn.isEnabled = true
+    private suspend fun enterWithSession(btn: MaterialButton, error: TextView, silent: Boolean = false): Boolean {
+        // 服务器地址没配：谈不上恢复会话，先引导设置地址并高亮「切换」
+        if (ServerConfig.baseUrl.isBlank()) {
+            btn.isEnabled = true
+            if (!silent) {
                 toast("请先设置服务器地址")
                 error.visibility = View.VISIBLE
                 error.text = "请先设置服务器地址"
                 highlightSwitchServer()
-                return@launch
             }
-            // 连加密会话都没有（升级前没登录过 / 已被清）：引导走账号密码
-            if (!applySavedSession()) {
-                btn.isEnabled = true
+            return false
+        }
+        // 连加密会话都没有（升级前没登录过 / 已被清）：引导走账号密码
+        if (!applySavedSession()) {
+            btn.isEnabled = true
+            if (!silent) {
                 toast("还没有保存的登录信息,请先用账号密码登录一次")
                 etUserView?.requestFocus()
-                return@launch
             }
-            // 服务端校验：401/会话失效 → 清会话引导重登；纯网络问题 → 保留会话只提示重试
-            // （Prefs.clearSession 的注释明确警告过：临时离线就清会话会让用户永久丢失指纹登录）
-            var expired = false
-            val ok = try {
-                val me = withContext(Dispatchers.IO) { client.authMe() }
-                if (me.username.isBlank()) expired = true
-                me.username.isNotBlank()
-            } catch (e: ApiException) {
-                // API 错误（401 等）按会话过期处理
-                expired = true
-                false
-            } catch (_: Exception) {
-                false
-            }
-            btn.isEnabled = true
-            if (ok) {
-                setResult(RESULT_OK)
-                finish()
-                return@launch
-            }
-            if (expired) {
-                // 真过期：清掉本地会话（含加密 token），按钮退回引导态
+            return false
+        }
+        // 服务端校验：401/会话失效 → 清 token；纯网络问题 → 保留会话只提示重试
+        // （Prefs.clearSession 的注释明确警告过：临时离线就清会话会让用户永久丢失指纹登录）
+        var expired = false
+        val ok = try {
+            val me = withContext(Dispatchers.IO) { client.authMe() }
+            if (me.username.isBlank()) expired = true
+            me.username.isNotBlank()
+        } catch (e: ApiException) {
+            // API 错误（401 等）按会话过期处理
+            expired = true
+            false
+        } catch (_: Exception) {
+            false
+        }
+        btn.isEnabled = true
+        if (ok) {
+            setResult(RESULT_OK)
+            finish()
+            return true
+        }
+        if (expired) {
+            // 真过期：静默路径只清 token（保留身份与指纹凭据，供换票）；交互路径保持原引导行为
+            if (silent) {
+                Prefs.clearSessionToken()
+            } else {
                 Prefs.clearSessionMeta()
                 Prefs.clearSession()
-                ServerConfig.sessionToken = ""
-                ServerConfig.sessionUser = ""
-                ServerConfig.sessionRole = ""
-                bioHasSaved = false
+            }
+            ServerConfig.sessionToken = ""
+            ServerConfig.sessionUser = ""
+            ServerConfig.sessionRole = ""
+            if (!silent) {
                 error.visibility = View.VISIBLE
                 error.text = "登录已过期,请重新输入密码"
                 etUserView?.requestFocus()
@@ -265,11 +318,12 @@ class LoginActivity : AppCompatActivity() {
                 val cb = cbBioView
                 val dv = bioDividerView
                 if (cb != null && dv != null) setupBioEntry(btn, cb, dv, error)
-            } else {
-                error.visibility = View.VISIBLE
-                error.text = "无法连接服务器,请确认服务端已启动后重试"
             }
+        } else if (!silent) {
+            error.visibility = View.VISIBLE
+            error.text = "无法连接服务器,请确认服务端已启动后重试"
         }
+        return false
     }
 
     /** 让「切换」按钮脉冲两下，引导用户去设置服务器地址。 */
