@@ -55,3 +55,4 @@ ui-preview/
 .smoke/
 .task-spec.md
 .task-spec*.md
+android/build_tmp_compile.log
