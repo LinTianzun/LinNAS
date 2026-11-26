@@ -398,7 +398,7 @@
 - UI：存储空间页新增「巡检」tab：开始（快/深）、进度、取消、结果三组（内容变更 / 文件缺失 / 读取失败）每条可跳转到所在目录；「上次巡检」时间与耗时。
 - 验收：≥1GB 目录 quick 模式在分钟级完成且可取消；人为改动一个文件内容后 quick 巡检能报出该文件；deep 模式 CPU/IO 不占满（限速生效）。
 
-### M16 内容搜索与自动整理（批次 3 已交付，批次 4 待开始）
+### M16 内容搜索与自动整理（批次 3、批次 4 均已交付）
 总览页「规划中」第一张卡片的落地计划。两项能力共用「后台抽取/执行 + 预览 + 记录 + 可撤销」的骨架，故合并为一个大里程碑、分两批交付。
 
 **批次 3：正文索引与内容搜索**（✅ 已完成并部署 2026-11-26）
@@ -412,7 +412,9 @@
 - UI：顶部搜索框加范围切换「文件名 / 内容 / 全部」；内容命中按文件聚合展示片段，点击定位到文件浏览并高亮该文件；无结果时提示「仅索引文本类文档，PDF 未支持」。
 - 验收：放 20 个 txt/md/docx/xlsx 后索引完成，搜词能命中 docx 段落；对 5 万文件库不出现长时间卡顿（抽取可暂停/取消）。
 
-**批次 4：自动整理规则（预览 → 执行 → 记录 → 撤销）**
+**批次 4：自动整理规则（预览 → 执行 → 记录 → 撤销）**（✅ 已完成并部署 2026-11-27）
+
+> 状态：批次 4 已实现、测试并部署到本机 52700（服务端版本仍为 1.7.0，M16 全部完成后统一升 1.8.0）。新增 `server/organize.go` 与 `server/organize_test.go`；`api.go` 注册 10 条 `/api/organize/*` 路由并在 `authorize` 中限定管理端（非 GET 一律拒绝非 admin），`Server` 增加 `organize *organizeManager`。存储：规则 `DataDir/organize.json`，作业 `DataDir/organize/jobs.json`（保留最近 50），日志 `DataDir/organize/journal-<jobID>.jsonl`。UI 存储空间页新增「自动整理」页签（规则列表 / 编辑对话框 / 预览前 50 条 / 执行确认 / 进度 / 作业历史与撤销）。真实环境端到端验收：6 个测试文件按扩展名规则预览=执行数，执行后索引即时可见新路径，撤销后完全回原位（详见下方验收记录）。
 - 规则模型：`organizeRule{id, name, enabled, libId, match{matchPathPrefix, exts[], nameContains, kind, minSizeMB, maxSizeMB, olderThanDays}, action{moveTo, groupBy:"ext|kind|year-month|none"}}`，存 `organize.json`；`GET/POST/PUT/DELETE /api/organize/rules`（admin only）。
 - 预览：`POST /api/organize/preview` 只读计算计划 → `{items:[{from,to,reason}], skipped:[{from,reason}], conflicts, totalBytes}`，绝不落盘。
 - 执行：`POST /api/organize/run` 逐条移动，目标同名自动加 ` (1)`、跨库/只读库/保险箱/回收站/排除目录一律跳过，单次上限 5000 个文件；每步写 `organize/journal-<jobID>.jsonl`（from/to/ts/ok/err），完成后调 `Index.UpdatePaths` 增量刷新索引。
@@ -421,5 +423,6 @@
 - UI：新增「自动整理」页（侧栏「存储」组）：规则列表 + 编辑抽屉（匹配条件 / 目标目录 / 分组方式 + 「预览前 50 条」）、执行前确认弹窗（影响文件数、预计移动字节、跳过原因统计）、作业记录表（含「撤销」按钮与结果明细）。
 - 安全：全部接口 admin only；执行不删除任何文件；撤销失败项逐条列出而不是静默忽略。
 - 验收：造 200 个散落文件 + 一条「按扩展名归类」规则，预览与实际执行数量一致；执行后索引即时可见新路径；撤销后文件与索引完全回到原位；中途取消不产生半移动文件（每条移动本身原子）。
+- 验收记录（2026-11-27，本机 52700 真实数据）：用 `I:\NAS\.orgtest` 下 6 个 txt + 1 个 jpg 建规则「lib2 / 前缀 `.orgtest` / 扩展名 `.txt` → `归档`」，预览返回 6 条且与执行数一致（jpg 不在规则内，正确留原地）；执行后 6 个文件落到 `I:\NAS\归档\` 且 `/api/search` 立即返回新路径；撤销后 6 个文件与索引全部回原位；作业表记 6 移动 0 失败，撤销后整理作业不再提供「撤销」。测试数据、规则与作业日志已清理。
 
 **依赖与顺序**：批次 1 → 批次 2（复用 housekeeping 与后台任务骨架）→ 批次 3（抽取 worker 与批次 2 的限速/进度骨架同构）→ 批次 4（复用 `UpdatePaths` 与回收站/保险箱边界判断）。每批独立可发布、独立补测试与文档，全部完成后版本升 1.8.0。

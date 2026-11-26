@@ -58,6 +58,7 @@
 | `patrol.go` | 校验巡检（`file_sig` 表）：quick（大小 + 首尾 64KB 抽样 SHA-256）/ deep（全文件 SHA-256，~20MB/s 限速）签名比对，单飞可取消，只报告不修改；`POST /api/storage/patrol/{start,cancel}`、`GET /api/storage/patrol/{status,last}` |
 | `overview.go` | 总览仪表盘数据：`GET /api/overview`（库容量、全库与类型统计、索引 / 回收站 / 分享 / 设备、近期活动、空间与索引告警） |
 | `content.go` | 正文索引与内容搜索：`content` / `content_meta` 表、后台抽取 worker（并发 2、300ms 软超时、可取消、单文件 ≤2MB、文本截断 1MB、UTF-8 优先 / GB18030 兜底）、`GET /api/search/content`（命中片段高亮）、`GET /api/content/status` |
+| `organize.go` | 自动整理规则：规则 CRUD（`organize.json`）、`POST /api/organize/preview`（只读预览）、`/run`（单飞执行，`os.Rename`、同名加序号、跨库/只读/保险箱/回收站/排除目录跳过、上限 5000、journal jsonl、完成后 `Index.UpdatePaths`）、`/undo`（按 journal 倒序回搬）、`/jobs`（最近 50 条）；全部接口 admin only，不删除文件 |
 | `webdav.go` | WebDAV 服务（`/dav/<库ID>/`，继承账号 / 只读，敏感目录不可访问） |
 | `zip.go` | 文件夹 / 多选服务端流式 Zip 打包 |
 | `wol.go` | 网络唤醒主机管理与 magic packet |
@@ -72,6 +73,7 @@
 
 - 文件：`ls`、`raw`、`stream`、`thumb`、`upload/{init,chunk,complete,abort,status}`、`mkdir`、`rename`、`move`、`copy`、`delete`、`zip`、`size`、`info`
 - 媒体 / 索引：`search`、`search/content`、`content/status`、`media`、`index/status`、`index/refresh`、`reindex`、`subtitle`、`subtitle/content`
+- 自动整理：`organize/rules`（GET/POST/PUT/DELETE）、`organize/preview`、`organize/run`、`organize/undo`、`organize/status`、`organize/cancel`、`organize/jobs`（全部 admin only；规则存 `organize.json`，作业 `organize/jobs.json`，日志 `organize/journal-<jobID>.jsonl`）
 - 存储库 / 磁盘：`libs`（GET / POST / DELETE / update / media-hide）、`fs/dirs`、`disks`
 - 安全 / 账号：`auth/{login,logout,me,status,sessions,revoke}`、`users`（+password / update）、`audit`、`devices`、`shares`、`share/{id}`、`share/{id}/raw`
 - 保险箱：`vault/{status,setup,unlock,lock,ls,raw,upload,delete,mkdir,import,export,改密}`
@@ -122,7 +124,7 @@
   - 备份仅覆盖以上应用数据；媒体文件、保险箱文件（存储库内 `.linNasVault`）需另行备份，见 [DATA_BACKUP.md](../DATA_BACKUP.md)。
 - **存储库 `Library`**：`ID`（`lib1`…）、`Name`、`Path`（绝对路径）、`ReadOnly`、`Enabled`、`Exclude`（完全隐藏且不索引）、`MediaHide`（仍索引 / 可访问，仅不在媒体库展示）。
 - **索引表** `files(lib_id, path, parent, name, is_dir, size, mod_time, kind)`；全量扫描约 24.5 万文件 ~75s；启动 6 小时内不重扫。
-- **辅助表** `storage_snapshots(lib_id, ts, bytes, files)`（按小时容量快照，趋势用，保留 400 天）；`file_sig(lib_id, path, size, mod_time, sig, sig_at)`（巡检签名基线，`sig` 带 `quick:`/`deep:` 前缀）；`content(lib_id, path, mtime, size, text, indexed_at, PRIMARY KEY(lib_id, path))` 与 `content_meta(k, v)`（正文索引与抽取批次统计）。
+- **辅助表** `storage_snapshots(lib_id, ts, bytes, files)`（按小时容量快照，趋势用，保留 400 天）；`file_sig(lib_id, path, size, mod_time, sig, sig_at)`（巡检签名基线，`sig` 带 `quick:`/`deep:` 前缀）；`content(lib_id, path, mtime, size, text, indexed_at, PRIMARY KEY(lib_id, path))` 与 `content_meta(k, v)`（正文索引与抽取批次统计）。自动整理的规则与作业为独立 JSON 文件而非 SQLite 表：`organize.json`（规则）、`organize/jobs.json`（最近 50 个作业）、`organize/journal-<jobID>.jsonl`（逐条移动日志，撤销依据）。
 - **隐藏目录**：保险箱 `.linNasVault`、回收站 `.linNasTrash`（含 `.meta`），不出现在浏览 / 搜索 / 索引。
 
 ## 7. 关键设计点

@@ -61,6 +61,14 @@ const state = {
   patrolTimer: null,         // 巡检状态轮询定时器
   patrolStatus: null,        // 最近一次 GET /api/storage/patrol/status
   patrolLast: null,          // 最近一条 GET /api/storage/patrol/last 记录
+  // 自动整理(批次 4)
+  organizeRules: [],         // GET /api/organize/rules 的规则列表
+  organizeStatus: null,      // 最近一次 GET /api/organize/status
+  organizeJobs: [],          // GET /api/organize/jobs 的作业列表
+  organizePreview: null,     // 最近一次 POST /api/organize/preview 的结果
+  organizePreviewRule: null, // 预览对应的规则(用于执行按钮回查 ruleId)
+  organizeTimer: null,       // 整理作业状态轮询定时器
+  organizeDraft: null,       // 规则编辑抽屉当前编辑的规则副本
   // v1.4.0 D 安全
   auth: { multiUser: false, userCount: 0, idleLockMinutes: 30, username: "", role: "", session: false, locked: false },
   users: [],
@@ -209,7 +217,11 @@ async function api(path, opts = {}, retry = 0) {
     return api(path, opts, retry + 1);
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  if (!res.ok) {
+    const err = new Error(data.error || `HTTP ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
   return data;
 }
 
@@ -3444,7 +3456,7 @@ $$("#storage-tabs button").forEach((b) => {
 
 // 供总览「快捷入口」等外部调用：切换存储页签并加载对应数据
 function setStorageTab(tab) {
-  if (tab !== "dups" && tab !== "trend" && tab !== "patrol") tab = "large";
+  if (tab !== "dups" && tab !== "trend" && tab !== "patrol" && tab !== "organize") tab = "large";
   state.storageTab = tab;
   $$("#storage-tabs button").forEach((x) => {
     x.classList.toggle("on", x.dataset.tab === state.storageTab);
@@ -3455,7 +3467,10 @@ function setStorageTab(tab) {
   if (trendEl) trendEl.hidden = state.storageTab !== "trend";
   const patrolEl = $("#storage-patrol");
   if (patrolEl) patrolEl.hidden = state.storageTab !== "patrol";
+  const orgEl = $("#storage-organize");
+  if (orgEl) orgEl.hidden = state.storageTab !== "organize";
   if (state.storageTab !== "patrol") stopPatrolPoll();
+  if (state.storageTab !== "organize") stopOrganizePoll();
   loadStorageTab();
 }
 
@@ -3470,6 +3485,7 @@ function loadStorageTab() {
   if (state.storageTab === "dups") loadDupsStatus();
   else if (state.storageTab === "trend") loadTrend();
   else if (state.storageTab === "patrol") loadPatrol();
+  else if (state.storageTab === "organize") loadOrganize();
   else loadStorageLarge();
 }
 
@@ -4101,6 +4117,423 @@ function renderPatrolLast() {
   add("missing", "文件缺失", it.missing);
   add("failed", "读取失败", it.failed);
   el.appendChild(stats);
+}
+
+/* ============================================================ 自动整理(批次 4) */
+const ORG_GROUP_LABELS = { ext: "按扩展名", kind: "按类型", "year-month": "按年月", none: "不分组" };
+const ORG_KIND_LABELS = { video: "视频", image: "图片", audio: "音频", other: "其它" };
+
+function stopOrganizePoll() {
+  if (state.organizeTimer) { clearTimeout(state.organizeTimer); state.organizeTimer = null; }
+}
+
+async function loadOrganize() {
+  if (!isAdmin()) {
+    const el = $("#storage-organize");
+    if (el) el.innerHTML = "";
+    return;
+  }
+  try {
+    const [rules, st] = await Promise.all([
+      api("/api/organize/rules"),
+      api("/api/organize/status"),
+    ]);
+    state.organizeRules = rules.rules || [];
+    state.organizeStatus = st;
+    renderOrganize();
+    if (st && st.running) pollOrganize();
+    else {
+      stopOrganizePoll();
+      const jobs = await api("/api/organize/jobs");
+      state.organizeJobs = jobs.items || [];
+      renderOrganizeJobs();
+    }
+  } catch (e) {
+    toast("加载自动整理失败: " + e.message);
+  }
+}
+
+function pollOrganize() {
+  stopOrganizePoll();
+  state.organizeTimer = setTimeout(async () => {
+    if (state.view !== "storage" || state.storageTab !== "organize") return;
+    try {
+      const st = await api("/api/organize/status");
+      state.organizeStatus = st;
+      renderOrganize();
+      if (st && st.running) pollOrganize();
+      else {
+        const jobs = await api("/api/organize/jobs");
+        state.organizeJobs = jobs.items || [];
+        renderOrganizeJobs();
+        toast(st.kind === "undo" ? "撤销完成" : "整理完成");
+      }
+    } catch { pollOrganize(); }
+  }, 1200);
+}
+
+function orgLibName(id) {
+  const lib = (state.storageLibs || []).find((l) => l.id === id);
+  if (lib) return lib.name || lib.id;
+  const all = state.libs || [];
+  const l2 = all.find((x) => x.id === id);
+  return l2 ? (l2.name || l2.id) : (id || "—");
+}
+
+function orgRuleSummary(r) {
+  const m = r.match || {}, a = r.action || {};
+  const bits = [];
+  if (m.matchPathPrefix) bits.push("目录 " + m.matchPathPrefix);
+  if (m.exts && m.exts.length) bits.push("扩展名 " + m.exts.join("/"));
+  if (m.nameContains) bits.push("名称含 " + m.nameContains);
+  if (m.kind) bits.push("类型 " + (ORG_KIND_LABELS[m.kind] || m.kind));
+  if (m.minSizeMB) bits.push("≥" + m.minSizeMB + "MB");
+  if (m.maxSizeMB) bits.push("≤" + m.maxSizeMB + "MB");
+  if (m.olderThanDays) bits.push("早于 " + m.olderThanDays + " 天");
+  if (!bits.length) bits.push("全部文件");
+  bits.push("→ " + (a.moveTo || "/") + (a.groupBy && a.groupBy !== "none" ? " · " + (ORG_GROUP_LABELS[a.groupBy] || a.groupBy) : ""));
+  return bits.join(" · ");
+}
+
+function renderOrganize() {
+  const el = $("#storage-organize");
+  if (!el) return;
+  el.innerHTML = "";
+  const st = state.organizeStatus || {};
+  const running = !!st.running;
+
+  // 进度卡片(运行中)
+  if (running) {
+    const card = ovEl("div", "pt-card");
+    const head = ovEl("div", "pt-last-head", st.kind === "undo" ? "正在撤销…" : "正在整理…");
+    card.appendChild(head);
+    const pct = st.total > 0 ? Math.round((st.done / st.total) * 100) : 0;
+    const prog = ovEl("div", "pt-progress");
+    const track = ovEl("div", "pt-track");
+    const fill = ovEl("div", "pt-fill");
+    fill.style.width = pct + "%";
+    track.appendChild(fill);
+    prog.appendChild(track);
+    prog.appendChild(ovEl("div", "pt-stat", st.done + "/" + st.total + " · " + pct + "%"));
+    card.appendChild(prog);
+    if (st.current) card.appendChild(ovEl("div", "pt-current", st.current));
+    if (st.lastError) card.appendChild(ovEl("div", "pt-current err", st.lastError));
+    const bar = ovEl("div", "pt-bar");
+    const cancelBtn = ovEl("button", "btn danger");
+    cancelBtn.innerHTML = svgIcon("refresh") + " 请求取消";
+    cancelBtn.onclick = async () => {
+      try { await api("/api/organize/cancel", { method: "POST" }); toast("已请求取消"); }
+      catch (e) { toast("取消失败: " + e.message); }
+    };
+    bar.appendChild(cancelBtn);
+    card.appendChild(bar);
+    el.appendChild(card);
+  }
+
+  // 规则列表卡片
+  const card = ovEl("div", "pt-card");
+  const bar = ovEl("div", "pt-bar");
+  const title = ovEl("div", "pt-last-head", "整理规则");
+  bar.appendChild(title);
+  const addBtn = ovEl("button", "btn primary");
+  addBtn.innerHTML = svgIcon("folder-plus") + " 新建规则";
+  addBtn.disabled = running;
+  addBtn.onclick = () => openOrganizeEditor(null);
+  bar.appendChild(addBtn);
+  card.appendChild(bar);
+  if (!state.organizeRules.length) {
+    card.appendChild(ovEl("div", "pt-empty", "还没有规则。新建一条规则,把指定文件自动移动到目标目录。"));
+  } else {
+    const groups = ovEl("div", "pt-groups");
+    for (const r of state.organizeRules) {
+      const g = ovEl("div", "pt-group" + (r.enabled ? "" : " pt-disabled"));
+      const head = ovEl("div", "pt-group-head");
+      const t = ovEl("div", "pt-group-title", (r.name || r.id) + "（" + orgLibName(r.libId) + "）");
+      head.appendChild(t);
+      head.appendChild(ovEl("div", "pt-group-count", r.enabled ? "启用" : "停用"));
+      g.appendChild(head);
+      const rows = ovEl("div", "pt-rows");
+      const row = ovEl("div", "pt-row");
+      row.appendChild(ovEl("div", "pt-path", orgRuleSummary(r)));
+      row.appendChild(ovEl("div", "pt-reason", "目标 " + orgLibName(r.libId) + ":" + (r.action && r.action.moveTo || "/")));
+      rows.appendChild(row);
+      g.appendChild(rows);
+      const ops = ovEl("div", "pt-bar org-ops");
+      const editBtn = ovEl("button", "btn");
+      editBtn.textContent = "编辑";
+      editBtn.disabled = running;
+      editBtn.onclick = () => openOrganizeEditor(r);
+      const previewBtn = ovEl("button", "btn");
+      previewBtn.textContent = "预览";
+      previewBtn.disabled = running;
+      previewBtn.onclick = () => runOrganizePreview(r.id);
+      const runBtn = ovEl("button", "btn primary");
+      runBtn.textContent = "执行";
+      runBtn.disabled = running;
+      runBtn.onclick = () => confirmOrganizeRun(r.id);
+      const delBtn = ovEl("button", "btn danger");
+      delBtn.textContent = "删除";
+      delBtn.disabled = running;
+      delBtn.onclick = async () => {
+        const ok = await askConfirm("删除规则", `删除整理规则「${r.name || r.id}」?不会移动任何文件。`, "删除");
+        if (!ok) return;
+        try {
+          await api("/api/organize/rules?id=" + enc(r.id), { method: "DELETE" });
+          toast("已删除规则");
+          loadOrganize();
+        } catch (e) { toast("删除失败: " + e.message); }
+      };
+      ops.appendChild(editBtn); ops.appendChild(previewBtn); ops.appendChild(runBtn); ops.appendChild(delBtn);
+      g.appendChild(ops);
+      groups.appendChild(g);
+    }
+    card.appendChild(groups);
+  }
+  el.appendChild(card);
+
+  // 作业历史卡片
+  const jobsCard = ovEl("div", "pt-card");
+  jobsCard.appendChild(ovEl("div", "pt-last-head", "整理作业"));
+  if (!state.organizeJobs.length) {
+    jobsCard.appendChild(ovEl("div", "pt-empty", "还没有作业记录。"));
+  } else {
+    const rows = ovEl("div", "pt-rows");
+    for (const j of state.organizeJobs) {
+      const row = ovEl("div", "pt-row");
+      const bits = [];
+      bits.push(j.kind === "undo" ? "撤销" : "整理");
+      if (j.ruleName) bits.push(j.ruleName);
+      bits.push(fmtTime(j.startedAt));
+      bits.push("移动 " + (j.moved || 0) + (j.failed ? " · 失败 " + j.failed : "") + (j.skipped ? " · 跳过 " + j.skipped : "") + (j.cancelled ? " · 已取消" : ""));
+      if (j.durationSec !== undefined && j.durationSec !== null) bits.push("耗时 " + (fmtDur(j.durationSec) || Math.round(j.durationSec) + " 秒"));
+      row.appendChild(ovEl("div", "pt-path", bits.join(" · ")));
+      if (j.canUndo) {
+        const undoBtn = ovEl("button", "btn");
+        undoBtn.textContent = "撤销";
+        undoBtn.disabled = running;
+        undoBtn.onclick = () => confirmOrganizeUndo(j.jobId, j);
+        row.appendChild(undoBtn);
+      }
+      rows.appendChild(row);
+    }
+    jobsCard.appendChild(rows);
+  }
+  el.appendChild(jobsCard);
+
+  // 预览结果卡片
+  renderOrganizePreview(el, running);
+}
+
+function renderOrganizePreview(el, running) {
+  const p = state.organizePreview;
+  if (!p) return;
+  const card = ovEl("div", "pt-card");
+  const bits = [];
+  bits.push("预览 " + (p.total || 0) + " 个文件");
+  if (p.totalBytes) bits.push("共 " + fmtSize(p.totalBytes));
+  if (p.skippedCount) bits.push("跳过 " + p.skippedCount);
+  if (p.conflicts) bits.push("同名冲突 " + p.conflicts + "（自动加序号）");
+  if (p.truncated) bits.push("仅显示前 " + (p.items || []).length + " 条");
+  const head = ovEl("div", "pt-last-head", "预览结果");
+  card.appendChild(head);
+  card.appendChild(ovEl("div", "pt-last-meta", bits.join(" · ")));
+  const groups = ovEl("div", "pt-groups");
+  const items = (p.items || []).slice(0, 50);
+  if (items.length) {
+    const g = ovEl("div", "pt-group");
+    g.appendChild(ovEl("div", "pt-group-head", ""));
+    const rows = ovEl("div", "pt-rows");
+    for (const it of items) {
+      const row = ovEl("div", "pt-row");
+      row.appendChild(ovEl("div", "pt-path", it.from));
+      row.appendChild(ovEl("div", "pt-reason", "→ " + it.to));
+      rows.appendChild(row);
+    }
+    g.appendChild(rows);
+    groups.appendChild(g);
+  }
+  const sk = (p.skipped || []).slice(0, 20);
+  if (sk.length) {
+    const g = ovEl("div", "pt-group pt-missing");
+    const rows = ovEl("div", "pt-rows");
+    for (const it of sk) {
+      const row = ovEl("div", "pt-row");
+      row.appendChild(ovEl("div", "pt-path", it.from));
+      row.appendChild(ovEl("div", "pt-reason", it.reason || "跳过"));
+      rows.appendChild(row);
+    }
+    g.appendChild(rows);
+    groups.appendChild(g);
+  }
+  card.appendChild(groups);
+  const runBtn = ovEl("button", "btn primary");
+  runBtn.textContent = "按此预览执行";
+  runBtn.disabled = running || !(p.items || []).length;
+  runBtn.onclick = () => confirmOrganizeRun(state.organizePreviewRule);
+  card.appendChild(runBtn);
+  if (el) el.appendChild(card);
+}
+
+async function runOrganizePreview(ruleId) {
+  try {
+    const p = await api("/api/organize/preview", { method: "POST", body: { ruleId } });
+    state.organizePreview = p;
+    state.organizePreviewRule = ruleId;
+    renderOrganize();
+    const el = $("#storage-organize");
+    if (el) { const cards = el.querySelectorAll(".pt-card"); if (cards.length) cards[cards.length - 1].scrollIntoView({ behavior: "smooth", block: "nearest" }); }
+  } catch (e) { toast("预览失败: " + e.message); }
+}
+
+async function confirmOrganizeRun(ruleId) {
+  const r = (state.organizeRules || []).find((x) => x.id === ruleId) || {};
+  const p = state.organizePreview;
+  const same = p && state.organizePreviewRule === ruleId;
+  let msg;
+  if (same && p.total !== undefined) {
+    msg = `将按规则「${r.name || ruleId}」移动 ${p.total} 个文件（共 ${fmtSize(p.totalBytes || 0)}${p.skippedCount ? "，另有 " + p.skippedCount + " 个跳过" : ""}）。移动会记入作业日志,可整体撤销。确定执行?`;
+  } else {
+    msg = `将执行规则「${r.name || ruleId}」（单次最多移动 5000 个文件）。移动会记入作业日志,可整体撤销。确定执行?`;
+  }
+  const ok = await askConfirm("执行整理", msg, "执行");
+  if (!ok) return;
+  try {
+    const res = await api("/api/organize/run", { method: "POST", body: { ruleId } });
+    toast(`开始整理,共 ${res.total} 个文件`);
+    state.organizePreview = null;
+    loadOrganize();
+  } catch (e) {
+    if (e.status === 409) toast("已有整理作业在运行");
+    else toast("执行失败: " + e.message);
+  }
+}
+
+async function confirmOrganizeUndo(jobId, job) {
+  const ok = await askConfirm("撤销整理", `撤销作业「${(job && job.ruleName) || jobId}」的移动,把文件搬回原位置(目标被占用时会跳过并逐条报告)。确定撤销?`, "撤销");
+  if (!ok) return;
+  try {
+    await api("/api/organize/undo", { method: "POST", body: { jobId } });
+    toast("开始撤销");
+    loadOrganize();
+  } catch (e) {
+    if (e.status === 409) toast("已有整理作业在运行");
+    else toast("撤销失败: " + e.message);
+  }
+}
+
+function renderOrganizeJobs() {
+  // 作业列表在 renderOrganize 内随规则卡一起渲染;这里仅在非运行态刷新时重绘整页
+  renderOrganize();
+}
+
+/* ---- 规则编辑抽屉 ---- */
+function openOrganizeEditor(rule) {
+  const isNew = !rule;
+  const base = rule || { id: "", name: "", enabled: true, libId: (state.storageLibs || [])[0] && (state.storageLibs[0].id || state.storageLibs[0].ID) || "", match: { matchPathPrefix: "", exts: [], nameContains: "", kind: "", minSizeMB: 0, maxSizeMB: 0, olderThanDays: 0 }, action: { moveTo: "", groupBy: "none" }, intervalHours: 0 };
+  state.organizeDraft = JSON.parse(JSON.stringify(base));
+  state.organizeDraft._isNew = isNew;
+
+  const dlg = document.createElement("dialog");
+  dlg.className = "wide";
+  dlg.innerHTML = `
+    <h3>${isNew ? "新建整理规则" : "编辑整理规则"}</h3>
+    <div class="org-form">
+      <label class="org-fld"><span>规则名称</span><input id="org-name" maxlength="60" placeholder="例如:照片归档"></label>
+      <label class="org-fld"><span>存储库</span><select id="org-lib"></select></label>
+      <label class="org-fld"><span>只处理目录(可选,库内相对路径)</span><input id="org-prefix" placeholder="例如:Downloads"></label>
+      <label class="org-fld"><span>扩展名(逗号分隔,可选)</span><input id="org-exts" placeholder="例如:jpg, png, mp4"></label>
+      <label class="org-fld"><span>文件名包含(可选)</span><input id="org-namec" placeholder="例如:截图"></label>
+      <label class="org-fld"><span>类型</span><select id="org-kind">
+        <option value="">不限</option><option value="video">视频</option><option value="image">图片</option><option value="audio">音频</option><option value="other">其它</option>
+      </select></label>
+      <label class="org-fld org-2col"><span>大小下限(MB,0 不限)</span><input id="org-min" type="number" min="0" step="0.1"></label>
+      <label class="org-fld org-2col"><span>大小上限(MB,0 不限)</span><input id="org-max" type="number" min="0" step="0.1"></label>
+      <label class="org-fld org-2col"><span>早于(天,0 不限)</span><input id="org-days" type="number" min="0"></label>
+      <label class="org-fld"><span>目标目录(库内相对路径)</span>
+        <div class="org-move-row"><input id="org-move" placeholder="例如:归档/2024"><button class="btn" id="org-pick" type="button">选择…</button></div>
+      </label>
+      <label class="org-fld"><span>子目录分组</span><select id="org-group">
+        <option value="none">不分组(直接放入目标目录)</option>
+        <option value="ext">按扩展名(如 jpg/)</option>
+        <option value="kind">按类型(video/ image/…)</option>
+        <option value="year-month">按年月(2024-05/)</option>
+      </select></label>
+      <label class="org-fld org-switch"><input id="org-enabled" type="checkbox"><span>启用规则</span></label>
+    </div>
+    <div class="dlg-actions">
+      <button class="btn" id="org-cancel">取消</button>
+      <button class="btn primary" id="org-save">保存规则</button>
+    </div>`;
+  document.body.appendChild(dlg);
+
+  const libSel = dlg.querySelector("#org-lib");
+  const libs = state.storageLibs && state.storageLibs.length ? state.storageLibs : (state.libs || []);
+  for (const l of libs) {
+    const id = l.id || l.ID;
+    const opt = document.createElement("option");
+    opt.value = id;
+    opt.textContent = (l.name || l.Name || id) + (l.readOnly ? "（只读）" : "");
+    libSel.appendChild(opt);
+  }
+  const d = state.organizeDraft;
+  dlg.querySelector("#org-name").value = d.name || "";
+  libSel.value = d.libId || (libs[0] && (libs[0].id || libs[0].ID)) || "";
+  dlg.querySelector("#org-prefix").value = (d.match && d.match.matchPathPrefix) || "";
+  dlg.querySelector("#org-exts").value = ((d.match && d.match.exts) || []).join(", ");
+  dlg.querySelector("#org-namec").value = (d.match && d.match.nameContains) || "";
+  dlg.querySelector("#org-kind").value = (d.match && d.match.kind) || "";
+  dlg.querySelector("#org-min").value = (d.match && d.match.minSizeMB) || 0;
+  dlg.querySelector("#org-max").value = (d.match && d.match.maxSizeMB) || 0;
+  dlg.querySelector("#org-days").value = (d.match && d.match.olderThanDays) || 0;
+  dlg.querySelector("#org-move").value = (d.action && d.action.moveTo) || "";
+  dlg.querySelector("#org-group").value = (d.action && d.action.groupBy) || "none";
+  dlg.querySelector("#org-enabled").checked = d.enabled !== false;
+
+  dlg.querySelector("#org-pick").onclick = () => {
+    const libId = libSel.value;
+    const start = "/" + libId + "/" + (dlg.querySelector("#org-move").value || "").replace(/^\/+|\/+$/g, "");
+    openFolderPicker("选择目标目录（" + orgLibName(libId) + "）", (vp) => {
+      if (!vp) return;
+      const prefix = "/" + libId;
+      let rel = vp.startsWith(prefix + "/") ? vp.slice(prefix.length + 1) : "";
+      dlg.querySelector("#org-move").value = rel;
+    }, start);
+  };
+
+  dlg.querySelector("#org-cancel").onclick = () => { dlg.close(); dlg.remove(); };
+  dlg.addEventListener("cancel", () => { dlg.remove(); });
+  dlg.querySelector("#org-save").onclick = async () => {
+    const rule = {
+      id: d.id || "",
+      name: dlg.querySelector("#org-name").value.trim(),
+      enabled: dlg.querySelector("#org-enabled").checked,
+      libId: libSel.value,
+      match: {
+        matchPathPrefix: dlg.querySelector("#org-prefix").value.trim(),
+        exts: dlg.querySelector("#org-exts").value.split(/[,，;；\s]+/).map((s) => s.trim().replace(/^\./, "").toLowerCase()).filter(Boolean),
+        nameContains: dlg.querySelector("#org-namec").value.trim(),
+        kind: dlg.querySelector("#org-kind").value,
+        minSizeMB: Number(dlg.querySelector("#org-min").value) || 0,
+        maxSizeMB: Number(dlg.querySelector("#org-max").value) || 0,
+        olderThanDays: Math.max(0, Math.round(Number(dlg.querySelector("#org-days").value) || 0)),
+      },
+      action: {
+        moveTo: dlg.querySelector("#org-move").value.trim(),
+        groupBy: dlg.querySelector("#org-group").value || "none",
+      },
+      intervalHours: 0,
+    };
+    if (!rule.name) { toast("请填写规则名称"); return; }
+    if (!rule.action.moveTo) { toast("请填写或选择目标目录"); return; }
+    try {
+      if (d._isNew) await api("/api/organize/rules", { method: "POST", body: rule });
+      else await api("/api/organize/rules", { method: "PUT", body: rule });
+      toast(d._isNew ? "已创建规则" : "已保存规则");
+      dlg.close(); dlg.remove();
+      loadOrganize();
+    } catch (e) { toast("保存失败: " + e.message); }
+  };
+  dlg.showModal();
 }
 
 /* ============================================================ 启动 */

@@ -34,6 +34,8 @@ type Server struct {
 	patrol *patrolManager
 	// content 保存正文索引的后台抽取队列与统计。
 	content *contentIndexer
+	// organize 保存自动整理的规则、单飞作业状态与作业历史(DataDir/organize.json)。
+	organize *organizeManager
 }
 
 // NewServer creates the HTTP mux with all routes registered.
@@ -52,6 +54,7 @@ func NewServer(cfg *Config) *Server {
 		diskHealth: &diskHealthCache{},
 		patrol:     newPatrolManager(cfg.DataDir),
 		content:    &contentIndexer{},
+		organize:   newOrganizeManager(cfg.DataDir),
 	}
 
 	api := http.NewServeMux()
@@ -75,6 +78,17 @@ func NewServer(cfg *Config) *Server {
 	api.HandleFunc("GET /api/storage/patrol/status", s.handlePatrolStatus)
 	api.HandleFunc("POST /api/storage/patrol/cancel", s.handlePatrolCancel)
 	api.HandleFunc("GET /api/storage/patrol/last", s.handlePatrolLast)
+	// 自动整理(批次 4):规则 CRUD、预览、执行、撤销与作业历史(仅管理员)
+	api.HandleFunc("GET /api/organize/rules", s.handleOrganizeRules)
+	api.HandleFunc("POST /api/organize/rules", s.handleOrganizeRules)
+	api.HandleFunc("PUT /api/organize/rules", s.handleOrganizeRules)
+	api.HandleFunc("DELETE /api/organize/rules", s.handleOrganizeRuleDelete)
+	api.HandleFunc("POST /api/organize/preview", s.handleOrganizePreview)
+	api.HandleFunc("POST /api/organize/run", s.handleOrganizeRun)
+	api.HandleFunc("POST /api/organize/cancel", s.handleOrganizeCancel)
+	api.HandleFunc("GET /api/organize/status", s.handleOrganizeStatus)
+	api.HandleFunc("GET /api/organize/jobs", s.handleOrganizeJobs)
+	api.HandleFunc("POST /api/organize/undo", s.handleOrganizeUndo)
 	// 告警记录:列表与标记已读(任意登录角色,只影响已读状态)
 	api.HandleFunc("GET /api/alerts", s.handleAlerts)
 	api.HandleFunc("POST /api/alerts/ack", s.handleAlertsAck)
@@ -313,6 +327,10 @@ func (s *Server) authorize(sess *Session, r *http.Request) bool {
 	}
 	// Wake-on-LAN 的增删与发送属于系统级操作,仅管理员
 	if strings.HasPrefix(p, "/api/wol") && m != "GET" {
+		return false
+	}
+	// 自动整理会移动文件,全部接口(含规则与作业列表)仅管理员
+	if strings.HasPrefix(p, "/api/organize") {
 		return false
 	}
 	// 只读角色禁止一切写操作(读、登录、退出、解锁除外)

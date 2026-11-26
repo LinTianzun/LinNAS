@@ -6,6 +6,7 @@
 
 | 里程碑 | 日期 | 组件 / 版本 | 主要内容 |
 |---|---|---|---|
+| M16.2 | 2026-11-27 | 服务端 1.7.0 | 自动整理规则：`server/organize.go`（规则 CRUD `organize.json`、`POST /api/organize/preview` 只读预览、`/run` 单飞执行 `os.Rename` + 同名加序号 + 跨库/只读/保险箱/回收站/排除跳过 + 上限 5000 + `journal-<jobID>.jsonl` + `Index.UpdatePaths`、`/undo` 倒序回搬、`/jobs` 最近 50 条、`/cancel`）；全部 admin only，不删除文件；UI「自动整理」页签（规则列表 / 编辑 / 预览前 50 条 / 执行确认 / 作业历史与撤销）；真实环境端到端验收通过 |
 | M16.1 | 2026-11-26 | 服务端 1.7.0 | 正文索引与内容搜索：`server/content.go`（`content` / `content_meta` 表、后台抽取并发 2、单文件 ≤2MB、文本截断 1MB、UTF-8 优先 / GB18030 兜底、txt/md/log/csv/json/xml/html/htm/srt/ass/vtt 直读 + docx/xlsx/pptx 抽取、PDF 未索引）、`GET /api/search/content` / `GET /api/content/status`；索引扫描 / 对账后异步增量入队；UI 搜索范围切换与片段高亮；磁盘健康默认只显示承载已添加存储库的磁盘 |
 | M15.2 | 2026-11-26 | 服务端 1.7.0 | 校验巡检：`server/patrol.go`（quick 抽样 / deep 全文件 SHA-256、单飞可取消、只报告不修改）、`file_sig` 表、`patrol.json` 保留 20 条、`POST/GET /api/storage/patrol/{start,status,cancel,last}`；`GET /api/disks/health?lib=` 按存储库过滤磁盘；UI 巡检页签 + 磁盘健康存储库下拉 |
 | M15.1 | 2026-11-26 | 服务端 1.7.0 | 存储空间分析增强（批次 1）：`GET /api/storage/trend` 增长趋势、`GET /api/disks/health` 磁盘健康、`storage_snapshots` 与 `Index.Snapshot()`、空间告警阈值可配置 + `GET /api/alerts` / `POST /api/alerts/ack`；新增 `server/{trend,disk_health,alerts}.go` 与单测 |
@@ -31,6 +32,7 @@
 （M2 / M3 等为早期 Android 构建阶段，逐项记录见 [PLAN.md](../PLAN.md)。）
 
 ## 近期提交（git log）
+- 工作区（待提交）：服务端 1.7.0 —— M16 批次 4（自动整理 `server/organize.go` + `organize_test.go`、`/api/organize/{rules,preview,run,undo,status,cancel,jobs}`、`organize.json` / `jobs.json` / `journal-<jobID>.jsonl`、UI「自动整理」页签）。
 - 工作区（待提交）：服务端 1.7.0 —— M16 批次 3（正文索引 `server/content.go` + `content` / `content_meta` 表 + `GET /api/search/content` / `GET /api/content/status`；UI 搜索范围切换与片段高亮；磁盘健康默认只显示已添加存储库所在磁盘）。
 
 - 工作区（待提交）：服务端 1.7.0 —— M15 批次 2（校验巡检 `server/patrol.go` + `file_sig` 表 + 4 个 patrol API；`GET /api/disks/health?lib=` 过滤；`ui/dist` 巡检页签与磁盘健康存储库下拉）。

@@ -1,14 +1,14 @@
 # 当前任务（CURRENT TASK）
 
-> 这是一个「活」文件：记录此刻正在做 / 紧接着要做的事。稳定后的结论应迁移到 [TASK_HISTORY.md](TASK_HISTORY.md)，整体状态见 [DEVELOPMENT_STATUS.md](DEVELOPMENT_STATUS.md)。更新时间：2026-11-26。
+> 这是一个「活」文件：记录此刻正在做 / 紧接着要做的事。稳定后的结论应迁移到 [TASK_HISTORY.md](TASK_HISTORY.md)，整体状态见 [DEVELOPMENT_STATUS.md](DEVELOPMENT_STATUS.md)。更新时间：2026-11-27。
 
 ## 进行中
 
-- M16 批次 3（正文索引与内容搜索）已实现、验证并部署到本机 52700；磁盘健康默认范围修正为只显示承载已添加存储库的磁盘。下一步进入批次 4（自动整理规则）。
+- M16 两个批次均已完成：批次 3（正文索引与内容搜索）与批次 4（自动整理规则）均已实现、测试、端到端验证并部署到本机 52700。批次 4 覆盖规则 CRUD / 只读预览 / 单飞执行（journal + `Index.UpdatePaths`）/ 撤销 / 作业记录，UI 存储空间页新增「自动整理」页签。M16 全部完成后再统一把服务端版本升到 1.8.0。
 
 ## 下一步（待办）
 
-1. 按 [PLAN.md](../PLAN.md) M16 推进**批次 4 自动整理规则**（规则模型 / 预览 / 执行日志 / 撤销 / 作业记录，v1 仅手动触发）。
+1. M16 全部交付后按 [RELEASING.md](../RELEASING.md) 将服务端版本从 1.7.0 升到 1.8.0（同步 `server/config.go` 与 README、PLAN、CHANGELOG）。
 2. 完成 release 签名与 CI 发布自动化（见 [ROADMAP_BACKLOG.md](ROADMAP_BACKLOG.md) BL-002 / BL-003）。
 3. （可选）在 Android 7 / 14 双版本补测关键路径；M10 单机基本回归已通过。
 4. 按 [RELEASING.md](../RELEASING.md) 流程发布（若递增版本号，同步更新 `server/config.go` / `android/app/build.gradle.kts` 与 README、PLAN、CHANGELOG）。
@@ -20,6 +20,7 @@
 
 ## 最近完成
 
+- 2026-11-27 服务端 1.7.0：自动整理（批次 4）——新增 `server/organize.go` 与 `server/organize_test.go`；规则模型 `organizeRule{match{matchPathPrefix,exts,nameContains,kind,minSizeMB,maxSizeMB,olderThanDays}, action{moveTo,groupBy}}` 存 `organize.json`，`GET/POST/PUT/DELETE /api/organize/rules`；`POST /api/organize/preview` 只读预览、`/run` 单飞执行（`os.Rename`、同名加序号、跨库/只读/保险箱/回收站/排除跳过、上限 5000、`journal-<jobID>.jsonl`、完成后 `Index.UpdatePaths`）、`/undo` 倒序回搬、`/jobs` 最近 50 条、`/cancel`；全部接口 admin only，不删除文件。UI 存储空间页新增「自动整理」页签（规则列表 / 编辑对话框 / 预览前 50 条 / 执行确认 / 进度 / 作业历史与撤销）。真实环境端到端验收通过（6 文件预览=执行、索引即时可见、撤销完全回原位）。已构建并部署到本机 52700。
 - 2026-11-26 服务端 1.7.0：内容搜索（批次 3）——正文索引 `server/content.go`（`content` / `content_meta` 表、后台抽取并发 2、单文件 ≤2MB、文本截断 1MB、UTF-8 优先 / GB18030 兜底；txt/md/log/csv/json/xml/html/htm/srt/ass/vtt 直读、docx/xlsx/pptx 抽取，PDF 未索引）与 `GET /api/search/content`、`GET /api/content/status`；索引扫描 / 对账完成后异步增量入队；UI 搜索范围切换（文件名 / 内容 / 全部）、片段高亮与索引状态提示；磁盘健康默认只显示承载已添加存储库的磁盘（`lib=all` 才返回全部）。已构建并部署到本机 52700。
 - 2026-11-26 服务端 1.7.0：存储空间分析增强（批次 2）——校验巡检 `server/patrol.go`（quick/deep 签名、单飞可取消、只报告不修改、`file_sig` 表、`patrol.json` 历史 20 条）与 `POST/GET /api/storage/patrol/{start,status,cancel,last}`；磁盘健康 `GET /api/disks/health?lib=` 按存储库过滤；UI 新增「巡检」页签与磁盘健康「存储库」下拉；已构建并部署到本机 52700。
 - 2026-11-26 服务端 1.7.0：存储空间分析增强（批次 1）——增长趋势 `GET /api/storage/trend`（7/30/90 天 + 总览 sparkline）、磁盘健康 `GET /api/disks/health`、空间告警阈值可配置与 `GET /api/alerts` / `POST /api/alerts/ack`；新增 `server/{trend,disk_health,alerts}.go` 与单测；已构建并部署到本机 52700。

@@ -1504,5 +1504,32 @@ dialog.wide { width: min(94vw, 600px); }
   .cs-toolbar .seg button { padding: 5px 10px; }
 }
 
+/* ===== 自动整理(批次 4) ===== */
+.pt-group.pt-disabled { opacity: .55; }
+.org-ops { padding: 4px 10px 10px; gap: 8px; }
+.org-ops .btn { font-size: 12px; padding: 4px 10px; }
+.org-form { display: flex; flex-direction: column; gap: 10px; margin: 12px 0 4px; }
+.org-fld { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); }
+.org-fld > span { font-size: 12px; }
+.org-fld input[type="text"], .org-fld input[type="number"],
+.org-fld input:not([type]), .org-fld select {
+  background: var(--bg-soft); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  color: var(--text); padding: 7px 10px; font-size: 13px; outline: none; width: 100%;
+  box-sizing: border-box;
+}
+.org-fld input:focus, .org-fld select:focus { border-color: var(--accent); }
+.org-2col { max-width: 46%; }
+.org-move-row { display: flex; gap: 8px; }
+.org-move-row input { flex: 1; }
+.org-move-row .btn { flex: none; font-size: 12.5px; padding: 6px 12px; }
+.org-switch { flex-direction: row; align-items: center; gap: 8px; color: var(--text); }
+.org-switch input { width: auto; }
+.pt-row .btn { flex: none; font-size: 12px; padding: 3px 10px; }
+@media (max-width: 620px) {
+  .org-2col { max-width: 100%; }
+  .org-ops { flex-wrap: wrap; }
+}
+
+
 
 
