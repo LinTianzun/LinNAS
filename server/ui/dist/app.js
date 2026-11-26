@@ -98,6 +98,7 @@ const ICONS = {
   "arrow-down": { d: '<path d="M12 5v14M6 13l6 6 6-6"/>' },
   logout: { d: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/>' },
   eye: { d: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>' },
+  "eye-off": { d: '<path d="M3 3l18 18"/><path d="M10.6 10.6a2 2 0 0 0 2.8 2.8"/><path d="M9.9 5.2A10.5 10.5 0 0 1 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-3.2 4.2"/><path d="M6.6 6.6A17.6 17.6 0 0 0 2 12s3.5 7 10 7a10.5 10.5 0 0 0 4.1-.8"/>' },
   film: { d: '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M7 4v16M17 4v16M2 9h5M2 15h5M17 9h5M17 15h5"/>' },
   monitor: { d: '<rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>' },
   smartphone: { d: '<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M12 18h.01"/>' },
@@ -762,9 +763,9 @@ function renderEntries() {
       const syncMh = () => {
         const hid = !!e.mediaHidden;
         mhBtn.classList.toggle("media-hidden", hid);
-        mhBtn.title = hid ? "显示于媒体库" : "不在媒体库展示";
+        mhBtn.title = hid ? "已隐藏于媒体库（点击恢复显示）" : "不在媒体库展示（文件浏览中仍可见）";
         mhBtn.setAttribute("aria-label", mhBtn.title);
-        mhBtn.innerHTML = svgIcon("eye");
+        mhBtn.innerHTML = svgIcon(hid ? "eye-off" : "eye");
         row.classList.toggle("media-hidden-row", hid);
       };
       syncMh();
@@ -2516,21 +2517,49 @@ document.querySelectorAll("#media-tabs button").forEach((b) => {
   };
 });
 $("#media-sort").onchange = (e) => { state.mediaSort = e.target.value; state.mediaOffset = 0; loadMedia(true); };
-$("#btn-media-more").onclick = () => loadMedia(false);
+$("#btn-media-more").onclick = () => loadMedia(false, true);
 
-async function loadMedia(reset) {
+// 媒体库自动翻页:一次 500(后端上限),进入页面后自动拉完剩余页,
+// 避免用户必须点「加载更多」才能看到同一文件夹里后面的图片。
+const MEDIA_PAGE_SIZE = 500;
+const MEDIA_AUTO_CAP = 2000; // 自动加载上限,防止超大库一次渲染过多卡片
+let mediaLoadSeq = 0;
+
+async function loadMedia(reset, manual) {
   const grid = $("#media-grid"), sub = $("#media-sub");
+  if (manual && state.mediaLoading) return;
   if (reset) { state.mediaOffset = 0; state.mediaItems = []; grid.innerHTML = '<div class="pempty" style="grid-column:1/-1">加载中…</div>'; }
+  const seq = ++mediaLoadSeq;
+  state.mediaLoading = true;
+  const label = { video: "视频", image: "图片", audio: "音乐" }[state.mediaType] || "媒体";
+  let lastLen = 0;
   try {
-    const items = await api(`/api/media?type=${enc(state.mediaType)}&sort=${enc(state.mediaSort)}&limit=200&offset=${state.mediaOffset}`);
-    if (reset) state.mediaItems = [];
-    state.mediaItems = state.mediaItems.concat(items || []);
-    state.mediaOffset = state.mediaItems.length;
+    do {
+      const items = await api(`/api/media?type=${enc(state.mediaType)}&sort=${enc(state.mediaSort)}&limit=${MEDIA_PAGE_SIZE}&offset=${state.mediaOffset}`);
+      if (seq !== mediaLoadSeq) return; // 期间切换了分类/排序,丢弃旧结果
+      lastLen = (items || []).length;
+      state.mediaItems = state.mediaItems.concat(items || []);
+      state.mediaOffset = state.mediaItems.length;
+      const hasMore = lastLen >= MEDIA_PAGE_SIZE;
+      sub.textContent = `${label} · 已加载 ${state.mediaItems.length} 项` +
+        (hasMore && !manual && state.mediaItems.length < MEDIA_AUTO_CAP ? "…" : "");
+      if (!hasMore) break;
+      if (manual) break;                                    // 手动「加载更多」:一次一页
+      if (state.mediaItems.length >= MEDIA_AUTO_CAP) break; // 已达自动上限
+      if (state.view !== "media") break;                    // 用户离开了媒体库
+      await new Promise((r) => setTimeout(r, 0));           // 让出主线程,避免界面卡住
+    } while (true);
+    if (seq !== mediaLoadSeq) return;
     renderMediaGrid();
-    const label = { video: "视频", image: "图片", audio: "音乐" }[state.mediaType] || "媒体";
-    sub.textContent = `${label} · 已加载 ${state.mediaItems.length} 项`;
-    $("#btn-media-more").hidden = (items || []).length < 200;
-  } catch (e) { grid.innerHTML = `<div class="pempty" style="grid-column:1/-1">加载失败: ${e.message}</div>`; }
+    const capped = state.mediaItems.length >= MEDIA_AUTO_CAP && lastLen >= MEDIA_PAGE_SIZE;
+    $("#btn-media-more").hidden = !capped;
+    sub.textContent = `${label} · 已加载 ${state.mediaItems.length} 项` +
+      (capped ? `（已到 ${MEDIA_AUTO_CAP} 项上限，可点「加载更多」继续）` : "");
+  } catch (e) {
+    if (seq === mediaLoadSeq) grid.innerHTML = `<div class="pempty" style="grid-column:1/-1">加载失败: ${e.message}</div>`;
+  } finally {
+    if (seq === mediaLoadSeq) state.mediaLoading = false;
+  }
 }
 
 /* 分组折叠句柄（列数变化时重算「留一行」的边界） */
@@ -2789,6 +2818,23 @@ function trashActions(it) {
   }, "del");
   return acts;
 }
+function trashThumbUrl(it, w) {
+  return apiUrl(`/api/trash/thumb?id=${enc(it.id)}&lib=${enc(it.libId)}&w=${w || 420}`);
+}
+function trashIconEl(it, kind, w) {
+  const icon = document.createElement("div"); icon.className = "fi t-" + kind;
+  if (kind === "image" || kind === "video") {
+    icon.classList.add("thumb");
+    const img = document.createElement("img");
+    img.loading = "lazy"; img.decoding = "async"; img.alt = ""; img.draggable = false;
+    img.src = trashThumbUrl(it, w);
+    img.onerror = () => { icon.classList.remove("thumb"); icon.innerHTML = svgIcon(kind === "video" ? "video" : "image"); };
+    icon.appendChild(img);
+  } else {
+    icon.innerHTML = svgIcon(kind === "dir" ? "folder" : "file");
+  }
+  return icon;
+}
 function renderTrash() {
   const wrap = $("#trash-list");
   wrap.className = "";
@@ -2796,14 +2842,12 @@ function renderTrash() {
   if (!state.trash.length) { wrap.innerHTML = '<div class="pempty">回收站是空的</div>'; return; }
   const grid = state.trashView === "grid";
   if (grid) wrap.className = "file-list grid";
-  const iconMap = { dir: "folder", video: "video", image: "image", audio: "music", archive: "archive", file: "file" };
   for (const it of state.trash) {
     const kind = it.isDir ? "dir" : kindOf(it.name);
     if (grid) {
       const card = document.createElement("div");
       card.className = "frow" + (it.isDir ? " is-dir" : "");
-      const icon = document.createElement("div"); icon.className = "fi t-" + kind;
-      icon.innerHTML = svgIcon(iconMap[kind] || "file");
+      const icon = trashIconEl(it, kind, 420);
       const meta = document.createElement("div"); meta.className = "fmain";
       const nm = document.createElement("div"); nm.className = "fname"; nm.textContent = it.name;
       const sb = document.createElement("div"); sb.className = "fsub"; sb.textContent = (it.isDir ? "文件夹" : fmtSize(it.size)) + " · " + fmtTime(it.trashedAt);
@@ -2812,8 +2856,7 @@ function renderTrash() {
       wrap.appendChild(card);
     } else {
       const row = document.createElement("div"); row.className = "vrow";
-      const icon = document.createElement("div"); icon.className = "fi t-" + kind;
-      icon.innerHTML = svgIcon(kind === "dir" ? "folder" : "file");
+      const icon = trashIconEl(it, kind, 160);
       const meta = document.createElement("div"); meta.className = "vm";
       meta.innerHTML = `<div class="vname"></div><div class="vsub"></div>`;
       meta.querySelector(".vname").textContent = it.name;

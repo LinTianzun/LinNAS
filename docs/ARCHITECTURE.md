@@ -48,7 +48,7 @@
 | `upload.go` | 分块上传（5 MiB）会话、断点续传、SHA-256、冲突 / 回滚 |
 | `media.go` / `subtitle.go` / `transcode.go` / `info.go` | 缩略图抽帧；字幕列表 / 转 WebVTT；ffmpeg 按需转码与缓存；ffprobe 详情 |
 | `vault.go` | 隐私保险箱（隐藏目录 + 密码，非加密；导入 / 导出 / 浏览 / 播放） |
-| `trash.go` | 回收站（`.linNasTrash` + `.meta`，恢复 / 彻底删除 / 清空 / 按天清理） |
+| `trash.go` | 回收站（`.linNasTrash` + `.meta`，恢复 / 彻底删除 / 清空 / 按天清理 / 缩略图） |
 | `fsops.go` / `size.go` / `disks.go` | 目录选择器 / 盘符枚举、移动 / 复制 / 改名 / 删除、目录递归大小、磁盘剩余 |
 | `analysis.go` | 存储空间分析：概览、大文件 Top N、重复文件候选（后台抽样哈希，人工确认后删除） |
 | `media_hide.go` | 「不在媒体库展示」路径的增删查（仍索引、仍可访问） |
@@ -69,7 +69,7 @@
 - 存储库 / 磁盘：`libs`（GET / POST / DELETE / update / media-hide）、`fs/dirs`、`disks`
 - 安全 / 账号：`auth/{login,logout,me,status,sessions,revoke}`、`users`（+password / update）、`audit`、`devices`、`shares`、`share/{id}`、`share/{id}/raw`
 - 保险箱：`vault/{status,setup,unlock,lock,ls,raw,upload,delete,mkdir,import,export,改密}`
-- 回收站：`trash`、`trash/{restore,delete,empty}`
+- 回收站：`trash`、`trash/{restore,delete,empty,thumb}`
 - 其它：`health`、`settings`、`pair`、`pair/qr`、`qr`、`remote`、`remote/serve`、`hotspot`、`autostart`、`app/version`、`app/apk`、`wol`、`wol/send`、`maintenance/cleanup`、`system/open`、`storage/{summary,large,duplicates,duplicates/scan}`
 - 非 `/api`：`/pair`（配对页）、`/s/{id}`（分享页）、`/dav/<lib>/`（WebDAV）、`/ui/`（管理端）
 

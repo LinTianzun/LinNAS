@@ -176,6 +176,39 @@ func (s *Server) handleTrashList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, s.listTrash(r.URL.Query().Get("lib")))
 }
 
+// handleTrashThumb GET /api/trash/thumb?id=&lib=&w= — 回收站内图片/视频的缩略图。
+// 回收站文件实际存放在 .linNasTrash 内,列表接口只给虚拟信息,这里按 id 定位真实文件。
+func (s *Server) handleTrashThumb(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.URL.Query().Get("id"))
+	libID := strings.TrimSpace(r.URL.Query().Get("lib"))
+	if id == "" || libID == "" {
+		writeErr(w, 400, "缺少 id 或 lib 参数")
+		return
+	}
+	lib := s.cfg.LibraryByID(libID)
+	if lib == nil {
+		writeErr(w, 404, "存储库不存在")
+		return
+	}
+	for _, it := range s.listTrash(lib.ID) {
+		if it.ID != id {
+			continue
+		}
+		if it.IsDir {
+			writeErr(w, 400, "文件夹没有缩略图")
+			return
+		}
+		src := filepath.Join(trashDirForLib(*lib), it.ID+"__"+it.Name)
+		if info, err := os.Stat(src); err != nil || info.IsDir() {
+			writeErr(w, 404, "文件不存在")
+			return
+		}
+		s.serveThumbAbs(w, r, src, thumbWidth(r))
+		return
+	}
+	writeErr(w, 404, "回收站中没有该文件")
+}
+
 // handleTrashRestore POST /api/trash/restore {id, lib}
 func (s *Server) handleTrashRestore(w http.ResponseWriter, r *http.Request) {
 	var req struct {

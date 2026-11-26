@@ -99,6 +99,11 @@ func (s *Server) handleThumb(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "文件不存在")
 		return
 	}
+	s.serveThumbAbs(w, r, abs, thumbWidth(r))
+}
+
+// thumbWidth parses ?w= (default 320, clamped 64..1280).
+func thumbWidth(r *http.Request) int {
 	width := 320
 	if v := r.URL.Query().Get("w"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
@@ -110,6 +115,17 @@ func (s *Server) handleThumb(w http.ResponseWriter, r *http.Request) {
 			}
 			width = n
 		}
+	}
+	return width
+}
+
+// serveThumbAbs generates/caches a JPEG thumbnail for an absolute image or
+// video path; shared by /api/thumb and /api/trash/thumb.
+func (s *Server) serveThumbAbs(w http.ResponseWriter, r *http.Request, abs string, width int) {
+	info, err := os.Stat(abs)
+	if err != nil || info.IsDir() {
+		writeErr(w, 404, "文件不存在")
+		return
 	}
 	ext := fileExt(abs)
 	if !isImageExt(ext) && !isVideoExt(ext) {

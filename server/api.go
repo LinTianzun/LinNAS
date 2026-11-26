@@ -129,6 +129,7 @@ func NewServer(cfg *Config) *Server {
 
 	// 回收站
 	api.HandleFunc("GET /api/trash", s.handleTrashList)
+	api.HandleFunc("GET /api/trash/thumb", s.handleTrashThumb)
 	api.HandleFunc("POST /api/trash/restore", s.handleTrashRestore)
 	api.HandleFunc("POST /api/trash/delete", s.handleTrashDelete)
 	api.HandleFunc("POST /api/trash/empty", s.handleTrashEmpty)

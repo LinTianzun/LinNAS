@@ -22,6 +22,7 @@
 
 ## 近期提交（git log）
 
+- 工作区（未提交）：服务端 1.7.0 修补 —— 媒体库自动分页加载、回收站缩略图（`GET /api/trash/thumb`）、「不在媒体库展示」睁眼/闭眼图标与即时徽标；补 `trash_thumb_test.go`。
 - `12b5c2a` feat(android): v1.8.0 体验升级（传输中心 / 多选批量 / 生物识别 / 版本检查 / 播放器重做 / 收藏筛选 / 媒体分组 / 视觉打磨）
 - `03efa0d` feat(web): 媒体库分组折叠留一行 + 音乐播放器优化；补 vault/ui-dir 单测与 e2e 冒烟脚本
 - `22bcb1c` docs: PLAN/RELEASING 更新（M12 Android 对齐 v1.7.0）；忽略 release/ 构建产物

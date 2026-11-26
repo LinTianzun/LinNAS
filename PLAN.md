@@ -263,6 +263,7 @@
 - **索引定时自动对账**：配置项 `indexRefreshSeconds`（默认 120 秒，0 关闭）驱动 `Index.ReconcileAll` 周期对账，发现资源管理器等外部移动/删除/重命名；启动后延迟 30 秒首次执行，全量扫描进行中自动跳过。
 - **存储空间分析**：`GET /api/storage/summary`、`GET /api/storage/large` 与重复文件 `GET /api/storage/duplicates`、`POST /api/storage/duplicates/scan`——库占用概览、大文件 Top N、重复文件候选（按大小分组 + 抽样 SHA-256，后台异步单飞、结果缓存）；删除复用 `POST /api/delete` 移入回收站，必须人工确认。
 - **媒体库排除（不在媒体库展示）**：`POST /api/libs/media-hide` 增删路径，`Library.MediaHide` 记录相对库根、正斜杠的路径；这些路径仍索引、仍可在文件浏览/搜索访问，只是不出现在媒体库（视频/图片/音乐）。
+- **发布后修补（2026-11-26）**：媒体库自动分页（每页 500，进入页面自动拉完剩余页，不再需要手动点「加载更多」）；回收站新增 `GET /api/trash/thumb`，网格与列表显示图片/视频缩略图；「不在媒体库展示」按钮改用睁眼/闭眼图标并即时显示「已隐藏」徽标。
 - **测试**：新增索引增量、登录防爆破/会话、维护清理、Zip、WoL、存储空间分析、媒体库排除单元测试；`go vet`/`go test`/竞态检测全绿。
 
 ### M12 Android 端对齐服务端 v1.7.0（2026-11-26，Android v1.7.0）
