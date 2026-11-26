@@ -3530,7 +3530,7 @@ async function doLogin(creds) {
   updateRoleUI();
   toast("已登录:" + state.auth.username);
   try { await loadLibs(); await loadDisks(); } catch (e) { /* ignore */ }
-  renderHome();
+  showOverview();
   return true;
 }
 
@@ -4012,5 +4012,6 @@ $("#btn-shares").onclick = showShares;
   updateRoleUI();
   // 托盘菜单「远程访问…」会打开 /ui/#remote;按锚点直达对应页面。
   if (location.hash === "#remote") showRemote();
+  else if (!state.auth.multiUser || state.auth.session) showOverview();
   setInterval(checkHealth, 15000);
 })();
