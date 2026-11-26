@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 播放器二级面板里的操作按钮(如「重试」「用其他播放器打开」):
+     半透明白底 + 14dp 圆角 + 水波纹,与玻璃面板同一套视觉。 -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="#40FFFFFF">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#2EFFFFFF" />
+            <corners android:radius="14dp" />
+        </shape>
+    </item>
+</ripple>

@@ -1,6 +1,6 @@
 # LinNAS — 本地云盘/NAS 方案与版本路线图
 
-> 当前组件版本（2026-11-26）：Windows 服务端 **1.7.0**；Android 客户端 **1.8.4**（`versionCode` 13）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
+> 当前组件版本（2026-11-26）：Windows 服务端 **1.7.0**；Android 客户端 **1.8.5**（`versionCode` 14）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
 
 > 下文保留早期技术决策与里程碑记录；历史版本号描述当时状态，不代表当前版本。
 
@@ -339,6 +339,21 @@
 - **剩余二级页弹窗收尾**：`TrashActivity` / `VaultActivity` / `SharesActivity` / `UserAdminActivity` / `SessionsActivity` / `WolActivity` / `LibraryAdminActivity` / `AuditActivity` / `MaintenanceActivity` 共 26 处裸 `AlertDialog` / `PopupMenu` 全部改为 `Sheet`（确认类用危险色按钮、表单类用 `input` + 内联校验、动作菜单用 `row` 列表、多行详情用 `keyValue`）；全仓 `setMessage(` 仅剩 `PlayerActivity.showErrorDialog` 的播放错误提示。
 - **版本**：Android `versionCode` 13 / `versionName` 1.8.4；产物 `release/linNas-1.8.4-debug.apk`（附 SHA-256）。
 - **验证**：`:app:compileDebugKotlin`（强制全量重编）、`:app:testDebugUnitTest`（15 个单测）、`:app:assembleDebug` 均 BUILD SUCCESSFUL。
+### M13.5 Android v1.8.5 播放器面板重做、生物识别开关与选中态修复（2026-11-26，Android v1.8.5）
+- **播放器「更多」重排**：图标入口由「一行六个挤在一起」改为 3 列 × 2 行网格（图标 26dp / 文字 12sp 单行 / 单元最小宽 64dp / 间距 12dp / 行高 64dp），分段与开关行统一 56dp 行高。
+- **横屏从右侧滑出**：横屏点「更多」不再是底部弹层，改为与选集面板同款的右侧浮层（340dp、`bg_player_panel` 半透明圆角、180ms 滑入、遮罩点击关闭、返回键先关面板），竖屏仍是底部弹出；「更多」与「选集」互斥，打开一个自动关另一个。
+- **修复进度条被遮挡**：横屏此前未给系统手势区留白，竖屏 `videoContainer` 固定 210dp 装不下四行控制层。现在底部两行包进 `bottomBar` 并按 `WindowInsets` 动态补手势区高度；竖屏视频区改为 `min(235dp, 屏宽*9/16)`，第二行按钮压缩到 40dp。
+- **三级面板统一**：倍速、字幕、播放错误等改为同一套玻璃面板（新增 `showPlayerSheet()` 构建器、`panel_player_sheet.xml`、`bg_player_option_on.xml`、`bg_player_button.xml`），`PlayerActivity` 内 `AlertDialog` 归零。
+- **主题顺序**：青瓷与云白位置交换（云白在前），并加一次性迁移 `theme_order_v2`，旧索引 3↔4 互换，已选主题不会跳变。
+- **设备管理**：按 UA 判定平台（Android / 桌面电脑 / 未知），分别用手机、显示器、通用图标并显示平台名。
+- **设置页图标去重**：手动输入地址、网络唤醒、改访问口令、会话管理、维护与索引、添加存储库、局域网扫描、版本检查等各自独立图标（新增 10 个 `ic_*`），同一页不再出现重复图标。
+- **生物识别开关**：设置页新增「生物识别」行（`swSettingsBio`），可整体开启/关闭指纹登录与保险箱解锁（`BiometricGate.isEnabled/setEnabled`，键 `bio_enabled`）。
+- **保险箱免密**：新增 `VaultSession`（5 分钟超时，`SystemClock.elapsedRealtime`），解锁后退出页面不再要求密码；App 整体进后台超过 5 分钟或进程结束才重新验证；新建保险箱后直接进入已解锁态；指纹可用时优先指纹解锁。
+- **登录页**：指纹按钮按 `isEnabled && canUse && 有已保存会话` 显示；去除系统 Autofill 的黄色高亮（`importantForAutofill="no"` + 透明底色 + 选区用主色）。
+- **存储库管理**：显示容量「已用 X · 共 Y」（取自 `GET /api/disks` 与库所在卷匹配，卷级口径；无数据时显示「容量未知」）。
+- **选中态修复**：`Sheet.segmented` 改为「主色实底 + 白色加粗文字」的分段控件（槽底 `lSurfaceHigh`），勾选行加 1dp 主色描边；六套主题对比度均 ≥4.5:1。
+- **版本**：Android `versionCode` 14 / `versionName` 1.8.5；产物 `release/linNas-1.8.5-debug.apk`（附 SHA-256）。
+- **验证**：`:app:compileDebugKotlin`、`:app:testDebugUnitTest`（15 个单测）、`:app:assembleDebug` 均 BUILD SUCCESSFUL。
 
 ### M14 Web UI 总览页与侧栏分组重构（2026-11-26，服务端 1.7.0）
 - **问题**：主区 `.app` 限制 `max-width:1180px` 并居中，宽屏（1586px）左侧约 200px 死区；侧栏入口全塞在「更多」里，层级混乱。

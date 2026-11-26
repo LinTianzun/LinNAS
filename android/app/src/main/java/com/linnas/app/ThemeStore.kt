@@ -20,14 +20,32 @@ object ThemeStore {
         T("blue", "墨蓝", true, R.style.Theme_LinNas, R.color.sw_blue, R.color.t_blue_primary),
         T("green", "墨绿", true, R.style.Theme_LinNas_Green, R.color.sw_green, R.color.t_green_primary),
         T("amber", "琥珀", true, R.style.Theme_LinNas_Amber, R.color.sw_amber, R.color.t_amber_primary),
-        T("mono", "青瓷", false, R.style.Theme_LinNas_Mono, R.color.sw_mono, R.color.t_mono_primary),
         T("light", "云白", false, R.style.Theme_LinNas_Light, R.color.sw_light, R.color.t_light_primary),
+        T("mono", "青瓷", false, R.style.Theme_LinNas_Mono, R.color.sw_mono, R.color.t_mono_primary),
         T("warm", "暖沙", false, R.style.Theme_LinNas_Warm, R.color.sw_warm, R.color.t_warm_primary),
     )
 
     private fun sp(ctx: Context) = ctx.getSharedPreferences("linnas_ui", Context.MODE_PRIVATE)
 
-    fun index(ctx: Context): Int = sp(ctx).getInt("theme", 0).coerceIn(0, all.lastIndex)
+    /**
+     * v1.8.5:青瓷与云白交换位置后,旧索引 3(青瓷)/4(云白)含义对调。
+     * 为保证老用户升级后看到的主题不变,按旧值迁移一次;标志位防重入。
+     */
+    private fun migrateThemeOrder(ctx: Context) {
+        val sp = sp(ctx)
+        if (sp.getBoolean("theme_order_v2", false)) return
+        when (sp.getInt("theme", 0)) {
+            3 -> sp.edit().putInt("theme", 4).apply()
+            4 -> sp.edit().putInt("theme", 3).apply()
+        }
+        sp.edit().putBoolean("theme_order_v2", true).apply()
+    }
+
+    fun index(ctx: Context): Int {
+        // 必须在读索引前先迁移,否则换序会让已选主题的人看到另一个主题。
+        migrateThemeOrder(ctx)
+        return sp(ctx).getInt("theme", 0).coerceIn(0, all.lastIndex)
+    }
     fun styleRes(ctx: Context): Int = all[index(ctx)].style
     fun setIndex(ctx: Context, i: Int) =
         sp(ctx).edit().putInt("theme", i.coerceIn(0, all.lastIndex)).apply()

@@ -13,11 +13,14 @@
     android:background="?attr/lInk"
     android:keepScreenOn="true">
 
-    <!-- ================= 视频区 ================= -->
+    <!-- ================= 视频区 =================
+         竖屏高度 = min(235dp, 屏宽*9/16),由 updateVideoSize() 运行期计算。
+         为什么给 235dp 上限:控制层(顶栏 + 中央 + 底部进度行 + 按钮行)定高约 240dp,
+         视频区再高也不会更宽松,反而在短屏/横竖屏切换的过渡帧里把底部两行挤出可视区。 -->
     <FrameLayout
         android:id="@+id/videoContainer"
         android:layout_width="match_parent"
-        android:layout_height="210dp"
+        android:layout_height="235dp"
         android:background="#000000">
 
         <androidx.media3.ui.PlayerView
@@ -220,16 +223,20 @@
                 android:layout_height="0dp"
                 android:layout_weight="1" />
 
-            <!-- 底部:进度 + 时间 + 倍速/字幕/画中画/定时/选集/画面 -->
+            <!-- 底部 bottomBar:进度条独占第一行、按钮行第二行(40dp),两行不再互相挤占。
+                 顶部 10dp 是渐隐背景的淡入区(原 26dp 太空),底部 8dp 只是基础值;
+                 横屏全屏(decorFitsSystemWindows=false)时内容会伸进手势条下面,
+                 运行期由 applyBottomBarInsets() 再把导航/手势区高度补进 paddingBottom。 -->
             <LinearLayout
+                android:id="@+id/bottomBar"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:background="@drawable/bg_player_bottom"
                 android:orientation="vertical"
                 android:paddingStart="14dp"
-                android:paddingTop="26dp"
+                android:paddingTop="10dp"
                 android:paddingEnd="14dp"
-                android:paddingBottom="12dp">
+                android:paddingBottom="8dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -272,11 +279,11 @@
                         android:textSize="12sp" />
                 </LinearLayout>
 
-                <!-- 第二行:左侧分辨率标签,右侧紧凑文字按钮(画面比例 / 字幕 / 倍速 / 选集,B 站式右下角) -->
+                <!-- 第二行:左侧分辨率标签,右侧紧凑文字按钮(画面比例 / 字幕 / 倍速 / 选集,B 站式右下角);
+                     定高 40dp 给手指留够点击区,同时把整块底部控制在 ~90dp 内 -->
                 <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
+                    android:layout_height="40dp"
                     android:gravity="center_vertical"
                     android:orientation="horizontal">
 
@@ -423,6 +430,73 @@
                 android:layout_weight="1"
                 android:clipToPadding="false"
                 android:paddingBottom="16dp" />
+        </LinearLayout>
+
+        <!-- 「更多」/二级面板打开时铺满全屏的 scrim:点面板外即关闭(层级在面板之下、控制层之上)。
+             与选集面板互斥,同一时间只开一个,所以两个 scrim 不会叠在一起。 -->
+        <View
+            android:id="@+id/playerMoreScrim"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#4D000000"
+            android:clickable="true"
+            android:focusable="true"
+            android:visibility="gone" />
+
+        <!-- 横屏右侧「更多」/二级面板:复用选集面板的玻璃样式(bg_player_panel)+ 右侧滑入滑出。
+             为什么不用 BottomSheet:横屏从底部弹出会盖住画面中央,且用户明确要求像选集一样从右侧出现。
+             宽度由代码 min(340dp, 屏宽 44%) 动态设置;上下留 10dp 外边距,高度撑满剩余空间。 -->
+        <LinearLayout
+            android:id="@+id/playerMorePanel"
+            android:layout_width="340dp"
+            android:layout_height="match_parent"
+            android:layout_gravity="end"
+            android:layout_margin="10dp"
+            android:background="@drawable/bg_player_panel"
+            android:clickable="true"
+            android:elevation="12dp"
+            android:focusable="true"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="16dp"
+                android:paddingTop="12dp"
+                android:paddingEnd="8dp"
+                android:paddingBottom="8dp">
+
+                <TextView
+                    android:id="@+id/playerMoreTitle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="更多"
+                    android:textColor="#FFFFFF"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <ImageButton
+                    android:id="@+id/playerMoreClose"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="关闭面板"
+                    android:padding="8dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_close"
+                    android:tint="#FFFFFF" />
+            </LinearLayout>
+
+            <!-- 内容容器:横竖屏共用同一份「更多」内容(buildMoreContent),横屏直接挂这里 -->
+            <FrameLayout
+                android:id="@+id/playerMoreBody"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
         </LinearLayout>
     </FrameLayout>
 

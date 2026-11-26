@@ -22,6 +22,9 @@ class LibraryAdminActivity : ScreenScaffold() {
         clearContent()
         addLoading()
         lifecycleScope.launch {
+            // /api/libs 只有名称/路径/开关,没有容量;容量来自 /api/disks(按存储库 id 对应)。
+            // 两次请求分开兜底:磁盘信息失败(比如旧版服务端没有该接口)只退化为「容量未知」,
+            // 不能连累存储库列表本身。
             val libs = try {
                 withContext(Dispatchers.IO) { client.libs() }
             } catch (e: Exception) {
@@ -29,12 +32,19 @@ class LibraryAdminActivity : ScreenScaffold() {
                 addEmptyState("读取失败", e.message ?: "无法获取存储库列表")
                 return@launch
             }
+            val disks = try {
+                withContext(Dispatchers.IO) { client.disks() }
+            } catch (_: Exception) {
+                emptyList<DiskInfo>()
+            }
             clearContent()
             if (libs.isEmpty()) {
                 addEmptyState("还没有存储库", "请先在「添加存储库」里添加一个目录")
                 return@launch
             }
 
+            // 磁盘信息按存储库 id 建索引;取不到时对应行退化为「容量未知」,不影响其它信息
+            val diskById = disks.associateBy { it.id }
             addSectionHeader("存储库")
             for (lib in libs) {
                 val flags = buildString {
@@ -47,14 +57,34 @@ class LibraryAdminActivity : ScreenScaffold() {
                 addIconRow(
                     iconRes = R.drawable.ic_server,
                     title = lib.name,
-                    subtitle = lib.path,
+                    // 副标题两行:第一行路径,第二行容量(已用/总量),一眼看清这个库占了多少盘
+                    subtitle = "${lib.path}\n${capacityLabel(diskById[lib.id])}",
                     value = flags.ifBlank { "可读写" },
                     tintAttr = if (lib.enabled) R.attr.lPrimary else R.attr.lTextDim,
                     onClick = { showEdit(lib) },
                     onLongClick = { confirmDelete(lib) },
                 )
             }
-            addText("共 ${libs.size} 个 · 点按编辑,长按删除")
+            addText("共 ${libs.size} 个 · 点按编辑,长按删除\n容量为存储库所在磁盘的整体用量")
+        }
+    }
+
+    /** 容量文案:用已用/总量;拿不到磁盘信息或总量为 0 时退化为「容量未知」。 */
+    private fun capacityLabel(disk: DiskInfo?): String {
+        val d = disk ?: return "容量未知"
+        if (d.totalMB <= 0) return "容量未知"
+        val used = (d.totalMB - d.freeMB).coerceAtLeast(0)
+        return "已用 ${formatBytes(used)} · 共 ${formatBytes(d.totalMB)}"
+    }
+
+    /** MB → 「1.2 TB / 812 GB / 123 MB」,与主界面 fmtGB 同口径(1024 进制)。 */
+    private fun formatBytes(mb: Long): String {
+        if (mb <= 0) return "0 MB"
+        val tb = mb / 1024.0 / 1024.0
+        return when {
+            tb >= 1 -> String.format(java.util.Locale.US, "%.1f TB", tb)
+            mb >= 1024 -> String.format(java.util.Locale.US, "%.0f GB", mb / 1024.0)
+            else -> "$mb MB"
         }
     }
 

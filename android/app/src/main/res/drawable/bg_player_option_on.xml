@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 播放器二级面板(倍速/字幕)里的「选中」行:#22FFFFFF 半透明白底 + 12dp 圆角 + 水波纹。
+     深色播放页固定白系配色,不走主题色,避免浅色主题下选中态看不清。 -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="#33FFFFFF">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#22FFFFFF" />
+            <corners android:radius="12dp" />
+        </shape>
+    </item>
+</ripple>

@@ -160,13 +160,16 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="16dp"
+                    android:importantForAutofill="noExcludeDescendants"
                     android:hint="用户名"
                     app:boxBackgroundMode="outline"
+                    app:boxBackgroundColor="@android:color/transparent"
                     app:boxCornerRadiusBottomEnd="14dp"
                     app:boxCornerRadiusBottomStart="14dp"
                     app:boxCornerRadiusTopEnd="14dp"
                     app:boxCornerRadiusTopStart="14dp"
                     app:boxStrokeColor="?attr/lOutline"
+                    app:hintTextColor="?attr/lTextDim"
                     app:startIconDrawable="@drawable/ic_user"
                     app:startIconTint="?attr/lTextDim">
 
@@ -174,9 +177,11 @@
                         android:id="@+id/etUser"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
+                        android:importantForAutofill="no"
                         android:inputType="text"
                         android:maxLines="1"
                         android:textColor="?attr/lText"
+                        android:textColorHighlight="?attr/lPrimary"
                         android:textColorHint="?attr/lTextDim" />
                 </com.google.android.material.textfield.TextInputLayout>
 
@@ -187,13 +192,16 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
+                    android:importantForAutofill="noExcludeDescendants"
                     android:hint="密码"
                     app:boxBackgroundMode="outline"
+                    app:boxBackgroundColor="@android:color/transparent"
                     app:boxCornerRadiusBottomEnd="14dp"
                     app:boxCornerRadiusBottomStart="14dp"
                     app:boxCornerRadiusTopEnd="14dp"
                     app:boxCornerRadiusTopStart="14dp"
                     app:boxStrokeColor="?attr/lOutline"
+                    app:hintTextColor="?attr/lTextDim"
                     app:endIconMode="password_toggle"
                     app:endIconTint="?attr/lTextDim"
                     app:startIconDrawable="@drawable/ic_lock"
@@ -203,9 +211,11 @@
                         android:id="@+id/etPassword"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
+                        android:importantForAutofill="no"
                         android:inputType="textPassword"
                         android:maxLines="1"
                         android:textColor="?attr/lText"
+                        android:textColorHighlight="?attr/lPrimary"
                         android:textColorHint="?attr/lTextDim" />
                 </com.google.android.material.textfield.TextInputLayout>
 

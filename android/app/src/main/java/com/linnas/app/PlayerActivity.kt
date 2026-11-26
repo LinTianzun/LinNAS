@@ -25,10 +25,10 @@ import android.view.WindowManager
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
@@ -111,6 +111,11 @@ class PlayerActivity : AppCompatActivity() {
     private lateinit var landEpisodePanel: View
     private lateinit var landEpisodeScrim: View
     private lateinit var rvLandEpisodes: RecyclerView
+    // 横屏右侧「更多/二级面板」容器(与选集面板同款玻璃样式,两者互斥)
+    private lateinit var playerMorePanel: View
+    private lateinit var playerMoreScrim: View
+    private lateinit var playerMoreTitle: TextView
+    private lateinit var playerMoreBody: ViewGroup
     private lateinit var detailBody: View
     private lateinit var tvDetailToggle: TextView
     private lateinit var imgDetailChevron: ImageView
@@ -139,7 +144,6 @@ class PlayerActivity : AppCompatActivity() {
     private var subtitleUrl: String? = null
     private var currentMediaUrl = ""
     private var currentSubtitleUrl: String? = null
-    private var errorDialog: AlertDialog? = null
     private var locked = false
     private var shouldRestorePlay = true
     private var userSeeking = false
@@ -159,8 +163,11 @@ class PlayerActivity : AppCompatActivity() {
     private var playlist = emptyList<Pair<String, String>>() // (vpath, name)
     private var playIdx = -1
 
-    // ---------- 倍速 / 更多面板 ----------
-    private var speedDialog: AlertDialog? = null
+    // ---------- 更多 / 二级面板 ----------
+    // 横屏右侧面板(与选集面板互斥):更多、倍速、字幕、播放错误都复用这块玻璃浮层
+    private var landSheetOpen = false                   // 横屏右侧面板是否打开(打开时暂停控制层自动隐藏)
+    private var moreSheet: BottomSheetDialog? = null    // 竖屏「更多」弹窗(内容较复杂,单独持有以便关闭)
+    private var sheetPanel: BottomSheetDialog? = null   // 竖屏二级面板(倍速/字幕/播放错误)
 
     private val handler = Handler(Looper.getMainLooper())
 
@@ -185,7 +192,8 @@ class PlayerActivity : AppCompatActivity() {
 
     // 选集面板打开期间不自动隐藏控制层(否则面板关不掉)
     private val hideControlsRunnable = Runnable {
-        if (landEpisodesOpen) return@Runnable
+        if (landEpisodesOpen || landSheetOpen) return@Runnable
+        if (landSheetOpen) return@Runnable
         if (player?.isPlaying == true) hideControls()
     }
 
@@ -249,6 +257,13 @@ class PlayerActivity : AppCompatActivity() {
         // 选集面板必须能关:关闭按钮 + 点面板外 scrim 都收起(原来只绑了按钮,面板一开容易退不出去)
         findViewById<View>(R.id.landEpisodeClose).setOnClickListener { toggleLandEpisodes(false) }
         landEpisodeScrim.setOnClickListener { toggleLandEpisodes(false) }
+        // 横屏右侧「更多/二级面板」:关闭按钮 + 点面板外 scrim 都能收起
+        playerMorePanel = findViewById(R.id.playerMorePanel)
+        playerMoreScrim = findViewById(R.id.playerMoreScrim)
+        playerMoreTitle = findViewById(R.id.playerMoreTitle)
+        playerMoreBody = findViewById(R.id.playerMoreBody)
+        playerMoreScrim.setOnClickListener { closeLandSheet() }
+        findViewById<View>(R.id.playerMoreClose).setOnClickListener { closeLandSheet() }
         // 竖屏「简介」折叠条
         detailBody = findViewById(R.id.detailBody)
         tvDetailToggle = findViewById(R.id.tv_detail_toggle)
@@ -337,8 +352,9 @@ class PlayerActivity : AppCompatActivity() {
 
         onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                // 选集面板开着时,返回键先关面板
+                // 面板开着时,返回键先关面板(再退全屏/页面),避免一下跳走
                 when {
+                    landSheetOpen -> closeLandSheet()
                     landEpisodesOpen -> toggleLandEpisodes(false)
                     isLandscape() -> exitFullscreen()
                     else -> finish()
@@ -365,11 +381,15 @@ class PlayerActivity : AppCompatActivity() {
         updateVideoSize()
     }
 
-    /** 竖屏视频区按 16:9 定高;横屏全屏沉浸并显示控制层。 */
+    /** 竖屏视频区按 16:9 定高(不超过 235dp);横屏全屏沉浸并显示控制层。 */
     private fun updateVideoSize() {
         // 竖屏内容置于系统栏之下,横屏全屏沉浸
         WindowCompat.setDecorFitsSystemWindows(window, !isLandscape())
         val params = videoContainer.layoutParams
+        // 两个右侧浮层都是 videoContainer 的子视图:切回竖屏前必须先收起,
+        // 否则它们会盖在只有 235dp 高的竖屏视频区上(控制层/面板残留)
+        if (landEpisodesOpen) toggleLandEpisodes(false)
+        if (landSheetOpen) closeLandSheet()
         if (isLandscape()) {
             params.height = ViewGroup.LayoutParams.MATCH_PARENT
             contentScroll.visibility = View.GONE
@@ -378,17 +398,43 @@ class PlayerActivity : AppCompatActivity() {
             applyImmersion(false)
         } else {
             val w = resources.displayMetrics.widthPixels
-            params.height = (w * 9 / 16.0).toInt().coerceAtLeast(0)
+            // 16:9 但封顶 235dp:控制层(顶栏 + 中央按钮 + 底部进度行/按钮行)定高约 240dp,
+            // 视频区再高也不会更宽松;窄屏(如 360dp 宽)的 9/16 只有约 202dp,给个下限免得进度行被裁
+            params.height = minOf(dp(235), (w * 9 / 16.0).toInt()).coerceAtLeast(dp(160))
             contentScroll.visibility = View.VISIBLE
             overlay.visibility = View.GONE
             portraitVideoOverlay.visibility = View.VISIBLE
             applyImmersion(true)
-            // 竖屏没有选集侧栏,退出横屏/切竖屏时顺手收起,免得残留在视频上
-            if (landEpisodesOpen) toggleLandEpisodes(false)
         }
         videoContainer.layoutParams = params
+        // 手势区高度补进 bottomBar,否则横屏进度条会被系统手势条压住
+        applyBottomBarInsets()
         // 选集按钮只在横屏且有多集时出现(竖屏藏在下方内容区)
         updateEpisodeButtonVisibility()
+    }
+
+    /**
+     * 把手势/导航区高度补进 bottomBar。
+     * 横屏全屏用了 decorFitsSystemWindows=false,布局会延伸到手势条下面,
+     * bottomBar 固定 8dp 的 paddingBottom 不够,进度条/按钮会被系统手势条压住;
+     * 这里按真实 WindowInsets 动态补齐(保留 8dp 视觉留白),旋转/进入横屏都会重算。
+     */
+    private fun applyBottomBarInsets() {
+        overlay.post {
+            val insets = overlay.rootWindowInsets ?: return@post
+            val nav = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                insets.getInsets(
+                    WindowInsets.Type.navigationBars() or WindowInsets.Type.mandatorySystemGestures()
+                ).bottom
+            } else {
+                @Suppress("DEPRECATION") insets.stableInsetBottom
+            }
+            val bar = overlay.findViewById<View>(R.id.bottomBar) ?: return@post
+            val pad = dp(8) + nav
+            if (bar.paddingBottom != pad) {
+                bar.setPadding(bar.paddingLeft, bar.paddingTop, bar.paddingRight, pad)
+            }
+        }
     }
 
     private fun isLandscape(): Boolean =
@@ -406,14 +452,14 @@ class PlayerActivity : AppCompatActivity() {
     private fun hideControls() {
         if (!isLandscape()) return
         // 选集面板还开着时不隐藏控制层(否则找不到关闭入口)
-        if (landEpisodesOpen) return
+        if (landEpisodesOpen || landSheetOpen) return
         overlay.visibility = View.GONE
     }
 
     private fun scheduleHide() {
         if (!isLandscape()) return
         // 面板打开期间暂停自动隐藏,关闭后再恢复
-        if (landEpisodesOpen) return
+        if (landEpisodesOpen || landSheetOpen) return
         handler.removeCallbacks(hideControlsRunnable)
         handler.postDelayed(hideControlsRunnable, HIDE_DELAY)
     }
@@ -647,6 +693,8 @@ class PlayerActivity : AppCompatActivity() {
      */
     private fun toggleLandEpisodes(show: Boolean) {
         if (show) {
+            // 与右侧「更多/二级面板」互斥:先收起它再开选集,两块浮层不会叠
+            if (landSheetOpen) closeLandSheet(animate = false)
             landEpisodesOpen = true
             val panelW = minOf(dp(300), (resources.displayMetrics.widthPixels * 0.42f).toInt())
                 .coerceAtLeast(dp(160))
@@ -804,24 +852,23 @@ class PlayerActivity : AppCompatActivity() {
         btnSpeed.text = String.format(Locale.US, "%.2fx", speeds[speedIdx]).replace(".00", ".0")
     }
 
-    /** 倍速面板:0.5 / 0.75 / 1.0 / 1.25 / 1.5 / 2.0。 */
+    /** 倍速面板:0.5 / 0.75 / 1.0 / 1.25 / 1.5 / 2.0,玻璃面板选中态列表(替代 AlertDialog 单选)。 */
     private fun showSpeedPanel() {
         handler.removeCallbacks(hideControlsRunnable)
-        speedDialog?.dismiss()
-        val labels = speeds.map { s -> String.format(Locale.US, "%.2fx", s).replace(".00", ".0") }.toTypedArray()
-        speedDialog = AlertDialog.Builder(this)
-            .setTitle("倍速播放")
-            .setSingleChoiceItems(labels, speedIdx) { _, which ->
-                speedIdx = which
-                player?.setPlaybackSpeed(speeds[which])
-                updateSpeedButton()
+        showPlayerSheet("倍速播放") { body ->
+            speeds.forEachIndexed { i, speed ->
+                val label = String.format(Locale.US, "%.2fx", speed).replace(".00", ".0")
+                body.addView(optionRow(label, i == speedIdx) {
+                    speedIdx = i
+                    player?.setPlaybackSpeed(speed)
+                    updateSpeedButton()
+                    dismissPlayerSheets()
+                }, optionRowParams())
             }
-            .setNegativeButton("关闭", null)
-            .setOnDismissListener { speedDialog = null }
-            .show()
+        }
     }
 
-    /** 字幕面板:关闭 + 各字幕轨。 */
+    /** 字幕面板:关闭 + 各字幕轨,玻璃面板列表并显示当前选中。 */
     private fun showSubtitlePanel() {
         handler.removeCallbacks(hideControlsRunnable)
         if (!subsLoaded) {
@@ -836,9 +883,6 @@ class PlayerActivity : AppCompatActivity() {
             }
             return
         }
-        val labels = arrayListOf<String>()
-        labels.add("关闭")
-        subTracks.forEach { labels.add(it.label.ifBlank { it.name }.ifBlank { it.lang }) }
         var checked = 0
         if (currentSubtitleUrl != null) {
             val pos = subTracks.indexOfFirst { track ->
@@ -846,19 +890,20 @@ class PlayerActivity : AppCompatActivity() {
             }
             if (pos >= 0) checked = pos + 1
         }
-        AlertDialog.Builder(this)
-            .setTitle("字幕")
-            .setSingleChoiceItems(labels.toTypedArray(), checked) { _, which ->
-                if (which == 0) {
-                    applySubtitle(null)
-                } else {
-                    val track = subTracks[which - 1]
+        showPlayerSheet("字幕") { body ->
+            body.addView(optionRow("关闭", checked == 0) {
+                applySubtitle(null)
+                dismissPlayerSheets()
+            }, optionRowParams())
+            subTracks.forEachIndexed { i, track ->
+                val label = track.label.ifBlank { track.name }.ifBlank { track.lang }
+                body.addView(optionRow(label, checked == i + 1) {
                     val url = try { client.absoluteUrl(track.url) } catch (_: Exception) { null }
                     applySubtitle(url)
-                }
+                    dismissPlayerSheets()
+                }, optionRowParams())
             }
-            .setNegativeButton("关闭", null)
-            .show()
+        }
     }
 
     private fun applySubtitle(sub: String?) {
@@ -888,16 +933,59 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     /**
-     * 「更多」面板(B 站横屏三点菜单式):
-     * 第一段图标入口 + 定时关闭分段 + 开关行(自动连播/循环播放/镜像翻转),
-     * 深色半透明圆角、高度 wrap_content 只占下半屏;所有状态真实生效并写 linnas_ui。
+     * 「更多」面板入口:横竖屏共用同一份内容(buildMoreContent),只是承载容器不同。
+     * 竖屏 = 底部 BottomSheetDialog;横屏 = 右侧滑出的 playerMorePanel(与选集面板同款)。
      */
     private fun showMorePanel() {
         handler.removeCallbacks(hideControlsRunnable)
-        val content = LayoutInflater.from(this).inflate(R.layout.dialog_player_more, null)
-        var sheet: BottomSheetDialog? = null
+        if (isLandscape()) {
+            openLandSheet("更多") { body -> attachMoreContent(body) }
+        } else {
+            // 竖屏弹窗不叠层:先把已开的收起再开
+            moreSheet?.dismiss()
+            moreSheet = null
+            sheetPanel?.dismiss()
+            sheetPanel = null
+            showPortraitMoreSheet()
+        }
+    }
 
-        // ---- 第一段:图标入口(6 个均分) ----
+    /** 竖屏「更多」:玻璃底 + 12dp 外边距 + 透明 BottomSheet,内容即 buildMoreContent()。 */
+    private fun showPortraitMoreSheet() {
+        val content = buildMoreContent()
+        padForNavIfNeeded(content)
+        moreSheet = BottomSheetDialog(this).apply {
+            setContentView(content)
+            // 去掉 BottomSheet 默认白色圆角背板,改用内容自带的深色半透明圆角
+            findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
+                ?.setBackgroundColor(Color.TRANSPARENT)
+            // 压暗程度调低:面板本身已半透明,再叠默认 0.32 遮罩会显得像不透明的实心灰块
+            window?.setDimAmount(0.12f)
+            setOnDismissListener { moreSheet = null; if (player?.isPlaying == true) scheduleHide() }
+        }
+        moreSheet?.show()
+    }
+
+    /** 横屏右侧面板承载「更多」:容器已有玻璃背景,清掉弹层自己的玻璃底/外边距,并隐藏底部把手。 */
+    private fun attachMoreContent(body: ViewGroup) {
+        val content = buildMoreContent()
+        body.addView(content)
+        content.background = null
+        content.layoutParams = android.widget.FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT,
+        )
+        content.findViewById<View>(R.id.more_handle)?.visibility = View.GONE
+    }
+
+    /**
+     * 构建「更多」面板内容(横竖屏共用):
+     * 图标入口(3 列 × 2 行)+ 定时关闭分段 + 开关行;状态全部真实生效并写 linnas_ui。
+     */
+    private fun buildMoreContent(): View {
+        val content = LayoutInflater.from(this).inflate(R.layout.dialog_player_more, null)
+
+        // ---- 第一段:图标入口(3 列 × 2 行;每格 minWidth 64dp、高 64dp、相邻水平间距 12dp) ----
         val grid = content.findViewById<LinearLayout>(R.id.more_grid)
         val entries = listOf(
             Triple(R.drawable.ic_player_speed, "倍速播放") { showSpeedPanel() },
@@ -907,18 +995,23 @@ class PlayerActivity : AppCompatActivity() {
             Triple(R.drawable.ic_player_external, "外部播放器") { openExternalPlayer() },
             Triple(R.drawable.ic_rotate, "锁定横屏") { toggleRotationLock() },
         )
-        entries.chunked(6).forEach { rowItems ->
+        entries.chunked(3).forEach { rowItems ->
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER
+                // 每行顶部/底部各 4dp:图标行整块与把手、与下一段都留出呼吸空间
                 setPadding(0, dp(4), 0, dp(4))
             }
             rowItems.forEach { (iconRes, label, action) ->
+                val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(64))
+                // 左右各 6dp:相邻两格之间恰好 12dp 水平间距
+                lp.marginStart = dp(6)
+                lp.marginEnd = dp(6)
                 row.addView(moreCell(iconRes, label) {
-                    // 先收起弹窗再打开二级面板,避免叠两层
-                    sheet?.dismiss()
+                    // 竖屏先收起弹窗再开二级面板,避免叠两层;横屏 openLandSheet 原地换内容,不闪
+                    if (!isLandscape()) dismissPlayerSheets()
                     action()
-                }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                }, lp)
             }
             grid.addView(row)
         }
@@ -970,32 +1063,177 @@ class PlayerActivity : AppCompatActivity() {
         swMirror.setOnCheckedChangeListener { _, checked -> applyMirror(checked) }
         content.findViewById<View>(R.id.more_row_mirror).setOnClickListener { swMirror.toggle() }
 
-        // 最底部留出系统手势区,免得开关行贴着导航条
-        content.post {
-            val insets = content.rootWindowInsets
-            if (insets != null) {
-                val nav = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    insets.getInsets(WindowInsets.Type.navigationBars()).bottom
-                } else {
-                    @Suppress("DEPRECATION") insets.stableInsetBottom
+        return content
+    }
+
+    /**
+     * 通用玻璃面板构建器(替代原 AlertDialog 单选/提示弹窗):
+     * build 往容器里追加行;竖屏装进底部玻璃弹层(panel_player_sheet),横屏装进右侧滑出的
+     * playerMorePanel,保证倍速/字幕/播放失败这些二三级界面与「更多」的圆角、半透明、间距一致。
+     */
+    private fun showPlayerSheet(title: String, build: (LinearLayout) -> Unit) {
+        handler.removeCallbacks(hideControlsRunnable)
+        if (isLandscape()) {
+            openLandSheet(title) { body ->
+                // 条目多/小屏时允许滚动,避免内容被面板高度裁掉
+                val scroll = ScrollView(this)
+                scroll.isVerticalScrollBarEnabled = false
+                scroll.clipToPadding = false
+                val list = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(0, dp(4), 0, dp(12))
                 }
-                if (nav > content.paddingBottom) {
-                    content.setPadding(content.paddingLeft, content.paddingTop, content.paddingRight, nav)
-                }
+                build(list)
+                scroll.addView(list, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                body.addView(scroll)
+            }
+        } else {
+            // 竖屏弹窗不叠层:先把已开的收起
+            moreSheet?.dismiss()
+            moreSheet = null
+            sheetPanel?.dismiss()
+            sheetPanel = null
+            val content = LayoutInflater.from(this).inflate(R.layout.panel_player_sheet, null)
+            content.findViewById<TextView>(R.id.panel_sheet_title).text = title
+            val body = content.findViewById<LinearLayout>(R.id.panel_sheet_body)
+            build(body)
+            content.findViewById<View>(R.id.panel_sheet_close).setOnClickListener {
+                sheetPanel?.dismiss()
+            }
+            padForNavIfNeeded(content)
+            sheetPanel = BottomSheetDialog(this).apply {
+                setContentView(content)
+                // 与「更多」同一套做法:去掉默认白色背板,只留内容自带的深色玻璃圆角
+                findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
+                    ?.setBackgroundColor(Color.TRANSPARENT)
+                window?.setDimAmount(0.12f)
+                setOnDismissListener { sheetPanel = null; if (player?.isPlaying == true) scheduleHide() }
+            }
+            sheetPanel?.show()
+        }
+    }
+
+    /**
+     * 打开横屏右侧面板(「更多」/倍速/字幕/播放错误共用):
+     * 与选集面板互斥;width = min(340dp, 屏宽 44%),首次打开从右侧滑入 180ms。
+     * 若面板已经开着(如「更多」→「倍速」),只原地换内容,不再滑一次,避免闪。
+     */
+    private fun openLandSheet(title: String, build: (ViewGroup) -> Unit) {
+        // 互斥:选集面板开着就先收起,两块浮层不会叠在一起
+        if (landEpisodesOpen) toggleLandEpisodes(false)
+        val wasOpen = landSheetOpen
+        landSheetOpen = true
+        val panelW = minOf(dp(340), (resources.displayMetrics.widthPixels * 0.44f).toInt())
+            .coerceAtLeast(dp(200))
+        val lp = playerMorePanel.layoutParams
+        lp.width = panelW
+        playerMorePanel.layoutParams = lp
+        playerMoreTitle.text = title
+        playerMoreBody.removeAllViews()
+        build(playerMoreBody)
+        playerMoreScrim.visibility = View.VISIBLE
+        playerMorePanel.visibility = View.VISIBLE
+        if (wasOpen) {
+            // 已经是打开状态:内容已换,保持贴右不动
+            playerMorePanel.translationX = 0f
+        } else {
+            playerMorePanel.translationX = (panelW + dp(20)).toFloat()
+            playerMorePanel.animate().translationX(0f).setDuration(180).start()
+        }
+        // 面板开着时暂停控制层自动隐藏,并保证控制层可见(关闭入口在面板里)
+        handler.removeCallbacks(hideControlsRunnable)
+        overlay.visibility = View.VISIBLE
+    }
+
+    /** 关闭横屏右侧面板:滑出后 GONE 并清空内容(下次打开重建,状态总是最新的)。 */
+    private fun closeLandSheet(animate: Boolean = true) {
+        if (!landSheetOpen) return
+        landSheetOpen = false
+        playerMoreScrim.visibility = View.GONE
+        playerMorePanel.animate().cancel()
+        if (!animate) {
+            playerMorePanel.visibility = View.GONE
+            playerMoreBody.removeAllViews()
+            if (player?.isPlaying == true) scheduleHide()
+            return
+        }
+        val w = if (playerMorePanel.width > 0) playerMorePanel.width else dp(340)
+        playerMorePanel.animate().translationX((w + dp(20)).toFloat()).setDuration(160)
+            .withEndAction {
+                playerMorePanel.visibility = View.GONE
+                playerMoreBody.removeAllViews()
+            }
+            .start()
+        if (player?.isPlaying == true) scheduleHide()
+    }
+
+    /** 收起当前打开的任意玻璃面板(竖屏 BottomSheet / 横屏右侧面板)。 */
+    private fun dismissPlayerSheets() {
+        moreSheet?.dismiss()
+        moreSheet = null
+        sheetPanel?.dismiss()
+        sheetPanel = null
+        closeLandSheet(animate = true)
+    }
+
+    /**
+     * 底部弹层内容预留系统手势区高度:否则最后一行开关会贴着导航条/手势条,
+     * 既难点也容易被手势条挡住(和 bottomBar 是同一个原因)。
+     */
+    private fun padForNavIfNeeded(v: View) {
+        v.post {
+            val insets = v.rootWindowInsets ?: return@post
+            val nav = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                insets.getInsets(WindowInsets.Type.navigationBars()).bottom
+            } else {
+                @Suppress("DEPRECATION") insets.stableInsetBottom
+            }
+            if (nav > v.paddingBottom) {
+                v.setPadding(v.paddingLeft, v.paddingTop, v.paddingRight, nav)
             }
         }
-
-        sheet = BottomSheetDialog(this).apply {
-            setContentView(content)
-            // 去掉 BottomSheet 默认白色圆角背板,改用内容自带的深色半透明圆角
-            findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
-                ?.setBackgroundColor(Color.TRANSPARENT)
-            // 压暗程度调低:面板本身已半透明,再叠默认 0.32 遮罩会显得像不透明的实心灰块
-            window?.setDimAmount(0.12f)
-            setOnDismissListener { if (player?.isPlaying == true) scheduleHide() }
-        }
-        sheet.show()
     }
+
+    /** 玻璃面板里的单选行:选中 = 白字加粗 + #22FFFFFF 圆角底,未选 = 60% 白。 */
+    private fun optionRow(label: String, selected: Boolean, onClick: () -> Unit): TextView =
+        TextView(this).apply {
+            text = label
+            textSize = 15f
+            gravity = Gravity.CENTER_VERTICAL
+            maxLines = 1
+            setPadding(dp(16), 0, dp(16), 0)
+            isClickable = true
+            isFocusable = true
+            setTextColor(Color.parseColor(if (selected) "#FFFFFF" else "#99FFFFFF"))
+            setTypeface(null, if (selected) Typeface.BOLD else Typeface.NORMAL)
+            background = ContextCompat.getDrawable(
+                this@PlayerActivity,
+                if (selected) R.drawable.bg_player_option_on else R.drawable.bg_ripple,
+            )
+            setOnClickListener { onClick() }
+        }
+
+    /** 单选行的布局参数:48dp 高、左右 12dp、行间 4dp(配合容器 4dp 上内边距 = 8dp 间距)。 */
+    private fun optionRowParams(): LinearLayout.LayoutParams =
+        LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply {
+            marginStart = dp(12)
+            marginEnd = dp(12)
+            topMargin = dp(4)
+        }
+
+    /** 玻璃面板里的操作按钮(重试 / 其他播放器):半透明白底、白字、44dp 高。 */
+    private fun sheetButton(label: String, onClick: () -> Unit): TextView =
+        TextView(this).apply {
+            text = label
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setTextColor(Color.parseColor("#FFFFFF"))
+            setTypeface(null, Typeface.BOLD)
+            isClickable = true
+            isFocusable = true
+            background = ContextCompat.getDrawable(this@PlayerActivity, R.drawable.bg_player_button)
+            setOnClickListener { onClick() }
+        }
 
     /** 定时关闭选中态:选中段白字加粗 + 底部 2dp 下划线(bg_player_seg_on),未选 60% 白。 */
     private fun updateSleepSegment(root: View) {
@@ -1047,28 +1285,31 @@ class PlayerActivity : AppCompatActivity() {
         }, base / 60, base % 60, true).show()
     }
 
-    /** 「更多」面板里的一格:图标 + 文案(紧凑、白色系,B 站图标入口)。 */
+    /** 「更多」面板里的一格:图标 26dp + 12sp 单行文案,最小宽 64dp,图标与文字间距 6dp。 */
     private fun moreCell(iconRes: Int, label: String, action: () -> Unit): View {
         val cell = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             isClickable = true
             isFocusable = true
-            setPadding(dp(2), dp(6), dp(2), dp(6))
+            // 3 列布局里每格至少 64dp,4~5 个字的入口(「外部播放器」)也放得开
+            minimumWidth = dp(64)
             background = ContextCompat.getDrawable(this@PlayerActivity, R.drawable.bg_ripple)
             setOnClickListener { action() }
         }
         cell.addView(android.widget.ImageView(this).apply {
             setImageResource(iconRes)
             setColorFilter(Color.parseColor("#E6FFFFFF"))
-            layoutParams = LinearLayout.LayoutParams(dp(24), dp(24))
+            layoutParams = LinearLayout.LayoutParams(dp(26), dp(26))
         })
         cell.addView(TextView(this).apply {
             text = label
             textSize = 12f
+            maxLines = 1
             gravity = Gravity.CENTER
             setTextColor(Color.parseColor("#E6FFFFFF"))
-            setPadding(0, dp(5), 0, 0)
+            // 图标与文字垂直间距 6dp
+            setPadding(0, dp(6), 0, 0)
         })
         return cell
     }
@@ -1362,21 +1603,46 @@ class PlayerActivity : AppCompatActivity() {
 
     // ---------- 播放错误与外部打开 ----------
 
+    /**
+     * 播放失败提示:改用玻璃面板(标题 + 说明 + 「重试 / 用其他播放器打开」),
+     * 和倍速/字幕/更多同一套样式;横屏时同样从右侧滑出,不再弹系统 AlertDialog。
+     */
     private fun showPlaybackError(error: PlaybackException) {
         if (isFinishing || isDestroyed) return
         showControls()
         player?.let {
             PlaybackStore.save(this, playbackKey, it.currentPosition, it.duration)
         }
-        errorDialog?.dismiss()
-        errorDialog = AlertDialog.Builder(this)
-            .setTitle("播放失败")
-            .setMessage("${error.errorCodeName}。可重试，或改用其他播放器打开。")
-            .setPositiveButton("重试") { _, _ -> retryPlayback() }
-            .setNeutralButton("其他播放器") { _, _ -> openExternalPlayer() }
-            .setNegativeButton("关闭", null)
-            .setOnDismissListener { errorDialog = null }
-            .show()
+        dismissPlayerSheets()
+        showPlayerSheet("播放失败") { body ->
+            body.addView(TextView(this).apply {
+                text = "${error.errorCodeName}。可重试，或改用其他播放器打开。"
+                textSize = 13f
+                setTextColor(Color.parseColor("#B3FFFFFF"))
+                setLineSpacing(dp(3).toFloat(), 1f)
+                setPadding(dp(16), dp(4), dp(16), dp(12))
+            }, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ))
+            val buttons = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(dp(12), 0, dp(12), 0)
+            }
+            buttons.addView(sheetButton("重试") {
+                dismissPlayerSheets()
+                retryPlayback()
+            }, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(8) })
+            // 「用其他播放器打开」会切走 App,先收起面板,回来时不会还挂着一个错误弹层
+            buttons.addView(sheetButton("用其他播放器打开") {
+                dismissPlayerSheets()
+                openExternalPlayer()
+            }, LinearLayout.LayoutParams(0, dp(44), 1f))
+            body.addView(buttons, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ))
+        }
     }
 
     private fun retryPlayback() {
@@ -1456,8 +1722,13 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        errorDialog?.dismiss()
-        speedDialog?.dismiss()
+        // 面板都挂在 Activity 上,销毁前必须收掉,否则会泄漏窗口/动画
+        moreSheet?.dismiss()
+        moreSheet = null
+        sheetPanel?.dismiss()
+        sheetPanel = null
+        // onDestroy 可能在 onCreate 中途异常时被调用,lateinit 视图要先判初始化
+        if (::playerMorePanel.isInitialized) playerMorePanel.animate().cancel()
         handler.removeCallbacks(saveProgressRunnable)
         handler.removeCallbacks(uiRunnable)
         handler.removeCallbacks(hideControlsRunnable)

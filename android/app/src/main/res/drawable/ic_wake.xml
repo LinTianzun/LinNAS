@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 网络唤醒:电源符号 + 两道无线波纹(与 ic_link 区分) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path
+        android:pathData="M12,3 L12,10.5 M5.6,8.9 A8.5,8.5 0 1 0 18.4,8.9 M5.2,5.6 C4.2,4.6 3.6,3.6 3.2,2.4 M18.8,5.6 C19.8,4.6 20.4,3.6 20.8,2.4"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

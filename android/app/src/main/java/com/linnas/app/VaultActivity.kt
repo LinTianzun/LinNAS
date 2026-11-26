@@ -1,8 +1,10 @@
 package com.linnas.app
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.OpenableColumns
 import android.view.View
 import android.view.ViewGroup
@@ -27,6 +29,8 @@ class VaultActivity : AppCompatActivity() {
     private val client = LinNasClient()
     private var vt: String? = null
     private var vaultPath: String = ""   // 当前所在子目录(相对保险箱根,""=根)
+    /** 本次进入页面是否用的是还剩 5 分钟免密窗口的会话 token(用于判断失败后要不要退回解锁)。 */
+    private var resumedFromSession = false
     private lateinit var list: LinearLayout
     private lateinit var hint: TextView
     private lateinit var lockedPanel: View
@@ -123,8 +127,23 @@ class VaultActivity : AppCompatActivity() {
                 toast("连接失败: ${e.message}"); finish(); return@launch
             }
             val exists = st.optBoolean("exists")
-            if (!exists) promptSetup() else promptUnlock()
+            if (!exists) { promptSetup(); return@launch }
+            // 5 分钟免密窗口内直接恢复上次解锁,不再重复要密码:用户抱怨的正是
+            //「退出保险箱再进又要输」——所以退出页面不加锁,只有超时/整机后台超时才锁。
+            if (VaultSession.isUnlocked() && !VaultSession.token().isNullOrBlank()) {
+                resumeFromSession()
+            } else {
+                promptUnlock()
+            }
         }
+    }
+
+    /** 用进程内会话 token 直接进入已解锁状态(服务端 token 失效时 loadList 会退回解锁)。 */
+    private fun resumeFromSession() {
+        vt = VaultSession.token()
+        resumedFromSession = true
+        showUnlocked()
+        loadList()
     }
 
     private fun promptSetup() {
@@ -142,48 +161,116 @@ class VaultActivity : AppCompatActivity() {
             lifecycleScope.launch {
                 try {
                     withContext(Dispatchers.IO) { client.vaultSetup(a) }
-                    sheet.dismiss()
+                } catch (e: Exception) {
+                    toast("创建失败: ${e.message}")
+                    return@launch
+                }
+                // 创建成功后直接用刚设置的密码换 token 进入已解锁状态,
+                // 不再「创建完又让用户输一次刚设置的密码」。
+                sheet.dismiss()
+                val tok = try { withContext(Dispatchers.IO) { client.vaultUnlock(a) } } catch (_: Exception) { "" }
+                if (tok.isNotBlank()) {
+                    vt = tok
+                    VaultSession.unlock(this@VaultActivity, tok)
+                    hint.text = "已解锁 · 文件在服务端加密存储"
+                    showUnlocked()
+                    loadList()
+                    toast("保险箱已创建")
+                } else {
+                    // 极端情况(换 token 网络失败):保险箱已创建,退回手动解锁流程。
                     toast("保险箱已创建,请解锁")
                     promptUnlock()
-                } catch (e: Exception) { toast("创建失败: ${e.message}") }
+                }
             }
         }
         sheet.tonal("取消") { sheet.dismiss(); finish() }
         sheet.show()
     }
 
+    /** 解锁入口:生物识别可用且已保存过密码时优先弹指纹,否则打开密码输入 Sheet。 */
     private fun promptUnlock() {
         showLocked()
+        if (bioUnlockAvailable()) {
+            bioUnlockThenFallBack()
+        } else {
+            showPasswordSheet()
+        }
+    }
+
+    /** 生物识别既要在设置里开启,也要设备真能用;两者缺一都走密码。 */
+    private fun bioAvailable(): Boolean =
+        BiometricGate.isEnabled(this) && BiometricGate.canUse(this)
+
+    /** 指纹解锁的前提:开关开启 + 设备可用 + 之前手动解锁时勾选保存过密码。 */
+    private fun bioUnlockAvailable(): Boolean =
+        bioAvailable() && !BiometricGate.loadSecret(this, KEY_VAULT_PW).isNullOrBlank()
+
+    /** 密码解锁 Sheet:生物识别可用时额外给一行「用指纹解锁」,方便取消/失败后重试。 */
+    private fun showPasswordSheet() {
         val sheet = Sheet(this, "解锁保险箱", "输入保险箱密码后,文件在手机上即可浏览与播放。")
+        if (bioUnlockAvailable()) {
+            sheet.row(R.drawable.ic_login_fingerprint, "用指纹解锁", "验证已保存的指纹,免输入密码") {
+                bioUnlockThenFallBack()
+            }
+        }
         sheet.input("保险箱密码", inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD)
         sheet.primary("解锁") {
             val pwText = sheet.inputView(0)?.text?.toString().orEmpty()
-            lifecycleScope.launch {
-                try {
-                    val tok = withContext(Dispatchers.IO) { client.vaultUnlock(pwText) }
-                    if (tok.isBlank()) {
-                        sheet.inputView(0)?.error = "密码错误"
-                        toast("密码错误")
-                        return@launch
-                    }
-                    vt = tok
-                    // 勾选后把保险箱密码加密保存,供指纹快速解锁。
-                    if (cbVaultBio.isChecked && BiometricGate.canUse(this@VaultActivity)) {
-                        if (BiometricGate.saveSecret(this@VaultActivity, KEY_VAULT_PW, pwText)) {
-                            toast("已启用指纹快速解锁")
-                        } else {
-                            toast("指纹保存失败,可稍后重试")
-                        }
-                    }
-                    hint.text = "已解锁 · 文件在服务端加密存储"
-                    sheet.dismiss()
-                    showUnlocked()
-                    loadList()
-                } catch (e: Exception) { toast("解锁失败: ${e.message}") }
+            unlockWithPassword(pwText, saveIfChecked = true, viaBio = false) { msg ->
+                sheet.inputView(0)?.error = msg
+                toast(msg)
             }
         }
         sheet.tonal("取消") { sheet.dismiss(); finish() }
         sheet.show()
+    }
+
+    /** 用密码换 token 并进入已解锁状态;成功后记录 5 分钟免密窗口。 */
+    private fun unlockWithPassword(
+        pw: String,
+        saveIfChecked: Boolean,
+        viaBio: Boolean,
+        onError: (String) -> Unit,
+    ) {
+        lifecycleScope.launch {
+            try {
+                val tok = withContext(Dispatchers.IO) { client.vaultUnlock(pw) }
+                if (tok.isBlank()) { onError("密码错误"); return@launch }
+                vt = tok
+                // 勾选后把保险箱密码加密保存,供指纹快速解锁。
+                if (saveIfChecked && cbVaultBio.isChecked && bioAvailable()) {
+                    if (BiometricGate.saveSecret(this@VaultActivity, KEY_VAULT_PW, pw)) {
+                        toast("已启用指纹快速解锁")
+                    } else {
+                        toast("指纹保存失败,可稍后重试")
+                    }
+                }
+                VaultSession.unlock(this@VaultActivity, tok)
+                hint.text = if (viaBio) "已通过生物识别解锁 · 文件在服务端加密存储" else "已解锁 · 文件在服务端加密存储"
+                showUnlocked()
+                loadList()
+            } catch (e: Exception) {
+                onError(if (viaBio) "指纹解锁失败: ${e.message}" else "解锁失败: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * 指纹验证成功后用已保存的密码解锁;验证框被关掉(取消/超时/锁定)才回退到密码 Sheet。
+     * 单次识别失败不会关闭系统弹窗,用户可在弹窗内重试,此时不弹密码 Sheet 打断。
+     */
+    private fun bioUnlockThenFallBack() {
+        val saved = BiometricGate.loadSecret(this, KEY_VAULT_PW)
+        if (saved.isNullOrBlank()) { showPasswordSheet(); return }
+        BiometricGate.authenticate(
+            this, "指纹/面容解锁", "验证后解锁保险箱",
+            onSuccess = {
+                unlockWithPassword(saved, saveIfChecked = false, viaBio = true) { msg -> toast(msg) }
+            },
+            onFail = { msg ->
+                if (msg == BiometricGate.MSG_RETRY) toast(msg) else showPasswordSheet()
+            },
+        )
     }
 
     private fun lockNow() {
@@ -192,6 +279,7 @@ class VaultActivity : AppCompatActivity() {
             try { withContext(Dispatchers.IO) { client.vaultLock(token) } } catch (_: Exception) { }
             vt = null
             vaultPath = ""
+            VaultSession.lock()
             list.removeAllViews()
             emptyView.visibility = View.GONE
             BiometricGate.clearSecret(this@VaultActivity, KEY_VAULT_PW)
@@ -203,7 +291,23 @@ class VaultActivity : AppCompatActivity() {
     private fun loadList() {
         val token = vt ?: return
         lifecycleScope.launch {
-            val entries = try { withContext(Dispatchers.IO) { client.vaultList(token, vaultPath) } } catch (e: Exception) { toast("读取失败: ${e.message}"); return@launch }
+            val entries = try {
+                withContext(Dispatchers.IO) { client.vaultList(token, vaultPath) }
+            } catch (e: Exception) {
+                // 从免密会话恢复后首次拉取失败:多半是服务端已失效(改密码/重启),
+                // 清掉会话退回解锁,而不是停在空列表反复报错。
+                if (resumedFromSession) {
+                    resumedFromSession = false
+                    vt = null
+                    VaultSession.lock()
+                    toast("保险箱会话已失效,请重新解锁")
+                    promptUnlock()
+                } else {
+                    toast("读取失败: ${e.message}")
+                }
+                return@launch
+            }
+            resumedFromSession = false
             list.removeAllViews()
             // 面包屑/当前位置
             hint.text = if (vaultPath.isBlank()) "保险箱根目录 · 服务端加密存储" else "位置: /$vaultPath"
@@ -294,6 +398,7 @@ class VaultActivity : AppCompatActivity() {
                     toast("密码已修改,请重新解锁")
                     vt = null
                     vaultPath = ""
+                    VaultSession.lock()
                     list.removeAllViews()
                     emptyView.visibility = View.GONE
                     BiometricGate.clearSecret(this@VaultActivity, KEY_VAULT_PW)
@@ -467,6 +572,10 @@ class VaultActivity : AppCompatActivity() {
         if (!isChecked) {
             BiometricGate.clearSecret(this@VaultActivity, KEY_VAULT_PW)
             refreshBio()
+        } else if (!BiometricGate.isEnabled(this)) {
+            // 设置里关了生物识别:不允许在这里偷偷启用。
+            cbVaultBio.isChecked = false
+            toast("生物识别已在设置中关闭")
         } else if (!BiometricGate.canUse(this)) {
             cbVaultBio.isChecked = false
             toast("当前设备不支持生物识别")
@@ -480,8 +589,9 @@ class VaultActivity : AppCompatActivity() {
     /** 根据已保存密码与生物识别可用性刷新「指纹解锁」按钮与开关状态。 */
     private fun refreshBio() {
         val saved = BiometricGate.loadSecret(this, KEY_VAULT_PW)
-        val enabled = !saved.isNullOrBlank()
-        btnVaultBio.visibility = if (BiometricGate.canUse(this) && enabled) View.VISIBLE else View.GONE
+        // 开关关闭时即使存过密码也不再显示入口,避免设置里关掉了还在这里弹指纹。
+        val enabled = !saved.isNullOrBlank() && bioAvailable()
+        btnVaultBio.visibility = if (enabled) View.VISIBLE else View.GONE
         if (cbVaultBio.isChecked != enabled) {
             cbVaultBio.setOnCheckedChangeListener(null)
             cbVaultBio.isChecked = enabled
@@ -489,51 +599,82 @@ class VaultActivity : AppCompatActivity() {
         }
     }
 
-    /** 指纹解锁:验证成功后用保存的密码调用 vaultUnlock。 */
+    /** 锁定页的「指纹解锁」按钮:验证成功后用保存的密码解锁,失败只提示不打断。 */
     private fun doBioUnlock() {
+        val saved = BiometricGate.loadSecret(this, KEY_VAULT_PW)
+        if (!bioAvailable() || saved.isNullOrBlank()) {
+            toast("未保存保险箱密码或生物识别不可用,请手动解锁")
+            return
+        }
         btnVaultBio.isEnabled = false
-        val onSuccess: () -> Unit = {
-            val saved = BiometricGate.loadSecret(this, KEY_VAULT_PW)
-            if (saved.isNullOrBlank()) {
+        BiometricGate.authenticate(
+            this, "指纹/面容解锁", "验证后解锁保险箱",
+            onSuccess = {
                 btnVaultBio.isEnabled = true
-                toast("未保存保险箱密码,请先手动解锁")
-            } else {
-                val pw = saved
-                lifecycleScope.launch {
-                    try {
-                        val tok = withContext(Dispatchers.IO) { client.vaultUnlock(pw) }
-                        if (tok.isBlank()) {
-                            btnVaultBio.isEnabled = true
-                            toast("保存的密码已失效,请重新解锁")
-                            BiometricGate.clearSecret(this@VaultActivity, KEY_VAULT_PW)
-                            refreshBio()
-                        } else {
-                            vt = tok
-                            hint.text = "已通过生物识别解锁 · 文件在服务端加密存储"
-                            showUnlocked()
-                            loadList()
-                        }
-                    } catch (e: Exception) {
-                        btnVaultBio.isEnabled = true
-                        toast("指纹解锁失败: ${e.message}")
-                    }
-                }
-            }
-        }
-        val onFail: (String) -> Unit = { msg ->
-            btnVaultBio.isEnabled = true
-            toast(msg)
-        }
-        BiometricGate.authenticate(this, "指纹/面容解锁", "验证后解锁保险箱", onSuccess, onFail)
+                unlockWithPassword(saved, saveIfChecked = false, viaBio = true) { msg -> toast(msg) }
+            },
+            onFail = { msg ->
+                btnVaultBio.isEnabled = true
+                toast(msg)
+            },
+        )
     }
 
-    override fun onDestroy() {
-        // 退出页面时清除已保存的保险箱密码(锁定/改密码路径也已单独清除)。
-        if (isFinishing) BiometricGate.clearSecret(this@VaultActivity, KEY_VAULT_PW)
-        super.onDestroy()
-    }
+    // 说明:退出页面时不再清已保存的保险箱密码、也不锁 VaultSession——
+    // 用户诉求是「退出保险箱再进不要重输」。真正的重新验证由以下路径保证:
+    // 手动「锁定」(lockNow)、修改密码、或 App 真正退到后台/进程结束后超时。
 
     companion object {
         private const val KEY_VAULT_PW = "bio_vault_pw"
+    }
+}
+
+/**
+ * 进程内保险箱解锁会话:让「退出保险箱页面」不丢失解锁状态,只在
+ * 免密时限(5 分钟)耗尽或整个 App 退到后台超时后才重新要求解锁。
+ *
+ * 为什么放在内存里而不是持久化:保险箱 token 是访问加密目录的凭据,
+ * 只应存在于当前进程;进程被杀即失效,避免把凭据长期留在磁盘上。
+ */
+object VaultSession {
+    /** 免密时限:解锁后 5 分钟内再次进入保险箱不再要密码;后台超过此时长也重新要。 */
+    private const val TIMEOUT_MS = 5 * 60 * 1000L
+
+    private var unlockedAt = 0L          // 最近一次成功解锁的时刻(elapsedRealtime)
+    private var backgroundAt = 0L        // 最近一次整个 App 退到后台的时刻
+    private var token: String? = null    // 服务端保险箱 token,退出页面时保留
+
+    /** 是否仍在免密窗口内。用 elapsedRealtime,不受用户改系统时间影响。 */
+    fun isUnlocked(): Boolean =
+        unlockedAt > 0L && SystemClock.elapsedRealtime() - unlockedAt < TIMEOUT_MS
+
+    /** 记录解锁时刻并保存 token;上下文参数预留给以后做跨进程持久化,当前只用内存。 */
+    fun unlock(ctx: Context, tok: String? = null) {
+        unlockedAt = SystemClock.elapsedRealtime()
+        backgroundAt = 0L
+        token = tok ?: token
+    }
+
+    /** 免密窗口内返回 token,否则 null。 */
+    fun token(): String? = if (isUnlocked()) token else null
+
+    /** 立即失效(手动锁定、改密码、会话被服务端拒绝时调用)。 */
+    fun lock() {
+        unlockedAt = 0L
+        backgroundAt = 0L
+        token = null
+    }
+
+    /** 整个 App 退到后台:记录时刻,供回前台时判断后台时长。 */
+    fun onAppBackground() {
+        backgroundAt = SystemClock.elapsedRealtime()
+    }
+
+    /** 回到前台:后台时长达到免密时限就上锁,否则保持解锁。 */
+    fun onAppForeground() {
+        if (backgroundAt > 0L && SystemClock.elapsedRealtime() - backgroundAt >= TIMEOUT_MS) {
+            lock()
+        }
+        backgroundAt = 0L
     }
 }

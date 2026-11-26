@@ -1,10 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  播放器「更多」面板(v1.9,B 站横屏三点菜单风格):
-  第一段 图标入口(倍速播放/字幕/画面比例/画中画/外部播放器/锁定横屏),代码里按 6 等分填充
-  第二段 定时关闭分段(不开启 / 15:00 / 30:00 / 60:00 / 自定义)
-  第三段 开关行(自动连播 / 循环播放 / 镜像翻转)
-  外层 NestedScrollView 保证小横屏不超高(超过屏幕可滚),深色半透明圆角背景由 bg_player_panel 提供。
+  播放器「更多」面板内容(v1.10, 横竖屏共用):
+  - 竖屏:由 PlayerActivity.showPortraitMoreSheet() inflate 后塞进底部 BottomSheetDialog;
+  - 横屏:由 openLandSheet() inflate 后塞进右侧滑出的 playerMorePanel(此时代码会清掉本布局
+    的玻璃背景与 12dp 外边距,改由面板容器提供,避免两层玻璃叠在一起)。
+  为什么改成两行三列:原来 6 个入口硬挤一行,横屏右侧面板(约 300dp)和竖屏底部都要把
+  「倍速播放 / 外部播放器」这种 4~5 字文案压到 9sp 才放得下,视觉全糊在一起;
+  改成 3 列 × 2 行后每格至少 64dp 宽、图标 26dp、文案 12sp 单行,两种宽度都宽松。
 -->
 <androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -23,40 +25,42 @@
         android:orientation="vertical"
         android:paddingBottom="12dp">
 
+        <!-- 底部弹层把手(横屏右侧面板里由代码隐藏) -->
         <View
+            android:id="@+id/more_handle"
             android:layout_width="36dp"
             android:layout_height="4dp"
             android:layout_gravity="center_horizontal"
             android:layout_marginTop="10dp"
             android:background="@drawable/bg_player_handle" />
 
-        <!-- 第一段:图标入口行(代码里 6 等分填充,图标 24dp + 12sp 文案) -->
+        <!-- 第一段:图标入口(代码按 3 列 × 2 行填充;整块顶部再留 4dp,与把手拉开) -->
         <LinearLayout
             android:id="@+id/more_grid"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:orientation="horizontal"
+            android:layout_marginTop="4dp"
+            android:orientation="vertical"
             android:paddingStart="8dp"
             android:paddingEnd="8dp" />
 
-        <!-- 第二段:定时关闭 -->
+        <!-- 第二段:定时关闭(小标题 14sp 75% 白,与分段控件间距 10dp) -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginStart="16dp"
-            android:layout_marginTop="14dp"
+            android:layout_marginTop="20dp"
             android:layout_marginEnd="16dp"
             android:text="定时关闭"
             android:textColor="#B3FFFFFF"
-            android:textSize="12sp" />
+            android:textSize="14sp" />
 
         <LinearLayout
             android:id="@+id/sleep_seg"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginStart="12dp"
-            android:layout_marginTop="4dp"
+            android:layout_marginTop="10dp"
             android:layout_marginEnd="12dp"
             android:baselineAligned="false"
             android:gravity="center_vertical"
@@ -65,74 +69,74 @@
             <TextView
                 android:id="@+id/seg_sleep_off"
                 android:layout_width="0dp"
-                android:layout_height="36dp"
+                android:layout_height="40dp"
                 android:layout_weight="1"
                 android:background="@drawable/bg_player_seg_on"
                 android:gravity="center"
                 android:text="不开启"
                 android:textColor="#F2F2F7"
-                android:textSize="12sp" />
+                android:textSize="13sp" />
 
             <TextView
                 android:id="@+id/seg_sleep_15"
                 android:layout_width="0dp"
-                android:layout_height="36dp"
+                android:layout_height="40dp"
                 android:layout_weight="1"
                 android:background="@drawable/bg_player_seg"
                 android:gravity="center"
                 android:text="15:00"
                 android:textColor="#99FFFFFF"
-                android:textSize="12sp" />
+                android:textSize="13sp" />
 
             <TextView
                 android:id="@+id/seg_sleep_30"
                 android:layout_width="0dp"
-                android:layout_height="36dp"
+                android:layout_height="40dp"
                 android:layout_weight="1"
                 android:background="@drawable/bg_player_seg"
                 android:gravity="center"
                 android:text="30:00"
                 android:textColor="#99FFFFFF"
-                android:textSize="12sp" />
+                android:textSize="13sp" />
 
             <TextView
                 android:id="@+id/seg_sleep_60"
                 android:layout_width="0dp"
-                android:layout_height="36dp"
+                android:layout_height="40dp"
                 android:layout_weight="1"
                 android:background="@drawable/bg_player_seg"
                 android:gravity="center"
                 android:text="60:00"
                 android:textColor="#99FFFFFF"
-                android:textSize="12sp" />
+                android:textSize="13sp" />
 
             <TextView
                 android:id="@+id/seg_sleep_custom"
                 android:layout_width="0dp"
-                android:layout_height="36dp"
+                android:layout_height="40dp"
                 android:layout_weight="1"
                 android:background="@drawable/bg_player_seg"
                 android:gravity="center"
                 android:text="自定义"
                 android:textColor="#99FFFFFF"
-                android:textSize="12sp" />
+                android:textSize="13sp" />
         </LinearLayout>
 
-        <!-- 第三段:自动连播 -->
+        <!-- 第三段:开关行(统一 56dp 高、左右 16dp 内边距、行间 8dp;与上一段隔 20dp) -->
         <LinearLayout
             android:id="@+id/more_row_autonext"
             android:layout_width="match_parent"
-            android:layout_height="44dp"
+            android:layout_height="56dp"
             android:layout_marginStart="12dp"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="20dp"
             android:layout_marginEnd="12dp"
             android:background="@drawable/bg_player_row"
             android:clickable="true"
             android:focusable="true"
             android:gravity="center_vertical"
             android:orientation="horizontal"
-            android:paddingStart="10dp"
-            android:paddingEnd="8dp">
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp">
 
             <ImageView
                 android:layout_width="24dp"
@@ -147,6 +151,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="12dp"
                 android:layout_weight="1"
+                android:maxLines="1"
                 android:text="自动连播"
                 android:textColor="#E6FFFFFF"
                 android:textSize="14sp" />
@@ -159,18 +164,18 @@
                 android:minHeight="0dp" />
         </LinearLayout>
 
-        <!-- 第三段:循环播放(三段文本) -->
         <LinearLayout
             android:id="@+id/more_row_loop"
             android:layout_width="match_parent"
-            android:layout_height="44dp"
+            android:layout_height="56dp"
             android:layout_marginStart="12dp"
             android:layout_marginTop="8dp"
             android:layout_marginEnd="12dp"
+            android:background="@drawable/bg_player_row"
             android:gravity="center_vertical"
             android:orientation="horizontal"
-            android:paddingStart="10dp"
-            android:paddingEnd="10dp">
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp">
 
             <ImageView
                 android:layout_width="24dp"
@@ -185,6 +190,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="12dp"
                 android:layout_weight="1"
+                android:maxLines="1"
                 android:text="循环播放"
                 android:textColor="#E6FFFFFF"
                 android:textSize="14sp" />
@@ -199,41 +205,40 @@
                 android:paddingBottom="6dp"
                 android:text="单集循环"
                 android:textColor="#99FFFFFF"
-                android:textSize="12sp" />
+                android:textSize="13sp" />
 
             <TextView
                 android:id="@+id/seg_loop_list"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="4dp"
+                android:layout_marginStart="2dp"
                 android:paddingStart="6dp"
                 android:paddingTop="6dp"
                 android:paddingEnd="6dp"
                 android:paddingBottom="6dp"
                 android:text="列表循环"
                 android:textColor="#99FFFFFF"
-                android:textSize="12sp" />
+                android:textSize="13sp" />
 
             <TextView
                 android:id="@+id/seg_loop_none"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="4dp"
+                android:layout_marginStart="2dp"
                 android:paddingStart="6dp"
                 android:paddingTop="6dp"
                 android:paddingEnd="6dp"
                 android:paddingBottom="6dp"
                 android:text="不循环"
                 android:textColor="#FFFFFF"
-                android:textSize="12sp"
+                android:textSize="13sp"
                 android:textStyle="bold" />
         </LinearLayout>
 
-        <!-- 第三段:镜像翻转 -->
         <LinearLayout
             android:id="@+id/more_row_mirror"
             android:layout_width="match_parent"
-            android:layout_height="44dp"
+            android:layout_height="56dp"
             android:layout_marginStart="12dp"
             android:layout_marginTop="8dp"
             android:layout_marginEnd="12dp"
@@ -242,8 +247,8 @@
             android:focusable="true"
             android:gravity="center_vertical"
             android:orientation="horizontal"
-            android:paddingStart="10dp"
-            android:paddingEnd="8dp">
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp">
 
             <ImageView
                 android:layout_width="24dp"
@@ -258,6 +263,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="12dp"
                 android:layout_weight="1"
+                android:maxLines="1"
                 android:text="镜像翻转"
                 android:textColor="#E6FFFFFF"
                 android:textSize="14sp" />

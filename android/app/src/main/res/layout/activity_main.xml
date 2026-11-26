@@ -742,7 +742,7 @@
                                 <ImageView
                                     style="@style/RowIcon"
                                     android:contentDescription="扫描"
-                                    android:src="@drawable/ic_wifi" />
+                                    android:src="@drawable/ic_scan" />
 
                                 <TextView
                                     style="@style/RowTitle"
@@ -763,7 +763,7 @@
                                 <ImageView
                                     style="@style/RowIcon"
                                     android:contentDescription="手动"
-                                    android:src="@drawable/ic_link" />
+                                    android:src="@drawable/ic_manual" />
 
                                 <TextView
                                     style="@style/RowTitle"
@@ -864,7 +864,7 @@
                                 <ImageView
                                     style="@style/RowIcon"
                                     android:contentDescription="口令"
-                                    android:src="@drawable/ic_gear" />
+                                    android:src="@drawable/ic_key" />
 
                                 <TextView
                                     style="@style/RowTitle"
@@ -874,6 +874,44 @@
                                     style="@style/RowChevron"
                                     android:contentDescription="进入"
                                     android:src="@drawable/ic_chevron" />
+                            </LinearLayout>
+
+                            <View style="@style/RowDivider" />
+
+                            <LinearLayout
+                                style="@style/RowItem"
+                                android:clickable="false"
+                                android:focusable="false">
+
+                                <ImageView
+                                    style="@style/RowIcon"
+                                    android:contentDescription="生物识别"
+                                    android:src="@drawable/ic_login_fingerprint" />
+
+                                <LinearLayout
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginStart="14dp"
+                                    android:layout_weight="1"
+                                    android:orientation="vertical">
+
+                                    <TextView
+                                        style="@style/RowTitle"
+                                        android:layout_width="match_parent"
+                                        android:text="生物识别" />
+
+                                    <TextView
+                                        style="@style/TextMeta"
+                                        android:layout_width="match_parent"
+                                        android:layout_height="wrap_content"
+                                        android:layout_marginTop="2dp"
+                                        android:text="指纹登录与保险箱解锁" />
+                                </LinearLayout>
+
+                                <com.google.android.material.materialswitch.MaterialSwitch
+                                    android:id="@+id/swSettingsBio"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content" />
                             </LinearLayout>
 
                             <View style="@style/RowDivider" />
@@ -1011,7 +1049,7 @@
                                 <ImageView
                                     style="@style/RowIcon"
                                     android:contentDescription="会话"
-                                    android:src="@drawable/ic_devices" />
+                                    android:src="@drawable/ic_session" />
 
                                 <TextView
                                     style="@style/RowTitle"
@@ -1032,7 +1070,7 @@
                                 <ImageView
                                     style="@style/RowIcon"
                                     android:contentDescription="用户"
-                                    android:src="@drawable/ic_gear" />
+                                    android:src="@drawable/ic_users" />
 
                                 <TextView
                                     style="@style/RowTitle"
@@ -1053,7 +1091,7 @@
                                 <ImageView
                                     style="@style/RowIcon"
                                     android:contentDescription="唤醒"
-                                    android:src="@drawable/ic_link" />
+                                    android:src="@drawable/ic_wake" />
 
                                 <TextView
                                     style="@style/RowTitle"
@@ -1074,7 +1112,7 @@
                                 <ImageView
                                     style="@style/RowIcon"
                                     android:contentDescription="维护"
-                                    android:src="@drawable/ic_history" />
+                                    android:src="@drawable/ic_wrench" />
 
                                 <TextView
                                     style="@style/RowTitle"
@@ -1095,7 +1133,7 @@
                                 <ImageView
                                     style="@style/RowIcon"
                                     android:contentDescription="存储库"
-                                    android:src="@drawable/ic_folder" />
+                                    android:src="@drawable/ic_library" />
 
                                 <TextView
                                     style="@style/RowTitle"
@@ -1116,7 +1154,7 @@
                                 <ImageView
                                     style="@style/RowIcon"
                                     android:contentDescription="存储库"
-                                    android:src="@drawable/ic_folder" />
+                                    android:src="@drawable/ic_folder_add" />
 
                                 <TextView
                                     style="@style/RowTitle"
@@ -1137,7 +1175,7 @@
                                 <ImageView
                                     style="@style/RowIcon"
                                     android:contentDescription="版本"
-                                    android:src="@drawable/ic_refresh" />
+                                    android:src="@drawable/ic_update" />
 
                                 <TextView
                                     style="@style/RowTitle"

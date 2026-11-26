@@ -111,42 +111,37 @@ class LoginActivity : AppCompatActivity() {
 
     /**
      * 配置指纹入口：
-     * - 有生物识别且有已保存会话：显示大号指纹主按钮，并自动弹一次验证；
-     * - 有生物识别但无已保存会话：隐藏；
-     * - 无生物识别但有已保存会话：显示「使用已保存的登录信息进入」，直接进主页。
+     * - 设置里开启 + 设备可用 + 有已保存会话：显示指纹主按钮，并自动弹一次验证；
+     * - 设置里关掉或设备不支持：隐藏指纹按钮，有已保存会话时退化为「使用已保存的登录信息进入」。
+     * 用户明确要求指纹可以在设置里开关，所以这里必须先看 isEnabled；只看硬件会让
+     *「已经关掉的指纹」照样出现在登录页。
      */
     private fun setupBioEntry(btn: MaterialButton, cb: MaterialCheckBox, divider: View, error: TextView) {
         val meta = Prefs.sessionMeta()
         val hasSaved = meta != null
         val user = meta?.get(1)?.takeIf { it.isNotBlank() }
+        val bioReady = BiometricGate.isEnabled(this) && BiometricGate.canUse(this)
 
-        if (BiometricGate.canUse(this)) {
-            cb.visibility = View.VISIBLE
-            if (hasSaved) {
-                btn.visibility = View.VISIBLE
-                divider.visibility = View.VISIBLE
-                btn.text = if (user != null) "指纹登录 · $user" else "指纹登录"
-                btn.setOnClickListener { doBioAuth(btn, error) }
-                if (!bioPrompted) {
-                    bioPrompted = true
-                    btn.post { doBioAuth(btn, error) }
-                }
-            } else {
-                btn.visibility = View.GONE
-                divider.visibility = View.GONE
+        cb.visibility = if (bioReady) View.VISIBLE else View.GONE
+        if (bioReady && hasSaved) {
+            btn.visibility = View.VISIBLE
+            divider.visibility = View.VISIBLE
+            btn.text = if (user != null) "指纹登录 · $user" else "指纹登录"
+            btn.setOnClickListener { doBioAuth(btn, error) }
+            if (!bioPrompted) {
+                bioPrompted = true
+                btn.post { doBioAuth(btn, error) }
             }
+        } else if (hasSaved) {
+            // 指纹关闭/不可用:不显示指纹按钮,但仍允许用加密保存的会话直接进入。
+            btn.visibility = View.VISIBLE
+            divider.visibility = View.VISIBLE
+            btn.text = if (user != null) "使用已保存的登录信息进入 · $user" else "使用已保存的登录信息进入"
+            // 服务端若返回 401，MainActivity 会重新拉起登录页。
+            btn.setOnClickListener { useSavedSession() }
         } else {
-            cb.visibility = View.GONE
-            if (hasSaved) {
-                btn.visibility = View.VISIBLE
-                divider.visibility = View.VISIBLE
-                btn.text = if (user != null) "使用已保存的登录信息进入 · $user" else "使用已保存的登录信息进入"
-                // 服务端若返回 401，MainActivity 会重新拉起登录页。
-                btn.setOnClickListener { useSavedSession() }
-            } else {
-                btn.visibility = View.GONE
-                divider.visibility = View.GONE
-            }
+            btn.visibility = View.GONE
+            divider.visibility = View.GONE
         }
     }
 
@@ -164,8 +159,12 @@ class LoginActivity : AppCompatActivity() {
         }
         val onFail: (String) -> Unit = { msg ->
             btn.isEnabled = true
-            error.visibility = View.VISIBLE
-            error.text = msg
+            // 单次按歪不关系统弹窗、用户还能重试,别把红字错误甩到登录页上;
+            // 取消/锁定这类真正关闭弹窗的情况才提示。
+            if (msg != BiometricGate.MSG_RETRY) {
+                error.visibility = View.VISIBLE
+                error.text = msg
+            }
         }
         BiometricGate.authenticate(this, "生物识别登录", "验证后直接进入 LinNAS", onSuccess, onFail)
     }

@@ -2,6 +2,7 @@ package com.linnas.app
 
 import android.content.Context
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.util.TypedValue
 import android.view.Gravity
@@ -91,8 +92,24 @@ object ScreenUi {
     }
 
     /**
+     * 选中行的底:高表面色填充 + 主色 1dp 描边。
+     * 为什么在代码里画而不是写进 drawable:需要按当前主题取 lSurfaceHigh / lPrimary,
+     * 统一用 ThemeColors 取色可避免 drawable 里 ?attr 在不同主题叠加下解析不一致。
+     * 描边用全强度主色(而不是低透明度淡描边):淡描边在浅/深主题下几乎不可见,
+     * 达不到「让用户一眼看出选中了哪项」的目的。
+     */
+    internal fun checkedRowBackground(ctx: Context): GradientDrawable =
+        GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dim(ctx, R.dimen.radius_lg).toFloat()
+            setColor(ThemeColors.color(ctx, R.attr.lSurfaceHigh))
+            setStroke(dim(ctx, R.dimen.stroke_hairline), ThemeColors.color(ctx, R.attr.lPrimary))
+        }
+
+    /**
      * 圆角卡片行:图标底 + 标题 + 副标题 + 可选值 + 可选 chevron。
      * onClick / onLongClick 非空时才可点,并加 bg_ripple 按压反馈。
+     * checked 时换成「主色描边」的选中底,与右侧主色勾图标配合,选中状态一眼可辨。
      */
     fun row(
         ctx: Context,
@@ -110,7 +127,11 @@ object ScreenUi {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             minimumHeight = dim(ctx, R.dimen.row_min_height)
-            setBackgroundResource(R.drawable.bg_card)
+            if (checked) {
+                background = checkedRowBackground(ctx)
+            } else {
+                setBackgroundResource(R.drawable.bg_card)
+            }
             foreground = ctx.getDrawable(R.drawable.bg_ripple)
             setPadding(
                 dim(ctx, R.dimen.card_padding),
@@ -727,7 +748,12 @@ class Sheet(private val ctx: Context, title: String, subtitle: String? = null) {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             minimumHeight = dp(52)
-            setBackgroundResource(R.drawable.bg_sheet_row)
+            // checked 时换成主色描边的选中底,配合右侧主色勾,让当前选项有明确边界
+            if (checked) {
+                background = ScreenUi.checkedRowBackground(ctx)
+            } else {
+                setBackgroundResource(R.drawable.bg_sheet_row)
+            }
             foreground = ctx.getDrawable(R.drawable.bg_ripple)
             setPadding(dp(12), dp(8), dp(12), dp(8))
             layoutParams = LinearLayout.LayoutParams(
@@ -830,11 +856,26 @@ class Sheet(private val ctx: Context, title: String, subtitle: String? = null) {
         return this
     }
 
-    /** 分段选择器:一排等宽选项,选中项主色底 + 主色文字。 */
+    /**
+     * 分段选择器:整行放在「高表面色圆角槽」里(padding 4dp),选中项主色实底 +
+     * onPrimary 加粗、未选中项透明底 + 次级文字;项高 40dp、项间距 4dp。
+     *
+     * 为什么改成实底:旧样式是主色 10% 淡底 + 主色文字,浅色主题下选中项与未选中项
+     * 几乎同色(都是浅灰),用户「选中了看不见自己选了什么」。主色实底 + onPrimary
+     * 文字在全部 6 个主题下对比度 ≥ 4.5:1(浅色 ≈5-6.5:1,深色 ≈7-8:1)。
+     * 主题色统一用 ThemeColors 在代码里取,不依赖 drawable 里的 ?attr。
+     */
     fun segmented(options: List<String>, selected: Int, onPick: (Int) -> Unit): Sheet {
         var sel = selected
-        val strip = LinearLayout(ctx).apply {
+        // 槽底:高表面色 + 12dp 圆角,把一组选项框成一个整体,和普通卡片区分开
+        val track = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(12).toFloat()
+                setColor(ThemeColors.color(ctx, R.attr.lSurfaceHigh))
+            }
+            setPadding(dp(4), dp(4), dp(4), dp(4))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -844,8 +885,13 @@ class Sheet(private val ctx: Context, title: String, subtitle: String? = null) {
         fun paint() {
             cells.forEachIndexed { i, tv ->
                 val on = i == sel
-                tv.setBackgroundResource(if (on) R.drawable.bg_sheet_seg_on else R.drawable.bg_sheet_seg)
-                tv.setTextColor(ThemeColors.color(ctx, if (on) R.attr.lPrimary else R.attr.lTextDim))
+                // 选中:主色实底(10dp 圆角);未选中:透明,由槽底承托,不再额外画描边
+                tv.background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dp(10).toFloat()
+                    if (on) setColor(ThemeColors.color(ctx, R.attr.lPrimary))
+                }
+                tv.setTextColor(ThemeColors.color(ctx, if (on) R.attr.lOnPrimary else R.attr.lTextDim))
                 tv.setTypeface(null, if (on) Typeface.BOLD else Typeface.NORMAL)
             }
         }
@@ -854,9 +900,10 @@ class Sheet(private val ctx: Context, title: String, subtitle: String? = null) {
                 text = label
                 gravity = Gravity.CENTER
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, ScreenUi.sp(ctx, R.dimen.text_sm))
-                setPadding(dp(4), dp(10), dp(4), dp(10))
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                    if (i > 0) marginStart = dp(6)
+                setPadding(dp(4), 0, dp(4), 0)
+                // 定高 40dp:选项再多也保持统一节奏,点击区域足够大
+                layoutParams = LinearLayout.LayoutParams(0, dp(40), 1f).apply {
+                    if (i > 0) marginStart = dp(4)
                 }
                 setOnClickListener {
                     sel = i
@@ -865,10 +912,10 @@ class Sheet(private val ctx: Context, title: String, subtitle: String? = null) {
                 }
             }
             cells.add(tv)
-            strip.addView(tv)
+            track.addView(tv)
         }
         paint()
-        body.addView(strip)
+        body.addView(track)
         return this
     }
 

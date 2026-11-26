@@ -1693,6 +1693,13 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnVersionCheck).setOnClickListener {
             startActivity(Intent(this, VersionCheckActivity::class.java))
         }
+        // v1.8.5 生物识别总开关:只切开关,不校验硬件——没指纹的设备由 authenticate 的降级路径兜底。
+        val swBio = findViewById<com.google.android.material.materialswitch.MaterialSwitch>(R.id.swSettingsBio)
+        swBio.isChecked = BiometricGate.isEnabled(this)
+        swBio.setOnCheckedChangeListener { _, checked ->
+            BiometricGate.setEnabled(this, checked)
+            toast(if (checked) "已开启指纹登录与保险箱解锁" else "已关闭指纹登录与保险箱解锁")
+        }
     }
 
     /** 服务端 /api/audit 仅管理员可用:口令模式视为管理员;多用户模式需 sessionRole==admin。 */
@@ -1904,6 +1911,21 @@ class MainActivity : AppCompatActivity() {
             ?.hostAddress
     } catch (_: Exception) { null }
 
+    /**
+     * 按设备名/UA 猜平台:Android 系关键词与桌面系统关键词都不含时视为未知。
+     * 返回(图标, 平台中文名),只用于展示,不影响任何功能逻辑。
+     */
+    private fun devicePlatform(ua: String): Pair<Int, String> {
+        val s = ua.lowercase()
+        val androidKw = listOf("android", "mobile", "okhttp", "dalvik")
+        val desktopKw = listOf("windows", "macintosh", "linux", "x11", "pc", "desktop")
+        return when {
+            androidKw.any { it in s } -> Pair(R.drawable.ic_device_phone, "Android 手机")
+            desktopKw.any { it in s } -> Pair(R.drawable.ic_device_desktop, "桌面电脑")
+            else -> Pair(R.drawable.ic_devices, "未知设备")
+        }
+    }
+
     private fun showDevices() {
         lifecycleScope.launch {
             try {
@@ -1914,7 +1936,9 @@ class MainActivity : AppCompatActivity() {
                 for (d in list) {
                     val isMe = !myIp.isNullOrBlank() && d.ip == myIp
                     val value = (if (isMe) "本机 · " else "") + "最近活跃 " + fmtLastSeen(d.last) + " · ${d.count} 次"
-                    sheet.row(R.drawable.ic_devices, d.ip, d.ua.take(60), value = value)
+                    // v1.8.5:按平台换图标,副标题前缀标明平台,方便一眼区分手机与电脑。
+                    val (icon, platform) = devicePlatform(d.ua)
+                    sheet.row(icon, d.ip, subtitle = platform + " · " + d.ua.take(60), value = value)
                 }
                 if (list.isNotEmpty()) sheet.danger("清空记录") { confirmClearDevices(sheet) }
                 sheet.tonal("关闭") { sheet.dismiss() }

@@ -35,10 +35,20 @@ import javax.crypto.spec.GCMParameterSpec
 object BiometricGate {
 
     private const val PREFS = "linnas_secure"
+    /** 开关存在普通 prefs("linnas")里:它不是敏感数据,且不能与密文同库(避免误清)。 */
+    private const val SWITCH_PREFS = "linnas"
+    private const val KEY_ENABLED = "bio_enabled"
     private const val ANDROID_KEYSTORE = "AndroidKeyStore"
     private const val KEY_ALIAS = "linnas_bio_key"
     private const val GCM_TAG_LENGTH_BITS = 128
     private const val IV_LENGTH = 12
+
+    /**
+     * 单次识别失败(手指没对准等)的提示:系统弹窗不会关闭、用户可直接重试。
+     * 调用方用常量区分「可重试的失败」与「弹窗已关闭(取消/锁定)」,
+     * 后者才适合回退到密码输入,避免每次按歪都弹一个密码框。
+     */
+    const val MSG_RETRY = "验证失败,请重试"
 
     /**
      * 设备是否有可用的生物识别(指纹硬件已录入)。
@@ -60,8 +70,23 @@ object BiometricGate {
     }
 
     /**
+     * 生物识别总开关(设置页可开关)。默认 true:老用户升级后行为不变。
+     * 只置开关、不删 Keystore 密钥与密文——重新打开即可用,也避免把已保存的
+     * 会话/保险箱密码一并清掉(那会让用户在重新打开后还得重输一次)。
+     */
+    fun isEnabled(ctx: Context): Boolean =
+        ctx.getSharedPreferences(SWITCH_PREFS, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, true)
+
+    fun setEnabled(ctx: Context, on: Boolean) {
+        ctx.getSharedPreferences(SWITCH_PREFS, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_ENABLED, on).apply()
+    }
+
+    /**
      * 请求生物识别认证。API 28+ 走平台 BiometricPrompt,24-27 走 FingerprintManager,
      * 两者都不可用时降级为 KeyguardManager 的锁屏凭据确认。成功/失败均回调,绝不静默。
+     *
+     * 总开关关闭时不弹系统验证,直接走 onFail——调用方据此回退到密码/账号路径。
      */
     fun authenticate(
         activity: FragmentActivity,
@@ -70,6 +95,10 @@ object BiometricGate {
         onSuccess: () -> Unit,
         onFail: (String) -> Unit,
     ) {
+        if (!isEnabled(activity)) {
+            onFail("已在设置中关闭生物识别")
+            return
+        }
         if (canUse(activity)) {
             if (Build.VERSION.SDK_INT >= 28) {
                 authenticatePlatform(activity, title, subtitle, onSuccess, onFail)
@@ -110,7 +139,8 @@ object BiometricGate {
                 }
 
                 override fun onAuthenticationFailed() {
-                    onFail("验证失败,请重试")
+                    // 单次识别失败不关弹窗,用 MSG_RETRY 让调用方知道「还能在弹窗里重试」。
+                    onFail(MSG_RETRY)
                 }
             }
             prompt.authenticate(CancellationSignal(), executor, callback)
@@ -144,7 +174,8 @@ object BiometricGate {
                 }
 
                 override fun onAuthenticationFailed() {
-                    onFail("验证失败,请重试")
+                    // 同上:弹窗仍在,提示重试而不是回退到密码。
+                    onFail(MSG_RETRY)
                 }
             }
             fm.authenticate(null, CancellationSignal(), 0, callback, null)

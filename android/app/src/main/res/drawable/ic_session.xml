@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 会话管理:两个叠放窗口 + 人像(与设备管理的 ic_devices 区分) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path
+        android:pathData="M7,9 L7,6.5 C7,5.4 7.9,4.5 9,4.5 L20,4.5 C21.1,4.5 22,5.4 22,6.5 L22,11 C22,12.1 21.1,13 20,13 L19.5,13 M4,9.5 L16,9.5 L16,19.5 C16,20.6 15.1,21.5 14,21.5 L6,21.5 C4.9,21.5 4,20.6 4,19.5 Z M10,14.5 C11.1,14.5 12,15.4 12,16.5 C12,17.6 11.1,18.5 10,18.5 C8.9,18.5 8,17.6 8,16.5 C8,15.4 8.9,14.5 10,14.5 Z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

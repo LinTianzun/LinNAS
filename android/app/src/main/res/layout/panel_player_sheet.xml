@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  播放器通用二级面板(竖屏底部弹层):倍速 / 字幕 / 播放失败 等共用同一个容器。
+  为什么单独抽一个 layout:原来这三类都是 AlertDialog,和「更多」的玻璃面板视觉割裂;
+  现在统一成 玻璃底(bg_player_more) + 把手 + 标题 + 可滚内容,与「更多」面板同一套圆角与间距。
+  横屏不用这个布局:直接复用 activity_player.xml 里右侧滑出的 playerMorePanel。
+-->
+<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginStart="12dp"
+    android:layout_marginTop="8dp"
+    android:layout_marginEnd="12dp"
+    android:layout_marginBottom="8dp"
+    android:background="@drawable/bg_player_more"
+    android:scrollbars="none">
+
+    <LinearLayout
+        android:id="@+id/panel_sheet_content"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingBottom="12dp">
+
+        <!-- 底部弹层把手,提示可以下滑关闭 -->
+        <View
+            android:layout_width="36dp"
+            android:layout_height="4dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/bg_player_handle" />
+
+        <!-- 标题行:左侧标题 + 右侧关闭(横屏用右侧面板自带的标题行,不重复) -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingTop="10dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="2dp">
+
+            <TextView
+                android:id="@+id/panel_sheet_title"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <ImageButton
+                android:id="@+id/panel_sheet_close"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="关闭面板"
+                android:padding="8dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_close"
+                android:tint="#FFFFFF" />
+        </LinearLayout>
+
+        <!-- 内容由代码填充(单选行 / 说明文字 / 按钮行),间距在代码里统一 8~12dp -->
+        <LinearLayout
+            android:id="@+id/panel_sheet_body"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingTop="4dp" />
+    </LinearLayout>
+</androidx.core.widget.NestedScrollView>
