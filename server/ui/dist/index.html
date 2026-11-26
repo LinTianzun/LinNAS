@@ -188,8 +188,10 @@
     <section class="view" id="view-music" hidden>
       <div class="music-hero">
         <div class="music-box">
-          <div class="music-disc" id="music-disc">
-            <div class="music-point"></div>
+          <div class="music-cover">
+            <div class="music-disc" id="music-disc">
+              <div class="music-point"></div>
+            </div>
           </div>
           <div class="music-info">
             <div class="music-title" id="music-title">未选择歌曲</div>
@@ -197,18 +199,28 @@
           </div>
           <div class="music-progress">
             <span class="music-time" id="music-cur">0:00</span>
-            <input type="range" id="music-seek" min="0" max="100" value="0" step="0.1">
+            <input type="range" id="music-seek" min="0" max="100" value="0" step="0.1" aria-label="播放进度">
             <span class="music-time" id="music-dur">0:00</span>
           </div>
           <div class="music-controls">
+            <button class="mc-btn mc-sq" id="music-shuffle" title="随机播放:关" aria-pressed="false">⤨</button>
             <button class="mc-btn" id="music-prev" title="上一首">⏮</button>
             <button class="mc-btn mc-primary" id="music-play" title="播放 / 暂停">▶</button>
             <button class="mc-btn" id="music-next" title="下一首">⏭</button>
+            <button class="mc-btn mc-sq" id="music-repeat" title="循环:关" aria-pressed="false">⥁</button>
+          </div>
+          <div class="music-volume">
+            <span data-icon="music"></span>
+            <input type="range" id="music-vol" min="0" max="1" step="0.01" value="1" aria-label="音量">
           </div>
           <audio id="music-audio" preload="metadata"></audio>
         </div>
         <div class="music-list-wrap">
           <div class="music-list-head"><span>播放列表</span><span id="music-count"></span></div>
+          <div class="music-search">
+            <span data-icon="search"></span>
+            <input id="music-filter" type="search" placeholder="筛选歌名…" autocomplete="off">
+          </div>
           <ul class="music-list" id="music-list"></ul>
         </div>
       </div>
@@ -394,7 +406,8 @@
   <button class="mp-disc" id="mp-disc" title="回到音乐界面"><span data-icon="music"></span></button>
   <div class="mp-main">
     <div class="mp-title" id="mp-title">未选择歌曲</div>
-    <div class="mp-bar"><i id="mp-progress" style="width:0%"></i></div>
+    <div class="mp-bar" id="mp-bar"><i id="mp-progress" style="width:0%"></i></div>
+    <div class="mp-time" id="mp-time">0:00 / 0:00</div>
   </div>
   <div class="mp-ctrls">
     <button class="mp-btn" id="mp-prev" title="上一首"><span data-icon="chevron-left"></span></button>

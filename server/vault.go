@@ -517,6 +517,11 @@ func (s *Server) handleVaultImport(w http.ResponseWriter, r *http.Request) {
 			errs = append(errs, rerr.Error())
 			continue
 		}
+		// 只读存储库不允许被移出(导入等价于删除源文件),与 handleVaultExport 的只读校验保持一致
+		if lib.ReadOnly {
+			errs = append(errs, "源存储库为只读: "+lib.Name)
+			continue
+		}
 		// 保留原目录结构:相对该存储库根的子路径原样搬到保险箱目标目录下
 		relDir := ""
 		if rel, e := filepath.Rel(filepath.Clean(lib.Path), filepath.Dir(abs)); e == nil && rel != "." && !strings.HasPrefix(rel, "..") {

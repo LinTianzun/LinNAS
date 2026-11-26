@@ -1711,6 +1711,8 @@ async function vaultSetup() {
   if (!r) return;
   try {
     await api("/api/vault/setup", { method: "POST", body: { password: r.password } });
+    // setup 后必须标记 exists,否则 renderVault() 仍走「还没有保险箱」分支,界面停在校验前
+    state.vault.exists = true;
     toast("保险箱已创建");
     await vaultUnlock(r.password);
   } catch (e) { toast("失败: " + e.message); }
@@ -2173,7 +2175,7 @@ $("#btn-sel-vault").onclick = async () => {
 function vaultImport() { /* 兼容占位:改用 vaultImportFiles / 存入保险箱 */ }
 
 /* ============================================================ 音乐播放器 */
-const musicState = { list: [], index: -1, playing: false, rot: 0, timer: null, miniClosed: false };
+const musicState = { list: [], index: -1, playing: false, miniClosed: false, shuffle: false, repeat: "off", filter: "", saveAt: 0, pendingPos: 0 };
 
 function fmtClock(sec) {
   sec = Math.max(0, Math.floor(sec || 0));
@@ -2181,22 +2183,18 @@ function fmtClock(sec) {
 }
 function musicAudio() { return $("#music-audio"); }
 
-function startRotation() {
-  if (musicState.timer) return;
-  musicState.timer = setInterval(() => {
-    musicState.rot = (musicState.rot + 1) % 360;
-    const disc = $("#music-disc");
-    if (disc) disc.style.transform = "rotate(" + musicState.rot + "deg)";
-  }, 50);
-}
-function stopRotation() { if (musicState.timer) { clearInterval(musicState.timer); musicState.timer = null; } }
+/* 唱片旋转交给 CSS 动画(停播就移除 class,避免每帧改 DOM) */
+function startRotation() { const disc = $("#music-disc"); if (disc) disc.classList.add("spinning"); }
+function stopRotation() { const disc = $("#music-disc"); if (disc) disc.classList.remove("spinning"); }
 
 function setMusicPlaying(playing) {
   musicState.playing = playing;
   if (playing) musicState.miniClosed = false;
   const btn = $("#music-play");
-  if (btn) btn.textContent = playing ? "⏸" : "▶";
+  if (btn) btn.innerHTML = svgIcon(playing ? "pause" : "play");
   if (playing) startRotation(); else stopRotation();
+  const cur = $("#music-list li.playing .ml-idx");
+  if (cur) cur.textContent = (playing && musicState.index >= 0) ? "♪" : String(musicState.index + 1);
   updateMiniPlayer();
 }
 
@@ -2214,7 +2212,11 @@ function updateMiniPlayer() {
   if (pb) pb.innerHTML = svgIcon(musicState.playing ? "pause" : "play");
   const a = musicAudio();
   const bar = $("#mp-progress");
-  if (bar && a && isFinite(a.duration) && a.duration > 0) bar.style.width = ((a.currentTime / a.duration) * 100).toFixed(2) + "%";
+  const dur = a && isFinite(a.duration) ? a.duration : 0;
+  const cur = a ? (a.currentTime || 0) : 0;
+  if (bar && dur > 0) bar.style.width = ((cur / dur) * 100).toFixed(2) + "%";
+  const mt = $("#mp-time");
+  if (mt) mt.textContent = fmtClock(cur) + " / " + fmtClock(dur);
 }
 
 async function loadMusic() {
@@ -2232,19 +2234,29 @@ async function loadMusic() {
 function renderMusicList() {
   const ul = $("#music-list");
   if (!ul) return;
-  $("#music-count").textContent = musicState.list.length ? musicState.list.length + " 首" : "";
+  const q = (musicState.filter || "").trim().toLowerCase();
+  const items = q ? musicState.list.filter((it) => it.name.toLowerCase().includes(q)) : musicState.list;
+  $("#music-count").textContent = musicState.list.length
+    ? (q ? items.length + " / " + musicState.list.length + " 首" : musicState.list.length + " 首") : "";
   ul.innerHTML = "";
-  if (!musicState.list.length) { ul.innerHTML = '<li class="music-empty">暂无音乐文件(索引建好后才有)</li>'; return; }
-  musicState.list.forEach((it, i) => {
+  if (!items.length) {
+    ul.innerHTML = '<li class="music-empty">' + (musicState.list.length ? "没有匹配的歌名" : "暂无音乐文件(索引建好后才有)") + "</li>";
+    return;
+  }
+  items.forEach((it) => {
+    const i = musicState.list.indexOf(it);
     const li = document.createElement("li");
     if (i === musicState.index) li.className = "playing";
     li.innerHTML = '<span class="ml-idx"></span><span class="ml-main"><span class="ml-name"></span><span class="ml-sub"></span></span>';
     li.querySelector(".ml-idx").textContent = (i === musicState.index && musicState.playing) ? "♪" : String(i + 1);
-    li.querySelector(".ml-name").textContent = it.name;
+    li.querySelector(".ml-name").textContent = it.name.replace(/\.[^.]+$/, "");
     li.querySelector(".ml-sub").textContent = fmtSize(it.size) + (it.modTime ? " · " + fmtTime(it.modTime) : "");
+    li.title = it.name;
     li.onclick = () => playMusic(i);
     ul.appendChild(li);
   });
+  const cur = ul.querySelector("li.playing");
+  if (cur) { try { cur.scrollIntoView({ block: "nearest" }); } catch (e) {} }
 }
 
 function initMusicTrack() {
@@ -2256,6 +2268,13 @@ function initMusicTrack() {
   if (/^\/[^/]*$/.test(artist)) artist = ""; // 库根目录不显示为歌手
   $("#music-artist").textContent = artist;
   a.src = apiUrl("/api/raw?vpath=" + enc(it.path));
+  // 音量(记忆) + 上次播放位置(记忆,>3s 才续播)
+  let vol = 1;
+  try { const v = parseFloat(localStorage.getItem("linnas_music_vol") || ""); if (isFinite(v)) vol = Math.min(1, Math.max(0, v)); } catch (e) {}
+  a.volume = vol;
+  const mv = $("#music-vol"); if (mv) mv.value = String(vol);
+  musicState.pendingPos = 0;
+  try { const p = parseFloat(localStorage.getItem("linnas_mpos:" + it.path) || ""); if (isFinite(p) && p > 3) musicState.pendingPos = p; } catch (e) {}
   const seek = $("#music-seek");
   seek.max = "100"; seek.value = 0;
   $("#music-cur").textContent = "0:00";
@@ -2283,7 +2302,42 @@ function toggleMusic() {
 function musicStep(delta) {
   const n = musicState.list.length;
   if (!n) return;
+  if (musicState.shuffle && n > 1) {
+    let k = musicState.index;
+    for (let t = 0; t < 8; t++) { const r = Math.floor(Math.random() * n); if (r !== musicState.index) { k = r; break; } }
+    if (k === musicState.index) k = (musicState.index + 1) % n;
+    playMusic(k);
+    return;
+  }
   playMusic((musicState.index + delta + n) % n);
+}
+
+/* 随机 / 循环 / 音量 / 筛选 状态与按钮同步 */
+function syncMusicToggles() {
+  const sh = $("#music-shuffle");
+  if (sh) { sh.classList.toggle("on", musicState.shuffle); sh.setAttribute("aria-pressed", musicState.shuffle ? "true" : "false"); sh.title = "随机播放:" + (musicState.shuffle ? "开" : "关"); }
+  const rp = $("#music-repeat");
+  if (rp) {
+    const on = musicState.repeat !== "off";
+    rp.classList.toggle("on", on);
+    rp.setAttribute("aria-pressed", on ? "true" : "false");
+    rp.title = "循环:" + (musicState.repeat === "one" ? "单曲循环" : musicState.repeat === "all" ? "列表循环" : "关");
+    rp.textContent = musicState.repeat === "one" ? "⥂" : "⥁";
+  }
+}
+function refreshMusicPos() {
+  const a = musicAudio();
+  if (!a || !isFinite(a.duration)) return;
+  $("#music-cur").textContent = fmtClock(a.currentTime);
+  $("#music-seek").value = String(a.currentTime || 0);
+  try {
+    const now = Date.now();
+    if (now - musicState.saveAt > 3000) {
+      musicState.saveAt = now;
+      const it = musicState.list[musicState.index];
+      if (it && a.currentTime > 0) localStorage.setItem("linnas_mpos:" + it.path, String(a.currentTime));
+    }
+  } catch (e) {}
 }
 
 $("#btn-music").onclick = () => { showMusic(); loadMusic(); };
@@ -2312,17 +2366,23 @@ async function playMediaAudio(it) {
     const d = isFinite(a.duration) ? a.duration : 0;
     $("#music-seek").max = String(d || 100);
     $("#music-dur").textContent = fmtClock(d);
+    if (musicState.pendingPos > 0 && d > 0 && musicState.pendingPos < d - 3) {
+      try { a.currentTime = musicState.pendingPos; } catch (e) {}
+    }
+    musicState.pendingPos = 0;
+    updateMiniPlayer();
   });
   a.addEventListener("timeupdate", () => {
-    if (!a.paused) {
-      $("#music-seek").value = String(a.currentTime || 0);
-      $("#music-cur").textContent = fmtClock(a.currentTime);
-    }
+    if (!a.paused) refreshMusicPos();
     if (!$("#mini-player").hidden) updateMiniPlayer();
   });
   a.addEventListener("ended", () => {
-    if (musicState.list.length > 1) musicStep(1);
-    else setMusicPlaying(false);
+    if (musicState.repeat === "one") { try { a.currentTime = 0; } catch (e) {} a.play().catch(() => {}); return; }
+    const n = musicState.list.length;
+    if (musicState.shuffle && n > 1) { musicStep(1); return; }
+    if (musicState.index < n - 1) { musicStep(1); return; }
+    if (musicState.repeat === "all" && n > 0) { playMusic(0); return; }
+    setMusicPlaying(false);
   });
   a.addEventListener("play", () => setMusicPlaying(true));
   a.addEventListener("pause", () => setMusicPlaying(false));
@@ -2342,6 +2402,58 @@ async function playMediaAudio(it) {
   });
 })();
 window.addEventListener("beforeunload", () => stopRotation());
+
+/* 随机 / 循环 / 音量 / 筛选 / 迷你播放器拖动进度 / 音乐页快捷键 */
+(function bindMusicExtras() {
+  const sh = $("#music-shuffle"), rp = $("#music-repeat"), vol = $("#music-vol"), filter = $("#music-filter");
+  if (sh) sh.onclick = () => { musicState.shuffle = !musicState.shuffle; syncMusicToggles(); };
+  if (rp) rp.onclick = () => {
+    musicState.repeat = musicState.repeat === "off" ? "all" : musicState.repeat === "all" ? "one" : "off";
+    syncMusicToggles();
+  };
+  if (vol) vol.oninput = () => {
+    const a = musicAudio(); const v = parseFloat(vol.value);
+    if (a) a.volume = isFinite(v) ? Math.min(1, Math.max(0, v)) : 1;
+    try { localStorage.setItem("linnas_music_vol", String(isFinite(v) ? v : 1)); } catch (e) {}
+  };
+  if (filter) filter.oninput = () => { musicState.filter = filter.value; renderMusicList(); };
+  syncMusicToggles();
+
+  // 迷你播放器:点击/拖动进度条跳转
+  const bar = $("#mp-bar");
+  if (bar) {
+    const seekTo = (ev) => {
+      const a = musicAudio();
+      if (!a || !isFinite(a.duration) || a.duration <= 0) return;
+      const r = bar.getBoundingClientRect();
+      const ratio = Math.min(Math.max((ev.clientX - r.left) / Math.max(1, r.width), 0), 1);
+      try { a.currentTime = ratio * a.duration; } catch (e) {}
+      updateMiniPlayer();
+    };
+    bar.addEventListener("pointerdown", (ev) => {
+      ev.preventDefault();
+      try { bar.setPointerCapture(ev.pointerId); } catch (e) {}
+      seekTo(ev);
+      const mv = (e2) => seekTo(e2);
+      const up = () => { bar.removeEventListener("pointermove", mv); bar.removeEventListener("pointerup", up); };
+      bar.addEventListener("pointermove", mv);
+      bar.addEventListener("pointerup", up);
+    });
+  }
+
+  // 音乐视图快捷键:空格播放/暂停,←/→ ±5 秒
+  document.addEventListener("keydown", (e) => {
+    if (state.view !== "music") return;
+    if (!$("#player-modal").hidden || document.querySelector("dialog[open]")) return;
+    const t = e.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+    const a = musicAudio();
+    if (!a) return;
+    if (e.code === "Space") { e.preventDefault(); toggleMusic(); }
+    else if (e.key === "ArrowLeft") { e.preventDefault(); try { a.currentTime = Math.max(0, (a.currentTime || 0) - 5); } catch (er) {} }
+    else if (e.key === "ArrowRight") { e.preventDefault(); try { a.currentTime = Math.min(a.duration || 1e9, (a.currentTime || 0) + 5); } catch (er) {} }
+  });
+})();
 
 /* ============================================================ 媒体库 */
 $("#btn-media").onclick = () => { showMedia(); state.mediaOffset = 0; loadMedia(true); };
@@ -2370,9 +2482,21 @@ async function loadMedia(reset) {
   } catch (e) { grid.innerHTML = `<div class="pempty" style="grid-column:1/-1">加载失败: ${e.message}</div>`; }
 }
 
+/* 分组折叠句柄（列数变化时重算「留一行」的边界） */
+const mediaCollapseHandles = [];
+let mediaResizeTimer = null;
+window.addEventListener("resize", () => {
+  if (!mediaCollapseHandles.length) return;
+  clearTimeout(mediaResizeTimer);
+  mediaResizeTimer = setTimeout(() => {
+    mediaCollapseHandles.forEach((hd) => hd.apply(!!state.mediaCollapsed[hd.dir]));
+  }, 120);
+});
+
 function renderMediaGrid() {
   const grid = $("#media-grid");
   grid.innerHTML = "";
+  mediaCollapseHandles.length = 0;
   if (!state.mediaItems.length) { grid.innerHTML = '<div class="pempty" style="grid-column:1/-1">暂无媒体文件(索引建好后才有)</div>'; return; }
   const mkRow = (it) => {
     const kind = it.kind || "other";
@@ -2412,32 +2536,62 @@ function renderMediaGrid() {
     }
     const dirs = Array.from(groups.keys()).sort((a, b) => a.localeCompare(b));
     for (const d of dirs) {
-      const collapsed = !!state.mediaCollapsed[d];
       const h = document.createElement("div");
-      h.className = "mgroup-head" + (collapsed ? " collapsed" : "");
+      h.className = "mgroup-head";
       const b = document.createElement("b"); b.textContent = d;
       const c = document.createElement("span"); c.className = "mgroup-count"; c.textContent = groups.get(d).length + " 项";
       const label = document.createElement("span"); label.className = "mgroup-label";
       label.appendChild(b); label.appendChild(c);
       const tg = document.createElement("button");
       tg.className = "btn icon-btn mgroup-toggle";
-      tg.title = collapsed ? "展开该组" : "收起该组";
-      tg.setAttribute("aria-expanded", collapsed ? "false" : "true");
       tg.innerHTML = `<span class="mgroup-chev">${svgIcon("arrow-down")}</span>`;
+      h.appendChild(label); h.appendChild(tg);
+      grid.appendChild(h);
       const rows = [];
-      tg.onclick = (ev) => {
-        ev.stopPropagation();
-        state.mediaCollapsed[d] = !state.mediaCollapsed[d];
-        const now = !!state.mediaCollapsed[d];
+      groups.get(d).forEach((it) => { const r = mkRow(it); rows.push(r); grid.appendChild(r); });
+
+      const handle = { dir: d, rows, tile: null };
+      const setAttrs = (now) => {
         h.classList.toggle("collapsed", now);
         tg.title = now ? "展开该组" : "收起该组";
         tg.setAttribute("aria-expanded", now ? "false" : "true");
-        rows.forEach((r) => { r.hidden = now; });
       };
-      h.appendChild(label); h.appendChild(tg);
-      grid.appendChild(h);
-      groups.get(d).forEach((it) => { const r = mkRow(it); if (collapsed) r.hidden = true; rows.push(r); grid.appendChild(r); });
+      const expand = (ev) => {
+        if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+        state.mediaCollapsed[d] = false;
+        handle.apply(false);
+      };
+      // 收起 = 只留第一行卡片，末位放一个「+N 展开全部」磁贴
+      handle.apply = (now) => {
+        rows.forEach((r) => { r.hidden = false; });
+        if (handle.tile) { handle.tile.remove(); handle.tile = null; }
+        if (!now || !rows.length) { setAttrs(false); return; }
+        const top = rows[0].offsetTop;
+        let per = 0;
+        for (const r of rows) { if (r.offsetTop !== top) break; per++; }
+        if (per <= 0 || per >= rows.length) { state.mediaCollapsed[d] = false; setAttrs(false); return; }
+        const keep = Math.max(0, per - 1);
+        const tile = document.createElement("button");
+        tile.type = "button";
+        tile.className = "mgroup-more";
+        tile.title = "展开该组全部 " + rows.length + " 项";
+        tile.innerHTML = '<span class="mm-plus">+' + (rows.length - keep) + '</span><em>展开全部</em>';
+        tile.onclick = expand;
+        rows[keep].parentNode.insertBefore(tile, rows[keep]);
+        rows.slice(keep).forEach((r) => { r.hidden = true; });
+        handle.tile = tile;
+        setAttrs(true);
+      };
+      tg.onclick = (ev) => {
+        ev.stopPropagation();
+        const now = !state.mediaCollapsed[d];
+        state.mediaCollapsed[d] = now;
+        handle.apply(now);
+      };
+      mediaCollapseHandles.push(handle);
     }
+    // 布局完成后按真实列数应用（首次渲染时行高/列数还没定）
+    requestAnimationFrame(() => mediaCollapseHandles.forEach((hd) => hd.apply(!!state.mediaCollapsed[hd.dir])));
     return;
   }
   for (const it of state.mediaItems) grid.appendChild(mkRow(it));

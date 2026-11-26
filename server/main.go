@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"fmt"
 	"io/fs"
 	"log"
 	"net"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -20,12 +22,42 @@ import (
 //go:embed ui
 var uiEmbedded embed.FS
 
-// uiFS is the embedded web UI, rooted at server/ui/dist.
+// uiFS is the web UI root: the embedded copy by default, or an on-disk
+// directory when started in development mode (-ui-dir / LINNAS_UI_DIR).
 var uiFS fs.FS
+
+// embeddedUIFS returns the UI embedded in the binary, rooted at server/ui/dist.
+func embeddedUIFS() (fs.FS, error) {
+	return fs.Sub(uiEmbedded, "ui/dist")
+}
+
+// resolveUIFS picks the web UI filesystem. If dir is non-empty and contains an
+// index.html file, the UI is served straight from that on-disk directory and the
+// source is "disk"; otherwise it falls back to the UI embedded in the binary and
+// the source is "embedded". When a disk directory was requested but could not be
+// used, an error explains why while the returned fs.FS is still the usable
+// embedded UI, so callers never crash on a bad directory.
+func resolveUIFS(dir string) (fs.FS, string, error) {
+	if dir != "" {
+		if info, statErr := os.Stat(filepath.Join(dir, "index.html")); statErr == nil && !info.IsDir() {
+			return os.DirFS(dir), "disk", nil
+		}
+		emb, embErr := embeddedUIFS()
+		if embErr != nil {
+			return nil, "embedded", fmt.Errorf("目录 %q 不可用,且内嵌 UI 加载失败: %w", dir, embErr)
+		}
+		return emb, "embedded", fmt.Errorf("目录 %q 下未找到 index.html,已回退内嵌 UI", dir)
+	}
+	emb, err := embeddedUIFS()
+	if err != nil {
+		return nil, "embedded", err
+	}
+	return emb, "embedded", nil
+}
 
 func init() {
 	var err error
-	uiFS, err = fs.Sub(uiEmbedded, "ui/dist")
+	uiFS, err = embeddedUIFS()
 	if err != nil {
 		panic(err)
 	}
@@ -36,14 +68,45 @@ func main() {
 	// -tray runs the server with a system tray icon (no console window).
 	openBrowser := true
 	trayMode := false
-	for _, arg := range os.Args[1:] {
-		if arg == "-no-browser" {
+	// -ui-dir <dir> serves the web UI straight from an on-disk directory
+	// (development mode: edit CSS/JS, no rebuild). LINNAS_UI_DIR is the
+	// environment equivalent; the command-line flag wins when both are set.
+	uiDir := os.Getenv("LINNAS_UI_DIR")
+	args := os.Args[1:]
+	for i := 0; i < len(args); i++ {
+		switch arg := args[i]; arg {
+		case "-no-browser":
 			openBrowser = false
-		}
-		if arg == "-tray" {
+		case "-tray":
 			trayMode = true
 			openBrowser = false
+		case "-ui-dir":
+			if i+1 >= len(args) {
+				log.Printf("参数 -ui-dir 缺少目录值,忽略")
+				continue
+			}
+			i++
+			uiDir = args[i]
+		default:
+			if v, ok := strings.CutPrefix(arg, "-ui-dir="); ok {
+				uiDir = v
+			}
 		}
+	}
+
+	resolvedUIFS, uiSource, uiErr := resolveUIFS(uiDir)
+	if uiErr != nil {
+		log.Printf("Web UI 回退: %v", uiErr)
+	}
+	uiFS = resolvedUIFS
+	if uiSource == "disk" {
+		abs, absErr := filepath.Abs(uiDir)
+		if absErr != nil {
+			abs = uiDir
+		}
+		log.Printf("Web UI 来源: 磁盘目录 %s", abs)
+	} else {
+		log.Printf("Web UI 来源: 内嵌")
 	}
 	if trayMode && !traySupported() {
 		log.Printf("当前系统不支持托盘,忽略 -tray")
