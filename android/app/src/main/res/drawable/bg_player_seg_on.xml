@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 「更多」弹窗分段控件:选中段(淡白底 + 底部 2dp 白色下划线,类似 B 站) -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#1FFFFFFF" />
+            <corners android:radius="8dp" />
+        </shape>
+    </item>
+    <item
+        android:gravity="bottom"
+        android:left="10dp"
+        android:right="10dp">
+        <shape android:shape="rectangle">
+            <size android:height="2dp" />
+            <solid android:color="#F2F2F7" />
+            <corners android:radius="1dp" />
+        </shape>
+    </item>
+</layer-list>

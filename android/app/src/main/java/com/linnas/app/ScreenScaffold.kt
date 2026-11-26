@@ -5,15 +5,21 @@ import android.graphics.Typeface
 import android.os.Bundle
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
 import android.widget.Button
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.widget.NestedScrollView
+import com.google.android.material.bottomsheet.BottomSheetBehavior
+import com.google.android.material.bottomsheet.BottomSheetDialog
 
 /**
  * v1.8 二级页通用视觉构件(纯代码生成视图,无 Compose)。
@@ -97,6 +103,7 @@ object ScreenUi {
         tintAttr: Int = R.attr.lPrimary,
         onClick: (() -> Unit)? = null,
         onLongClick: (() -> Unit)? = null,
+        checked: Boolean = false,
         more: ((View) -> Unit)? = null,
     ): LinearLayout {
         val card = LinearLayout(ctx).apply {
@@ -178,6 +185,19 @@ object ScreenUi {
                 moreBtn,
                 LinearLayout.LayoutParams(dim(ctx, R.dimen.touch_target), dim(ctx, R.dimen.touch_target)).apply {
                     marginStart = dim(ctx, R.dimen.space_1)
+                },
+            )
+        } else if (checked) {
+            // 选中态:右侧显示主色勾(用于磁盘/目录选择)
+            card.addView(
+                ImageView(ctx).apply {
+                    setImageResource(R.drawable.ic_sheet_check)
+                    imageTintList = ThemeColors.csl(ctx, R.attr.lPrimary)
+                    scaleType = ImageView.ScaleType.FIT_CENTER
+                    contentDescription = "已选择"
+                },
+                LinearLayout.LayoutParams(dim(ctx, R.dimen.icon_md), dim(ctx, R.dimen.icon_md)).apply {
+                    marginStart = dim(ctx, R.dimen.space_2)
                 },
             )
         } else if (onClick != null) {
@@ -383,7 +403,8 @@ object ScreenUi {
             setOnClickListener { onClick() }
         }
 
-    private fun button(
+    /** 语义按钮工厂:供 [Sheet] 的底部按钮行复用(同文件内可见)。 */
+    internal fun button(
         ctx: Context,
         label: String,
         colorAttr: Int,
@@ -614,5 +635,337 @@ abstract class ScreenScaffold : AppCompatActivity() {
         "admin" -> "管理员"
         "viewer" -> "只读"
         else -> "普通用户"
+    }
+}
+
+/**
+ * v1.8.3 底部弹窗(Sheet)体系:统一二级弹窗的视觉与交互。
+ *
+ * 为什么单独抽类:此前 MainActivity 里十几个弹窗各用 AlertDialog.Builder 拼字符串,
+ * 深/浅主题下的间距、字号、按钮层级都不统一;这里用纯代码视图 + 主题语义色一次性收口,
+ * 并统一「底部弹层 + 拖动条 + 圆角卡片行」的观感。
+ *
+ * 结构:拖动条 → 标题/副标题 → 可滚动内容区(NestedScrollView) → 底部按钮区。
+ * 典型用法:
+ *   Sheet(ctx, "删除 xxx?", "将移入回收站,可恢复")
+ *       .danger("删除") { ... }
+ *       .tonal("取消") { ... }
+ *       .show()
+ */
+class Sheet(private val ctx: Context, title: String, subtitle: String? = null) {
+
+    private val dialog = BottomSheetDialog(ctx)
+    private val body = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+    private val footer = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+    private val inputs = mutableListOf<EditText>()
+    private var custom: LinearLayout? = null
+
+    init {
+        val root = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundResource(R.drawable.bg_sheet_panel)
+            // 底部 24dp 让按钮离系统手势条有余量(Material3 的 BottomSheetDialog 自身还会避让导航条)
+            setPadding(dp(20), 0, dp(20), dp(24))
+        }
+        root.addView(
+            View(ctx).apply { setBackgroundResource(R.drawable.bg_sheet_handle) },
+            LinearLayout.LayoutParams(dp(36), dp(4)).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                topMargin = dp(10)
+            },
+        )
+        root.addView(
+            ScreenUi.text(ctx, title, R.dimen.text_lg, R.attr.lText, bold = true, maxLines = 2).apply {
+                setPadding(0, dp(14), 0, 0)
+            },
+        )
+        if (!subtitle.isNullOrBlank()) {
+            root.addView(
+                ScreenUi.text(ctx, subtitle, R.dimen.text_sm, R.attr.lTextDim).apply {
+                    setPadding(0, dp(4), 0, 0)
+                },
+            )
+        }
+        root.addView(
+            NestedScrollView(ctx).apply {
+                isVerticalScrollBarEnabled = false
+                addView(body)
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply { topMargin = dp(12) }
+            },
+        )
+        root.addView(footer)
+        dialog.setContentView(root)
+    }
+
+    /** 分组小标题。 */
+    fun section(label: String): Sheet {
+        body.addView(ScreenUi.sectionHeader(ctx, label))
+        return this
+    }
+
+    /**
+     * 一行:图标 + 标题 + 副标题 + 右侧值 + 可选勾选/箭头。
+     * @param iconRes 传 0(或负数)表示不显示图标。
+     * @param destructive 危险操作用危险色标题与图标。
+     * @param checked 选中态显示主色勾。
+     * @param dismissOnClick 点击后是否自动关闭弹层(目录浏览这类原地刷新传 false)。
+     */
+    fun row(
+        iconRes: Int,
+        title: String,
+        subtitle: String? = null,
+        value: String? = null,
+        destructive: Boolean = false,
+        checked: Boolean = false,
+        dismissOnClick: Boolean = true,
+        onClick: (() -> Unit)? = null,
+    ): Sheet {
+        val card = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(52)
+            setBackgroundResource(R.drawable.bg_sheet_row)
+            foreground = ctx.getDrawable(R.drawable.bg_ripple)
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { bottomMargin = dp(8) }
+        }
+        if (iconRes > 0) {
+            card.addView(
+                iconTile(iconRes, if (destructive) R.attr.lDanger else R.attr.lPrimary),
+                LinearLayout.LayoutParams(dp(34), dp(34)),
+            )
+        }
+        val col = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = if (iconRes > 0) dp(12) else 0
+            }
+        }
+        col.addView(
+            ScreenUi.text(
+                ctx, title, R.dimen.text_md,
+                if (destructive) R.attr.lDanger else R.attr.lText,
+                maxLines = 2, ellipsize = true,
+            ),
+        )
+        if (!subtitle.isNullOrBlank()) {
+            col.addView(
+                ScreenUi.text(ctx, subtitle, R.dimen.text_caption, R.attr.lTextDim, maxLines = 2).apply {
+                    setPadding(0, dp(2), 0, 0)
+                },
+            )
+        }
+        card.addView(col)
+        if (!value.isNullOrBlank()) {
+            card.addView(
+                ScreenUi.text(ctx, value, R.dimen.text_caption, R.attr.lTextDim, maxLines = 2, ellipsize = true)
+                    .apply {
+                        gravity = Gravity.END
+                        layoutParams = LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ).apply { marginStart = dp(8) }
+                    },
+            )
+        }
+        if (checked) {
+            card.addView(
+                ImageView(ctx).apply {
+                    setImageResource(R.drawable.ic_sheet_check)
+                    imageTintList = ThemeColors.csl(ctx, R.attr.lPrimary)
+                    scaleType = ImageView.ScaleType.FIT_CENTER
+                    contentDescription = "已选择"
+                },
+                LinearLayout.LayoutParams(dp(20), dp(20)).apply { marginStart = dp(8) },
+            )
+        } else if (onClick != null) {
+            card.addView(
+                ImageView(ctx).apply {
+                    setImageResource(R.drawable.ic_chevron)
+                    imageTintList = ThemeColors.csl(ctx, R.attr.lTextDim)
+                    scaleType = ImageView.ScaleType.FIT_CENTER
+                    contentDescription = ""
+                },
+                LinearLayout.LayoutParams(dp(20), dp(20)).apply { marginStart = dp(4) },
+            )
+        }
+        if (onClick != null) {
+            card.isClickable = true
+            card.setOnClickListener {
+                if (dismissOnClick) dismiss()
+                onClick()
+            }
+        }
+        body.addView(card)
+        return this
+    }
+
+    /** 输入框。多个输入框按添加顺序用 value(index)/inputView(index) 取值。 */
+    fun input(hint: String, initial: String = "", inputType: Int = android.text.InputType.TYPE_CLASS_TEXT): Sheet {
+        val et = EditText(ctx).apply {
+            this.hint = hint
+            setText(initial)
+            setSelection(text?.length ?: 0)
+            // 先设 inputType 再 setSingleLine:后者只切换单行 flag,不会清掉 password 等 variation
+            this.inputType = inputType
+            setSingleLine()
+            setTextColor(ThemeColors.color(ctx, R.attr.lText))
+            setHintTextColor(ThemeColors.color(ctx, R.attr.lTextDim))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ScreenUi.sp(ctx, R.dimen.text_sm))
+            setBackgroundResource(R.drawable.bg_sheet_input)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { bottomMargin = dp(8) }
+        }
+        inputs.add(et)
+        body.addView(et)
+        return this
+    }
+
+    /** 分段选择器:一排等宽选项,选中项主色底 + 主色文字。 */
+    fun segmented(options: List<String>, selected: Int, onPick: (Int) -> Unit): Sheet {
+        var sel = selected
+        val strip = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { bottomMargin = dp(8) }
+        }
+        val cells = mutableListOf<TextView>()
+        fun paint() {
+            cells.forEachIndexed { i, tv ->
+                val on = i == sel
+                tv.setBackgroundResource(if (on) R.drawable.bg_sheet_seg_on else R.drawable.bg_sheet_seg)
+                tv.setTextColor(ThemeColors.color(ctx, if (on) R.attr.lPrimary else R.attr.lTextDim))
+                tv.setTypeface(null, if (on) Typeface.BOLD else Typeface.NORMAL)
+            }
+        }
+        options.forEachIndexed { i, label ->
+            val tv = TextView(ctx).apply {
+                text = label
+                gravity = Gravity.CENTER
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, ScreenUi.sp(ctx, R.dimen.text_sm))
+                setPadding(dp(4), dp(10), dp(4), dp(10))
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    if (i > 0) marginStart = dp(6)
+                }
+                setOnClickListener {
+                    sel = i
+                    paint()
+                    onPick(i)
+                }
+            }
+            cells.add(tv)
+            strip.addView(tv)
+        }
+        paint()
+        body.addView(strip)
+        return this
+    }
+
+    /** 多行说明文字。 */
+    fun text(value: String): Sheet {
+        body.addView(ScreenUi.note(ctx, value))
+        return this
+    }
+
+    /** 键值行(左标签右值,可等宽)。 */
+    fun keyValue(label: String, value: String, mono: Boolean = false): Sheet {
+        body.addView(ScreenUi.keyValue(ctx, label, value, mono))
+        return this
+    }
+
+    /** 底部主按钮(主色填充)。 */
+    fun primary(label: String, onClick: () -> Unit): Sheet =
+        addButton(label, R.attr.lOnPrimary, R.drawable.bg_button_primary, onClick)
+
+    /** 底部次按钮(表面色 + 描边)。 */
+    fun tonal(label: String, onClick: () -> Unit): Sheet =
+        addButton(label, R.attr.lText, R.drawable.bg_button_tonal, onClick)
+
+    /** 底部危险按钮(次级底 + 危险色文字)。 */
+    fun danger(label: String, onClick: () -> Unit): Sheet =
+        addButton(label, R.attr.lDanger, R.drawable.bg_button_tonal, onClick)
+
+    private fun addButton(label: String, colorAttr: Int, bgRes: Int, onClick: () -> Unit): Sheet {
+        footer.addView(ScreenUi.button(ctx, label, colorAttr, bgRes, onClick))
+        return this
+    }
+
+    /**
+     * 懒创建的自定义容器(如目录浏览器):只创建一次并追加到内容区,
+     * 调用方可随时 removeAllViews 后重新填充,不会影响已加的输入框/按钮。
+     */
+    fun customArea(): LinearLayout = custom ?: LinearLayout(ctx).apply {
+        orientation = LinearLayout.VERTICAL
+        layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+        )
+        custom = this
+        body.addView(this)
+    }
+
+    /** 第 index 个输入框的文本(已 trim)。 */
+    fun value(index: Int = 0): String = inputs.getOrNull(index)?.text?.toString()?.trim().orEmpty()
+
+    /** 第 index 个输入框本身(用于 setError / setText 等)。 */
+    fun inputView(index: Int = 0): EditText? = inputs.getOrNull(index)
+
+    /** 给最后一个输入框绑定「回车即提交」。 */
+    fun onEnter(action: () -> Unit): Sheet {
+        inputs.lastOrNull()?.apply {
+            imeOptions = EditorInfo.IME_ACTION_DONE
+            setOnEditorActionListener { _, actionId, event ->
+                val done = actionId == EditorInfo.IME_ACTION_DONE ||
+                    (event != null && event.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN)
+                if (done) {
+                    action()
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+        return this
+    }
+
+    fun isShowing(): Boolean = dialog.isShowing
+
+    fun show() {
+        dialog.show()
+        // 内容通常比默认 peek 高:直接展开,避免只看到半屏还要手动上拖
+        dialog.behavior.skipCollapsed = true
+        dialog.behavior.state = BottomSheetBehavior.STATE_EXPANDED
+    }
+
+    fun dismiss() {
+        if (dialog.isShowing) dialog.dismiss()
+    }
+
+    private fun dp(v: Int): Int = ScreenUi.dp(ctx, v)
+
+    /** 行首 34dp 圆形图标底 + 20dp 线性图标。 */
+    private fun iconTile(iconRes: Int, tintAttr: Int): FrameLayout {
+        val tile = FrameLayout(ctx).apply { setBackgroundResource(R.drawable.bg_sheet_tile) }
+        tile.addView(
+            ImageView(ctx).apply {
+                setImageResource(iconRes)
+                imageTintList = ThemeColors.csl(ctx, tintAttr)
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                contentDescription = ""
+            },
+            FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER),
+        )
+        return tile
     }
 }

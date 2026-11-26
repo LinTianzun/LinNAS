@@ -22,6 +22,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import okhttp3.ConnectionPool
+import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -45,6 +47,31 @@ import kotlin.coroutines.coroutineContext
  *  - 自己实现队列与进度,支持暂停 / 继续(断点续传)、取消、重试,并记录失败原因;
  *  - 完成后在传输页提供「打开 / 分享」。
  */
+/**
+ * 全局共享的下载 HTTP 客户端。
+ *
+ * 为什么共享:TransferService 与离线缓存 Worker 之前各自 new OkHttpClient,
+ * 每建一次就新建一套连接池与线程池,每个任务都要重新握一次 TCP/TLS;
+ * 共享单例后连接可复用(同一 NAS 主机长连接),4 路并发上限也避免突发连接把 NAS 打满。
+ */
+object TransferHttp {
+    /** 读写缓冲 256KB:比 64/128KB 更少系统调用,又不至于占太多内存。 */
+    const val BUFFER_SIZE = 256 * 1024
+
+    val client: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .writeTimeout(60, TimeUnit.SECONDS)
+        // 局域网偶发丢包时自动重试连接,避免整条下载直接失败
+        .retryOnConnectionFailure(true)
+        .connectionPool(ConnectionPool(8, 5, TimeUnit.MINUTES))
+        .dispatcher(Dispatcher().apply {
+            maxRequests = 4
+            maxRequestsPerHost = 4
+        })
+        .build()
+}
+
 class TransferService : Service() {
 
     companion object {
@@ -57,6 +84,15 @@ class TransferService : Service() {
 
         @Volatile
         private var running = false
+
+        /**
+         * 未完成下载的临时文件位置(应用私有目录)。传输页删除任务时用它清理 .part 残留;
+         * 只计算路径,不创建目录。
+         */
+        fun partFile(ctx: Context, fileName: String): File {
+            val base = ctx.getExternalFilesDir(null) ?: ctx.filesDir
+            return File(File(base, "Download/linNas"), fileName + ".part")
+        }
 
         fun enqueue(ctx: Context, item: TransferStore.Item) {
             TransferStore.put(ctx, item)
@@ -108,11 +144,8 @@ class TransferService : Service() {
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val http = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(90, TimeUnit.SECONDS)
-        .writeTimeout(90, TimeUnit.SECONDS)
-        .build()
+    // 复用全局单例客户端(见文件顶部 TransferHttp),不再每个 Service 实例新建
+    private val http = TransferHttp.client
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -209,10 +242,12 @@ class TransferService : Service() {
                     opened = FileOutputStream(part!!, startAt > 0)
                 }
                 out = opened
+                // 用 BufferedOutputStream 包裹:SAF 的 openOutputStream 往往是未缓冲的小写入,包一层显著减少系统调用
+                val sink = opened.buffered(TransferHttp.BUFFER_SIZE)
 
                 var received = 0L
                 var lastUi = 0L
-                val buf = ByteArray(128 * 1024)
+                val buf = ByteArray(TransferHttp.BUFFER_SIZE)
                 val input: InputStream = body.byteStream()
                 while (true) {
                     if (cancelled.contains(id)) throw Cancelled()
@@ -221,7 +256,7 @@ class TransferService : Service() {
                     val n = input.read(buf)
                     if (n < 0) break
                     if (n == 0) continue
-                    opened.write(buf, 0, n)
+                    sink.write(buf, 0, n)
                     received += n
                     val now = System.currentTimeMillis()
                     if (now - lastUi >= 400) {
@@ -237,7 +272,7 @@ class TransferService : Service() {
                     }
                 }
                 if (expected > 0 && received != expected) throw IOException("下载不完整($received/$expected 字节),可重试")
-                opened.flush()
+                sink.flush()
                 runCatching { (opened as? FileOutputStream)?.fd?.sync() }
                 out = null
                 runCatching { opened.close() }

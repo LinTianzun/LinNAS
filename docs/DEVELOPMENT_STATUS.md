@@ -1,4 +1,4 @@
-﻿# 开发状态（DEVELOPMENT STATUS）
+# 开发状态（DEVELOPMENT STATUS）
 
 > 快照时间：2026-11-26（Asia/Shanghai）。
 > 本文件是**当前状态**快照；任务流水见 [TASK_HISTORY.md](TASK_HISTORY.md)，正在做的事见 [CURRENT_TASK.md](CURRENT_TASK.md)。
@@ -8,7 +8,7 @@
 | 组件 | 版本 | 说明 |
 |---|---|---|
 | Windows 服务端 | 1.7.0 | `server/config.go` 的 `const Version` |
-| Android 客户端 | 1.8.2（versionCode 11） | `android/app/build.gradle.kts` |
+| Android 客户端 | 1.8.3（versionCode 12） | `android/app/build.gradle.kts` |
 
 ## 里程碑进度
 

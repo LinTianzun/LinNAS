@@ -88,8 +88,8 @@
         <item name="android:textColorSecondary">@color/t_amber_text_dim</item>
     </style>
 
-    <!-- ===== 主题 4:纯黑 ===== -->
-    <style name="Theme.LinNas.Mono" parent="Theme.LinNas">
+    <!-- ===== 主题 4:月白(浅色) ===== -->
+    <style name="Theme.LinNas.Mono" parent="Theme.LinNas.Light">
         <item name="lInk">@color/t_mono_ink</item>
         <item name="lSurface">@color/t_mono_surface</item>
         <item name="lSurfaceHigh">@color/t_mono_surface_high</item>
@@ -98,6 +98,9 @@
         <item name="lTextDim">@color/t_mono_text_dim</item>
         <item name="lPrimary">@color/t_mono_primary</item>
         <item name="lOnPrimary">@color/t_mono_on_primary</item>
+        <item name="lDanger">@color/danger_light</item>
+        <item name="lSuccess">@color/mint_light</item>
+        <item name="lIsLight">true</item>
         <item name="colorPrimary">@color/t_mono_primary</item>
         <item name="colorOnPrimary">@color/t_mono_on_primary</item>
         <item name="colorSecondary">@color/t_mono_primary</item>
@@ -108,10 +111,11 @@
         <item name="colorOnSurfaceVariant">@color/t_mono_text_dim</item>
         <item name="colorOutline">@color/t_mono_outline</item>
         <item name="colorOnBackground">@color/t_mono_text</item>
+        <item name="colorError">@color/danger_light</item>
         <item name="android:colorBackground">@color/t_mono_ink</item>
         <item name="android:statusBarColor">@color/t_mono_ink</item>
         <item name="android:navigationBarColor">@color/t_mono_ink</item>
-        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightStatusBar">true</item>
         <item name="android:textColorPrimary">@color/t_mono_text</item>
         <item name="android:textColorSecondary">@color/t_mono_text_dim</item>
     </style>

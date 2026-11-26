@@ -13,6 +13,7 @@ import android.os.Looper
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.text.Editable
+import android.text.InputType
 import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
@@ -27,7 +28,6 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.button.MaterialButtonToggleGroup
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.progressindicator.LinearProgressIndicator
@@ -752,7 +752,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** P1:/api/info 详情弹窗(文件夹给递归统计,媒体给 ffprobe 技术信息)。 */
+    /** P1:/api/info 详情弹窗(文件夹给递归统计,媒体给 ffprobe 技术信息),改为分组 Sheet。 */
     private fun showInfoDialog(vp: String, e: Entry) {
         lifecycleScope.launch {
             val info = try {
@@ -761,50 +761,48 @@ class MainActivity : AppCompatActivity() {
                 toast("读取详情失败:${ex.message}")
                 return@launch
             }
-            val sb = StringBuilder()
-            sb.append("路径:").append(info.path).append('\n')
-            sb.append("类型:").append(
-                if (info.isDir) "文件夹" else info.kind.ifBlank { info.ext.ifBlank { "文件" } }
-            )
-            if (!info.isDir) sb.append('\n').append("大小:").append(FileListAdapter.fmtSize(info.size))
-            sb.append('\n').append("修改时间:").append(FileListAdapter.fmtDate(info.modTime))
+            val sheet = Sheet(this@MainActivity, info.name.ifBlank { e.name }, if (info.isDir) "文件夹详情" else "文件详情")
+            sheet.section("文件")
+            sheet.keyValue("路径", info.path, mono = true)
+            sheet.keyValue("类型", if (info.isDir) "文件夹" else info.kind.ifBlank { info.ext.ifBlank { "文件" } })
+            if (!info.isDir) sheet.keyValue("大小", FileListAdapter.fmtSize(info.size))
+            sheet.keyValue("修改时间", FileListAdapter.fmtDate(info.modTime))
             if (info.isDir) {
-                sb.append('\n').append("包含:").append(info.files).append(" 个文件 / ")
-                    .append(info.dirs).append(" 个文件夹")
-                sb.append('\n').append("总大小:").append(FileListAdapter.fmtSize(info.totalBytes))
+                sheet.keyValue("包含", "${info.files} 个文件 / ${info.dirs} 个文件夹")
+                sheet.keyValue("总大小", FileListAdapter.fmtSize(info.totalBytes))
             }
-            if (info.width > 0 && info.height > 0) {
-                sb.append('\n').append("分辨率:").append(info.width).append('×').append(info.height)
+            // 仅当存在媒体技术信息时才显示「媒体」分组,避免给普通文件塞空行
+            val hasMedia = (info.width > 0 && info.height > 0) || info.duration > 0 || info.fps > 0 ||
+                info.bitRate > 0 || info.videoCodec.isNotBlank() || info.audioCodec.isNotBlank()
+            if (hasMedia) {
+                sheet.section("媒体")
+                if (info.width > 0 && info.height > 0) sheet.keyValue("分辨率", "${info.width}×${info.height}")
+                if (info.duration > 0) sheet.keyValue("时长", fmtDuration(info.duration.toLong()))
+                if (info.fps > 0) sheet.keyValue("帧率", String.format("%.2f", info.fps) + " fps")
+                if (info.bitRate > 0) sheet.keyValue("码率", "${info.bitRate / 1000} kbps")
+                if (info.videoCodec.isNotBlank()) sheet.keyValue("视频编码", info.videoCodec)
+                if (info.audioCodec.isNotBlank()) sheet.keyValue("音频编码", info.audioCodec)
             }
-            if (info.duration > 0) {
-                sb.append('\n').append("时长:").append(fmtDuration(info.duration.toLong()))
-            }
-            if (info.fps > 0) sb.append('\n').append("帧率:")
-                .append(String.format("%.2f", info.fps)).append(" fps")
-            if (info.bitRate > 0) sb.append('\n').append("码率:")
-                .append(info.bitRate / 1000).append(" kbps")
-            if (info.videoCodec.isNotBlank()) sb.append('\n').append("视频编码:").append(info.videoCodec)
-            if (info.audioCodec.isNotBlank()) sb.append('\n').append("音频编码:").append(info.audioCodec)
-            AlertDialog.Builder(this@MainActivity)
-                .setTitle(info.name.ifBlank { e.name })
-                .setMessage(sb.toString())
-                .setPositiveButton("关闭", null)
-                .show()
+            sheet.tonal("关闭") { sheet.dismiss() }
+            sheet.show()
         }
     }
 
     /** P1:离线缓存开关(缓存到手机 / 移除缓存)。 */
     private fun toggleOffline(vp: String, e: Entry) {
         when (OfflineStore.get(this, vp)?.status) {
-            OfflineStore.ST_DONE -> AlertDialog.Builder(this)
-                .setTitle("移除离线缓存")
-                .setMessage("删除本机缓存的「${e.name}」?服务器上的文件不受影响。")
-                .setPositiveButton("删除") { _, _ ->
+            OfflineStore.ST_DONE -> {
+                val sheet = Sheet(this, "移除离线缓存", "删除本机缓存的「${e.name}」?服务器上的文件不受影响。")
+                sheet.danger("删除") {
+                    sheet.dismiss()
+                    // 若之前另存到了下载目录,SAF 副本也一并删除
+                    OfflineStore.get(this, vp)?.savedUri?.takeIf { it.isNotBlank() }?.let { deleteLocalUri(it) }
                     OfflineStore.remove(this, vp)
                     toast("已移除离线缓存")
                 }
-                .setNegativeButton("取消", null)
-                .show()
+                sheet.tonal("取消") { sheet.dismiss() }
+                sheet.show()
+            }
             OfflineStore.ST_DOWNLOADING, OfflineStore.ST_PAUSED -> {
                 toast("已在离线下载中,可到「传输」页管理")
                 selectTab(2)
@@ -930,73 +928,84 @@ class MainActivity : AppCompatActivity() {
         val favs = FavoritesStore.favorites(this)
         val recents = FavoritesStore.recents(this)
         if (favs.isEmpty() && recents.isEmpty()) { toast("还没有收藏或最近访问"); return }
-        val labels = mutableListOf<String>()
-        val refs = mutableListOf<FavoritesStore.Ref>()
+        val sheet = Sheet(this, "收藏与最近")
+        fun open(r: FavoritesStore.Ref) {
+            if (r.vpath.isNotBlank()) {
+                if (r.isDir) { crumbs.clear(); navigateTo(r.vpath) }
+                else openFile(Entry(r.name, false, 0L, 0L, r.vpath))
+            }
+        }
         if (favs.isNotEmpty()) {
-            labels.add("── 收藏 ──"); refs.add(FavoritesStore.Ref("", "", false))
-            favs.forEach { labels.add("★ " + it.name); refs.add(it) }
+            sheet.section("收藏")
+            favs.forEach { r -> sheet.row(R.drawable.ic_file, r.name, onClick = { open(r) }) }
         }
         if (recents.isNotEmpty()) {
-            labels.add("── 最近访问 ──"); refs.add(FavoritesStore.Ref("", "", false))
-            recents.forEach { labels.add("· " + it.name); refs.add(it) }
+            sheet.section("最近访问")
+            recents.forEach { r -> sheet.row(R.drawable.ic_history, r.name, onClick = { open(r) }) }
         }
-        AlertDialog.Builder(this)
-            .setTitle("收藏与最近")
-            .setItems(labels.toTypedArray()) { _, which ->
-                val r = refs[which]
-                if (r.vpath.isNotBlank()) {
-                    if (r.isDir) { crumbs.clear(); navigateTo(r.vpath) }
-                    else openFile(Entry(r.name, false, 0L, 0L, r.vpath))
-                }
-            }
-            .setNeutralButton("清空最近") { _, _ ->
+        if (recents.isNotEmpty()) {
+            sheet.danger("清空最近") {
                 FavoritesStore.clearRecents(this); toast("已清空最近访问")
             }
-            .setNegativeButton("关闭", null)
-            .show()
+        }
+        sheet.tonal("关闭") { sheet.dismiss() }
+        sheet.show()
     }
 
     private fun showSearchHistory() {
         val hist = FavoritesStore.searchHistory(this)
         if (hist.isEmpty()) { toast("暂无搜索历史"); return }
-        AlertDialog.Builder(this)
-            .setTitle("搜索历史")
-            .setItems(hist.toTypedArray()) { _, which ->
-                searchInput.setText(hist[which])
+        val sheet = Sheet(this, "搜索历史")
+        hist.forEach { q ->
+            sheet.row(R.drawable.ic_history, q, onClick = {
+                searchInput.setText(q)
                 searchInput.setSelection(searchInput.text?.length ?: 0)
-            }
-            .setNeutralButton("清空") { _, _ ->
-                FavoritesStore.clearSearch(this); toast("已清空搜索历史")
-            }
-            .setNegativeButton("关闭", null)
-            .show()
+            })
+        }
+        sheet.danger("清空") {
+            FavoritesStore.clearSearch(this); toast("已清空搜索历史")
+        }
+        sheet.tonal("关闭") { sheet.dismiss() }
+        sheet.show()
     }
 
     private fun chooseTypeFilter() {
         val keys = arrayOf("all", "dir", "video", "image", "audio", "archive", "other")
         val names = arrayOf("全部", "仅文件夹", "视频", "图片", "音乐", "压缩包", "其他")
-        val idx = keys.indexOf(typeFilter).coerceAtLeast(0)
-        AlertDialog.Builder(this).setTitle("按类型筛选")
-            .setSingleChoiceItems(names, idx) { d, which -> typeFilter = keys[which]; d.dismiss(); filterFiles() }
-            .setNegativeButton("取消", null).show()
+        val sheet = Sheet(this, "按类型筛选")
+        keys.forEachIndexed { i, k ->
+            sheet.row(0, names[i], checked = typeFilter == k, onClick = {
+                typeFilter = k; filterFiles()
+            })
+        }
+        sheet.tonal("取消") { sheet.dismiss() }
+        sheet.show()
     }
 
     private fun chooseSizeFilter() {
         val keys = arrayOf("all", "lt10m", "b10_100m", "b100m_1g", "gt1g")
         val names = arrayOf("全部", "小于 10MB", "10–100MB", "100MB–1GB", "大于 1GB")
-        val idx = keys.indexOf(sizeFilter).coerceAtLeast(0)
-        AlertDialog.Builder(this).setTitle("按大小筛选")
-            .setSingleChoiceItems(names, idx) { d, which -> sizeFilter = keys[which]; d.dismiss(); filterFiles() }
-            .setNegativeButton("取消", null).show()
+        val sheet = Sheet(this, "按大小筛选")
+        keys.forEachIndexed { i, k ->
+            sheet.row(0, names[i], checked = sizeFilter == k, onClick = {
+                sizeFilter = k; filterFiles()
+            })
+        }
+        sheet.tonal("取消") { sheet.dismiss() }
+        sheet.show()
     }
 
     private fun chooseTimeFilter() {
         val keys = arrayOf("all", "today", "7d", "30d")
         val names = arrayOf("全部", "今天", "近 7 天", "近 30 天")
-        val idx = keys.indexOf(timeFilter).coerceAtLeast(0)
-        AlertDialog.Builder(this).setTitle("按时间筛选")
-            .setSingleChoiceItems(names, idx) { d, which -> timeFilter = keys[which]; d.dismiss(); filterFiles() }
-            .setNegativeButton("取消", null).show()
+        val sheet = Sheet(this, "按时间筛选")
+        keys.forEachIndexed { i, k ->
+            sheet.row(0, names[i], checked = timeFilter == k, onClick = {
+                timeFilter = k; filterFiles()
+            })
+        }
+        sheet.tonal("取消") { sheet.dismiss() }
+        sheet.show()
     }
 
     // ---------- v1.8.0 多选 + 批量操作 ----------
@@ -1035,52 +1044,45 @@ class MainActivity : AppCompatActivity() {
 
     private fun showBatchActions(picked: List<Entry>) {
         val vps = picked.map { vpathOf(it) }
-        val actions = arrayOf("打包下载(ZIP)", "删除", "移动到…", "复制到…", "加入离线缓存")
-        AlertDialog.Builder(this)
-            .setTitle("已选 ${picked.size} 项")
-            .setItems(actions) { _, which ->
-                when (which) {
-                    0 -> {
-                        val base = if (picked.size == 1) picked[0].name.substringBeforeLast('.')
-                        else (curPath.trimEnd('/').substringAfterLast('/').ifBlank { "linNas" }) + "${picked.size}项"
-                        val zipName = "$base.zip"
-                        startDownload(client.zipUrl(vps, zipName), zipName, TransferStore.KIND_ZIP)
-                    }
-                    1 -> confirmBatchDelete(picked)
-                    2 -> { if (!canWrite()) { toast("只读账号无法移动"); return@setItems }
-                        showDirPicker { dest -> batchTransfer(vps, dest, move = true) } }
-                    3 -> { if (!canWrite()) { toast("只读账号无法复制"); return@setItems }
-                        showDirPicker { dest -> batchTransfer(vps, dest, move = false) } }
-                    4 -> batchOffline(picked)
-                }
-            }
-            .setNegativeButton("取消", null)
-            .show()
+        val sheet = Sheet(this, "已选 ${picked.size} 项")
+        sheet.row(R.drawable.ic_download, "打包下载(ZIP)") {
+            val base = if (picked.size == 1) picked[0].name.substringBeforeLast('.')
+            else (curPath.trimEnd('/').substringAfterLast('/').ifBlank { "linNas" }) + "${picked.size}项"
+            val zipName = "$base.zip"
+            startDownload(client.zipUrl(vps, zipName), zipName, TransferStore.KIND_ZIP)
+        }
+        if (canWrite()) {
+            sheet.row(R.drawable.ic_trash_bin, "删除", destructive = true) { confirmBatchDelete(picked) }
+            sheet.row(R.drawable.ic_folder, "移动到…") { showDirPicker { dest -> batchTransfer(vps, dest, move = true) } }
+            sheet.row(R.drawable.ic_folder, "复制到…") { showDirPicker { dest -> batchTransfer(vps, dest, move = false) } }
+        }
+        sheet.row(R.drawable.ic_download, "加入离线缓存") { batchOffline(picked) }
+        sheet.tonal("取消") { sheet.dismiss() }
+        sheet.show()
     }
 
     private fun confirmBatchDelete(picked: List<Entry>) {
         if (!canWrite()) { toast("只读账号无法删除"); return }
-        AlertDialog.Builder(this)
-            .setTitle("批量删除")
-            .setMessage("确定删除选中的 ${picked.size} 项?删除后可在回收站找回(若服务端启用了回收站)。")
-            .setPositiveButton("删除") { _, _ ->
-                lifecycleScope.launch {
-                    var ok = 0
-                    var fail = 0
-                    for (e in picked) {
-                        try {
-                            withContext(Dispatchers.IO) { client.delete(vpathOf(e)) }
-                            ok++
-                        } catch (_: Exception) {
-                            fail++
-                        }
+        val sheet = Sheet(this, "批量删除 ${picked.size} 项?", "可到回收站找回(若服务端启用了回收站)")
+        sheet.danger("删除") {
+            sheet.dismiss()
+            lifecycleScope.launch {
+                var ok = 0
+                var fail = 0
+                for (e in picked) {
+                    try {
+                        withContext(Dispatchers.IO) { client.delete(vpathOf(e)) }
+                        ok++
+                    } catch (_: Exception) {
+                        fail++
                     }
-                    toast("已删除 $ok 项${if (fail > 0) ",失败 $fail 项" else ""}")
-                    loadDir()
                 }
+                toast("已删除 $ok 项${if (fail > 0) ",失败 $fail 项" else ""}")
+                loadDir()
             }
-            .setNegativeButton("取消", null)
-            .show()
+        }
+        sheet.tonal("取消") { sheet.dismiss() }
+        sheet.show()
     }
 
     private fun batchTransfer(vps: List<String>, dest: String, move: Boolean) {
@@ -1113,46 +1115,58 @@ class MainActivity : AppCompatActivity() {
 
     private fun mkdirDialog() {
         if (curPath.isEmpty()) { toast("先进入一个存储库"); return }
-        val input = EditText(this).apply { hint = "文件夹名称"; setSingleLine() }
-        AlertDialog.Builder(this).setTitle("新建文件夹").setView(input)
-            .setPositiveButton("创建") { _, _ ->
-                val name = input.text.toString().trim()
-                if (name.isBlank()) return@setPositiveButton
-                lifecycleScope.launch {
-                    try {
-                        withContext(Dispatchers.IO) { client.mkdir("$curPath/$name") }
-                        loadDir()
-                    } catch (e: Exception) { toast("失败: ${e.message}") }
-                }
-            }.setNegativeButton("取消", null).show()
+        val sheet = Sheet(this, "新建文件夹", curPath)
+        sheet.input("文件夹名称")
+        sheet.primary("创建") { doMkdir(sheet) }
+        sheet.onEnter { doMkdir(sheet) }
+        sheet.show()
+    }
+
+    private fun doMkdir(sheet: Sheet) {
+        val name = sheet.value()
+        if (name.isBlank()) { sheet.inputView(0)?.error = "名称不能为空"; return }
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) { client.mkdir("$curPath/$name") }
+                sheet.dismiss()
+                loadDir()
+            } catch (e: Exception) { toast("失败: ${e.message}") }
+        }
     }
 
     private fun renameDialog(vp: String, oldName: String) {
-        val input = EditText(this).apply { setText(oldName); setSingleLine() }
-        AlertDialog.Builder(this).setTitle("重命名").setView(input)
-            .setPositiveButton("确定") { _, _ ->
-                val name = input.text.toString().trim()
-                if (name.isBlank()) return@setPositiveButton
-                lifecycleScope.launch {
-                    try {
-                        withContext(Dispatchers.IO) { client.rename(vp, name) }
-                        loadDir()
-                    } catch (e: Exception) { toast("失败: ${e.message}") }
-                }
-            }.setNegativeButton("取消", null).show()
+        val sheet = Sheet(this, "重命名", "输入新的名称")
+        sheet.input("新名称", oldName)
+        sheet.primary("确定") { doRename(sheet, vp) }
+        sheet.onEnter { doRename(sheet, vp) }
+        sheet.show()
+    }
+
+    private fun doRename(sheet: Sheet, vp: String) {
+        val name = sheet.value()
+        if (name.isBlank()) { sheet.inputView(0)?.error = "名称不能为空"; return }
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) { client.rename(vp, name) }
+                sheet.dismiss()
+                loadDir()
+            } catch (e: Exception) { toast("失败: ${e.message}") }
+        }
     }
 
     private fun deleteConfirm(vp: String, e: Entry) {
-        val msg = if (e.isDir) "确定删除文件夹「${e.name}」及其内容?" else "确定删除「${e.name}」?"
-        AlertDialog.Builder(this).setTitle("删除").setMessage(msg)
-            .setPositiveButton("删除") { _, _ ->
-                lifecycleScope.launch {
-                    try {
-                        withContext(Dispatchers.IO) { client.delete(vp) }
-                        loadDir(); toast("已删除")
-                    } catch (ex: Exception) { toast("失败: ${ex.message}") }
-                }
-            }.setNegativeButton("取消", null).show()
+        val sheet = Sheet(this, "删除 ${e.name}?", "将移入回收站,可恢复")
+        sheet.danger("删除") {
+            sheet.dismiss()
+            lifecycleScope.launch {
+                try {
+                    withContext(Dispatchers.IO) { client.delete(vp) }
+                    loadDir(); toast("已删除")
+                } catch (ex: Exception) { toast("失败: ${ex.message}") }
+            }
+        }
+        sheet.tonal("取消") { sheet.dismiss() }
+        sheet.show()
     }
 
     // ---------- 媒体 ----------
@@ -1296,39 +1310,38 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val shown = names.takeLast(50).reversed()
-        val msg = buildString {
-            append("已记录 ${names.size} 个已备份文件(按名称去重)。\n")
-            append("重复的同名同大小文件不会再次上传;更换备份目录会重置记录。\n\n")
-            shown.forEach { append("· ").append(it).append('\n') }
-            if (names.size > shown.size) append("…… 仅显示最近 ${shown.size} 个")
+        val sheet = Sheet(this, "已备份文件", "共 ${names.size} 个")
+        sheet.text("已记录 ${names.size} 个已备份文件(按名称去重)。\n重复的同名同大小文件不会再次上传;更换备份目录会重置记录。")
+        if (names.size > shown.size) sheet.text("仅显示最近 ${shown.size} 个:")
+        shown.forEach { n -> sheet.text("· $n") }
+        sheet.danger("清空记录") {
+            sheet.dismiss()
+            BackupConfig.clearUploaded(this)
+            updateBackupStatus()
+            toast("已清空备份记录")
         }
-        AlertDialog.Builder(this)
-            .setTitle("已备份文件")
-            .setMessage(msg)
-            .setPositiveButton("关闭", null)
-            .setNeutralButton("清空记录") { _, _ ->
-                BackupConfig.clearUploaded(this)
-                updateBackupStatus()
-                toast("已清空备份记录")
-            }
-            .show()
+        sheet.tonal("关闭") { sheet.dismiss() }
+        sheet.show()
     }
 
     /** v1.8.0 下载保存位置:用系统文件夹选择器(SAF)让用户直接选手机里的目录。 */
     private fun showDownloadDirDialog() {
         val current = UiPrefs.downloadTreeName(this).ifBlank { "未选择(保存到应用私有目录)" }
-        AlertDialog.Builder(this)
-            .setTitle("下载保存位置")
-            .setMessage("当前:$current\n\n选择一个手机里可见的文件夹,下载与打包的文件会保存到那里,完成后可在「传输」页直接打开或分享。")
-            .setPositiveButton("选择文件夹") { _, _ -> downloadTreeLauncher.launch(null) }
-            .setNeutralButton("清除") { _, _ ->
-                UiPrefs.setDownloadTree(this, "")
-                UiPrefs.setDownloadTreeName(this, "")
-                setDownloadDir.text = "下载目录"
-                toast("已改回应用私有目录(仅本应用可见)")
-            }
-            .setNegativeButton("取消", null)
-            .show()
+        val sheet = Sheet(this, "下载保存位置", "当前:$current")
+        sheet.text("选择一个手机里可见的文件夹,下载与打包的文件会保存到那里,完成后可在「传输」页直接打开或分享。")
+        sheet.primary("选择文件夹") {
+            sheet.dismiss()
+            downloadTreeLauncher.launch(null)
+        }
+        sheet.tonal("清除") {
+            UiPrefs.setDownloadTree(this, "")
+            UiPrefs.setDownloadTreeName(this, "")
+            setDownloadDir.text = "下载目录"
+            sheet.dismiss()
+            toast("已改回应用私有目录(仅本应用可见)")
+        }
+        sheet.tonal("取消") { sheet.dismiss() }
+        sheet.show()
     }
 
     private fun ensureMediaPermission() {
@@ -1464,11 +1477,9 @@ class MainActivity : AppCompatActivity() {
             val clear = v.findViewById<com.google.android.material.button.MaterialButton>(R.id.tclear)
             clear.visibility = View.VISIBLE
             clear.text = if (o.status == OfflineStore.ST_DONE) "移除" else "取消"
-            clear.setOnClickListener {
-                if (o.status != OfflineStore.ST_DONE) OfflineDownloader.cancel(this, o.vpath)
-                OfflineStore.remove(this, o.vpath)
-                refreshTransfers()
-            }
+            clear.setOnClickListener { confirmRemoveOffline(o) }
+            // 长按卡片删除离线缓存(与「移除」一致)
+            v.setOnLongClickListener { confirmRemoveOffline(o); true }
             offlineList.addView(v)
         }
     }
@@ -1523,15 +1534,101 @@ class MainActivity : AppCompatActivity() {
             }
             val clear = v.findViewById<com.google.android.material.button.MaterialButton>(R.id.tclear)
             clear.visibility = View.VISIBLE
-            clear.text = if (d.state == TransferStore.ST_DONE) "移除" else "取消"
+            clear.text = if (d.state == TransferStore.ST_DONE) "删除" else "取消"
             clear.setOnClickListener {
-                if (d.state != TransferStore.ST_DONE) TransferService.cancel(this, d.id)
-                TransferStore.remove(this, d.id)
-                refreshTransfers()
+                if (d.state == TransferStore.ST_DONE) {
+                    confirmDeleteDownload(d)
+                } else {
+                    // 未完成的下载:只取消任务并移除记录(本地仅有 .part 临时文件,不涉及用户文件)
+                    TransferService.cancel(this, d.id)
+                    TransferStore.remove(this, d.id)
+                    refreshTransfers()
+                }
             }
+            // 长按整张卡片也能删除(与「删除」按钮一致)
+            v.setOnLongClickListener { confirmDeleteDownload(d); true }
             v.findViewById<View>(R.id.tmore).visibility = View.GONE
             downloadList.addView(v)
         }
+    }
+
+    /**
+     * 删除传输记录对应的本地文件。
+     *  - SAF 下载(content:// 由系统文档提供)直接用 DocumentsContract.deleteDocument;
+     *  - 本应用 FileProvider 的 content:// 不支持 deleteDocument,映射回私有目录里的真实文件再删;
+     *  - file:// 或纯路径用 File(path).delete()。
+     * 返回是否真的删掉了文件(记录本身由调用方移除)。
+     */
+    private fun deleteLocalUri(localUri: String): Boolean {
+        if (localUri.isBlank()) return false
+        val uri = Uri.parse(localUri)
+        if (uri.scheme == "content") {
+            val byDoc = runCatching { DocumentsContract.deleteDocument(contentResolver, uri) }.getOrDefault(false)
+            if (byDoc) return true
+            return runCatching {
+                val f = fileProviderToFile(uri)
+                f != null && f.isFile && f.delete()
+            }.getOrDefault(false)
+        }
+        val path = if (uri.scheme == "file") uri.path else localUri
+        if (path.isNullOrBlank()) return false
+        return runCatching { File(path).let { it.isFile && it.delete() } }.getOrDefault(false)
+    }
+
+    /** 把本应用 FileProvider 的 content:// 映射回私有目录文件(根名见 res/xml/file_paths.xml)。 */
+    private fun fileProviderToFile(uri: Uri): File? {
+        if (uri.authority != "$packageName.fileprovider") return null
+        val segs = uri.pathSegments
+        if (segs.size < 2) return null
+        val rel = segs.drop(1).joinToString("/")
+        val base = when (segs[0]) {
+            "downloads" -> File(getExternalFilesDir(null) ?: filesDir, "Download")
+            "offline" -> File(getExternalFilesDir(null) ?: filesDir, "offline")
+            "internal" -> filesDir
+            "cache" -> cacheDir
+            else -> return null
+        }
+        return File(base, rel)
+    }
+
+    /** 删除一条下载(记录 + 本地文件),二次确认。 */
+    private fun confirmDeleteDownload(d: TransferStore.Item) {
+        val sheet = Sheet(this, "删除「${d.title}」?", "下载记录与本地文件将一并删除,无法恢复")
+        sheet.danger("删除") {
+            sheet.dismiss()
+            if (d.state != TransferStore.ST_DONE) TransferService.cancel(this, d.id)
+            deleteLocalUri(d.localUri)
+            // 私有目录下载中断留下的 .part 残留一起清掉
+            if (d.treeUri.isBlank()) {
+                val part = TransferService.partFile(this, d.fileName.ifBlank { d.title })
+                if (part.exists()) part.delete()
+            }
+            TransferStore.remove(this, d.id)
+            refreshTransfers()
+            toast("已删除")
+        }
+        sheet.tonal("取消") { sheet.dismiss() }
+        sheet.show()
+    }
+
+    /** 删除一条离线缓存(记录 + offline 目录文件 + 可选 SAF 副本),二次确认。 */
+    private fun confirmRemoveOffline(o: OfflineStore.Item) {
+        val done = o.status == OfflineStore.ST_DONE
+        val sheet = Sheet(
+            this,
+            if (done) "移除离线缓存" else "取消离线缓存",
+            "「${o.name}」的本机缓存文件将被删除,服务器文件不受影响",
+        )
+        sheet.danger(if (done) "移除" else "取消下载") {
+            sheet.dismiss()
+            if (!done) OfflineDownloader.cancel(this, o.vpath)  // 内部已取消任务并移除记录
+            if (o.savedUri.isNotBlank()) deleteLocalUri(o.savedUri)
+            OfflineStore.remove(this, o.vpath)                   // 删 offline 目录文件 + .part + 记录
+            refreshTransfers()
+            toast("已移除缓存")
+        }
+        sheet.tonal("取消") { sheet.dismiss() }
+        sheet.show()
     }
 
     private fun enqueueUpload(uri: Uri) {
@@ -1610,71 +1707,96 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** 手机端添加存储库:浏览电脑盘符/目录,选一个目录注册为存储库。 */
+    /** 手机端添加存储库:选择电脑盘符/目录,把一个目录注册为存储库(改用 Sheet)。 */
     private fun showAddLibrary() {
-        val wrap = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(8), dp(16), 0)
-        }
-        val crumb = TextView(this).apply {
-            setTextColor(ThemeColors.textDim(this@MainActivity)); textSize = 12f; text = "电脑"
-        }
-        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val scroll = ScrollView(this).apply { addView(box) }
-        wrap.addView(crumb)
-        wrap.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(320)))
+        val sheet = Sheet(this, "添加存储库", "选一个电脑上的目录,手机上即可像云盘一样浏览")
+        sheet.section("选择磁盘")
+        val list = sheet.customArea()
+        sheet.input("或直接输入完整路径(如 D:\\电影)", "", InputType.TYPE_CLASS_TEXT)
+        sheet.input("显示名称(留空 = 用目录名)", "")
+        val pathEt = sheet.inputView(0)
 
-        var current = ""
-        val dlg = AlertDialog.Builder(this)
-            .setTitle("添加存储库")
-            .setView(wrap)
-            .setPositiveButton("选这个目录", null)
-            .setNegativeButton("取消", null)
-            .create()
-        dlg.setOnShowListener {
-            dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                if (current.isEmpty()) { toast("先进入一个磁盘/目录"); return@setOnClickListener }
-                val input = EditText(this@MainActivity).apply { hint = "显示名称(如 电影)"; setSingleLine() }
-                AlertDialog.Builder(this@MainActivity).setTitle("命名存储库").setView(input)
-                    .setPositiveButton("添加") { _, _ ->
-                        val nm = input.text.toString().trim().ifBlank { current.substringAfterLast('\\') }
-                        lifecycleScope.launch {
-                            try {
-                                withContext(Dispatchers.IO) { client.addLibrary(nm, current) }
-                                toast("已添加 $nm")
-                                dlg.dismiss()
-                                connectAndLoad(silent = true)
-                            } catch (e: Exception) { toast("添加失败: ${e.message}") }
-                        }
-                    }.setNegativeButton("取消", null).show()
-            }
-        }
-        dlg.show()
-
-        fun row(label: String, onClick: () -> Unit) {
-            val tv = TextView(this).apply {
-                text = label
-                setTextColor(ThemeColors.text(this@MainActivity)); textSize = 14f
-                setPadding(dp(10), dp(12), dp(10), dp(12)); setOnClickListener { onClick() }
-            }
-            box.addView(tv)
-        }
-        fun load(path: String) {
-            current = path
-            crumb.text = "目录: " + path.ifEmpty { "电脑(选择磁盘)" }
-            box.removeAllViews()
+        // 磁盘快捷列表:点一下就把它填进路径输入框;真正多级浏览交给「浏览目录」
+        fun renderDrives() {
+            list.removeAllViews()
+            val selected = pathEt?.text?.toString().orEmpty()
             lifecycleScope.launch {
-                val o = try { withContext(Dispatchers.IO) { client.fsDirs(path) } } catch (e: Exception) { toast("读取失败: ${e.message}"); return@launch }
-                if (path.isNotEmpty()) {
-                    val parent = o.optString("parent")
-                    row(".. 返回上级") { load(parent) }
+                val o = try { withContext(Dispatchers.IO) { client.fsDirs("") } } catch (e: Exception) {
+                    toast("读取失败: ${e.message}"); return@launch
                 }
-                val dirs = o.optJSONArray("dirs")
-                if (dirs != null) for (i in 0 until dirs.length()) {
-                    val d = dirs.optJSONObject(i) ?: continue
-                    val name = d.optString("name"); val full = d.optString("path")
-                    row(name + "  /") { load(full) }
+                if (!sheet.isShowing()) return@launch
+                fun addDrive(label: String, path: String) {
+                    list.addView(ScreenUi.row(this@MainActivity, R.drawable.ic_server, label,
+                        checked = selected.startsWith(path),
+                        onClick = { pathEt?.setText(path); renderDrives() }))
                 }
+                val drives = o.optJSONArray("drives")
+                if (drives != null) for (i in 0 until drives.length()) {
+                    val el = drives.opt(i)
+                    if (el is org.json.JSONObject) {
+                        val letter = el.optString("letter").ifBlank { el.optString("name") }
+                        val free = el.optLong("freeMB", 0L)
+                        addDrive("磁盘 " + letter.trimEnd('\\') + if (free > 0) " · 剩余 " + fmtGB(free) else "", letter)
+                    } else {
+                        val s = drives.optString(i)
+                        addDrive("磁盘 $s", s)
+                    }
+                }
+            }
+        }
+        sheet.tonal("浏览目录") {
+            showPcDirPicker { path ->
+                pathEt?.setText(path)
+                renderDrives()
+            }
+        }
+        sheet.primary("添加") {
+            val path = sheet.value(0)
+            if (path.isBlank()) { toast("先选择一个磁盘/目录"); return@primary }
+            val nm = sheet.value(1).ifBlank {
+                path.substringAfterLast('\\').substringAfterLast('/').ifBlank { path }
+            }
+            lifecycleScope.launch {
+                try {
+                    withContext(Dispatchers.IO) { client.addLibrary(nm, path) }
+                    sheet.dismiss()
+                    toast("已添加 $nm")
+                    connectAndLoad(silent = true)
+                } catch (e: Exception) { toast("添加失败: ${e.message}") }
+            }
+        }
+        sheet.show()
+        renderDrives()
+    }
+
+    /** 逐级浏览电脑目录,选中后回调完整路径。 */
+    private fun showPcDirPicker(onPick: (String) -> Unit) {
+        var current = ""
+        val sheet = Sheet(this, "浏览电脑目录", "逐级进入目标目录")
+        val list = sheet.customArea()
+        fun render() {
+            list.removeAllViews()
+            list.addView(TextView(this).apply {
+                text = "当前: " + current.ifEmpty { "电脑(选择磁盘)" }
+                setTextColor(ThemeColors.textDim(this@MainActivity)); textSize = 12f
+                setPadding(dp(4), 0, dp(4), dp(8))
+            })
+            val path = current
+            fun addRow(label: String, target: String) {
+                list.addView(ScreenUi.row(this, R.drawable.ic_folder, label, onClick = {
+                    current = target
+                    render()
+                }))
+            }
+            if (path.isNotEmpty()) {
+                val parent = if (path.count { it == '\\' } <= 1) "" else path.substringBeforeLast('\\')
+                addRow(".. 返回上一级", parent)
+            }
+            lifecycleScope.launch {
+                val o = try { withContext(Dispatchers.IO) { client.fsDirs(path) } } catch (e: Exception) {
+                    toast("读取失败: ${e.message}"); return@launch
+                }
+                if (!sheet.isShowing() || current != path) return@launch
                 if (path.isEmpty()) {
                     val drives = o.optJSONArray("drives")
                     if (drives != null) for (i in 0 until drives.length()) {
@@ -1682,33 +1804,55 @@ class MainActivity : AppCompatActivity() {
                         if (el is org.json.JSONObject) {
                             val letter = el.optString("letter").ifBlank { el.optString("name") }
                             val free = el.optLong("freeMB", 0L)
-                            val caption = if (free > 0) " · 剩余 " + fmtGB(free) else ""
-                            row("磁盘 " + letter.trimEnd('\\') + caption) { load(letter) }
+                            addRow("磁盘 " + letter.trimEnd('\\') + if (free > 0) " · 剩余 " + fmtGB(free) else "", letter)
                         } else {
                             val s = drives.optString(i)
-                            row("磁盘 $s") { load(s) }
+                            addRow("磁盘 $s", s)
                         }
+                    }
+                } else {
+                    val dirs = o.optJSONArray("dirs")
+                    if (dirs != null) for (i in 0 until dirs.length()) {
+                        val d = dirs.optJSONObject(i) ?: continue
+                        addRow(d.optString("name") + "  /", d.optString("path"))
                     }
                 }
             }
         }
-        load("")
+        sheet.primary("选择此目录") {
+            if (current.isEmpty()) toast("先进入一个目录") else { sheet.dismiss(); onPick(current) }
+        }
+        sheet.tonal("取消") { sheet.dismiss() }
+        sheet.show()
+        render()
     }
 
     private fun showTokenDialog() {
-        val input = EditText(this).apply { hint = "新口令(留空=不设口令)"; setText(ServerConfig.token); setSingleLine() }
-        AlertDialog.Builder(this).setTitle("修改访问口令").setView(input)
-            .setPositiveButton("保存") { _, _ ->
-                val t = input.text.toString().trim()
-                lifecycleScope.launch {
-                    try {
-                        withContext(Dispatchers.IO) { client.updateToken(t) }
-                        ServerConfig.token = t
-                        bindSettings()
-                        toast("口令已更新")
-                    } catch (e: Exception) { toast("失败: ${e.message}") }
-                }
-            }.setNegativeButton("取消", null).show()
+        val sheet = Sheet(this, "修改访问口令", "至少 4 位;两项都留空 = 取消口令")
+        sheet.input("新口令", "", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
+        sheet.input("确认口令", "", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
+        sheet.primary("保存") { doSaveToken(sheet) }
+        sheet.onEnter { doSaveToken(sheet) }
+        sheet.show()
+    }
+
+    private fun doSaveToken(sheet: Sheet) {
+        val a = sheet.value(0)
+        val b = sheet.value(1)
+        // 允许「两项都留空」清空口令(保留旧的“留空=不设口令”能力);否则长度≥4 且两次一致
+        if (a.isNotEmpty() || b.isNotEmpty()) {
+            if (a.length < 4) { sheet.inputView(0)?.error = "口令至少 4 位"; return }
+            if (a != b) { sheet.inputView(1)?.error = "两次输入不一致"; return }
+        }
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) { client.updateToken(a) }
+                ServerConfig.token = a
+                sheet.dismiss()
+                bindSettings()
+                toast(if (a.isEmpty()) "已取消口令" else "口令已更新")
+            } catch (e: Exception) { toast("失败: ${e.message}") }
+        }
     }
 
     private fun showSysInfo() {
@@ -1716,53 +1860,83 @@ class MainActivity : AppCompatActivity() {
             try {
                 val o = withContext(Dispatchers.IO) { client.settingsInfo() }
                 val idx = o.optJSONObject("index")
-                val msg = buildString {
-                    append("版本: ").append(o.optString("version")).append('\n')
-                    append("端口: ").append(o.optInt("port")).append('\n')
-                    append("存储库: ").append(o.optInt("libCount")).append(" 个\n")
-                    append("口令: ").append(if (o.optBoolean("tokenSet")) "已设置" else "未设置").append('\n')
-                    append("多用户: ").append(if (o.optBoolean("multiUser")) "已开启(${o.optInt("userCount")} 个用户)" else "未开启").append('\n')
-                    append("空闲锁屏: ").append(o.optInt("idleLockMinutes")).append(" 分钟\n")
-                    append("回收站保留: ").append(o.optInt("trashRetentionDays")).append(" 天\n")
-                    append("转码缓存上限: ").append(o.optInt("transcodeCacheMB")).append(" MB\n")
-                    append("保险箱: ").append(if (o.optBoolean("vaultExists")) "已创建" else "未创建").append('\n')
-                    append("ffmpeg: ").append(if (o.optBoolean("ffmpeg")) "可用" else "未安装").append('\n')
-                    if (idx != null) {
-                        val stats = idx.optJSONObject("stats")
-                        append("索引: 扫描中=").append(idx.optBoolean("scanning")).append('\n')
-                        if (stats != null) {
-                            append("视频 ").append(stats.optInt("video")).append(" · 图片 ")
-                                .append(stats.optInt("image")).append(" · 音乐 ").append(stats.optInt("audio"))
-                        }
+                val sheet = Sheet(this@MainActivity, "系统信息", "服务端运行状态")
+                sheet.section("应用")
+                sheet.keyValue("版本", o.optString("version"))
+                sheet.keyValue("口令", if (o.optBoolean("tokenSet")) "已设置" else "未设置")
+                sheet.keyValue("保险箱", if (o.optBoolean("vaultExists")) "已创建" else "未创建")
+                sheet.section("设备")
+                sheet.keyValue("多用户", if (o.optBoolean("multiUser")) "已开启(${o.optInt("userCount")} 个用户)" else "未开启")
+                sheet.keyValue("空闲锁屏", "${o.optInt("idleLockMinutes")} 分钟")
+                sheet.section("网络")
+                sheet.keyValue("端口", o.optInt("port").toString())
+                sheet.keyValue("ffmpeg", if (o.optBoolean("ffmpeg")) "可用" else "未安装")
+                sheet.section("存储")
+                sheet.keyValue("存储库", "${o.optInt("libCount")} 个")
+                sheet.keyValue("回收站保留", "${o.optInt("trashRetentionDays")} 天")
+                sheet.keyValue("转码缓存上限", "${o.optInt("transcodeCacheMB")} MB")
+                if (idx != null) {
+                    sheet.keyValue("索引扫描中", if (idx.optBoolean("scanning")) "是" else "否")
+                    val stats = idx.optJSONObject("stats")
+                    if (stats != null) {
+                        sheet.keyValue(
+                            "媒体统计",
+                            "视频 ${stats.optInt("video")} · 图片 ${stats.optInt("image")} · 音乐 ${stats.optInt("audio")}",
+                        )
                     }
                 }
-                AlertDialog.Builder(this@MainActivity).setTitle("系统信息").setMessage(msg)
-                    .setPositiveButton("好", null).show()
+                sheet.tonal("关闭") { sheet.dismiss() }
+                sheet.show()
             } catch (e: Exception) { toast("读取失败: ${e.message}") }
         }
     }
+
+    /** 最近活跃时间(秒 → MM-dd HH:mm)。 */
+    private fun fmtLastSeen(sec: Long): String =
+        if (sec <= 0) "-" else java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault())
+            .format(java.util.Date(sec * 1000))
+
+    /** 本机局域网 IPv4(用于在设备列表里标「本机」);取不到返回 null。 */
+    private fun localIpv4(): String? = try {
+        java.net.NetworkInterface.getNetworkInterfaces().toList()
+            .flatMap { it.inetAddresses.toList() }
+            .firstOrNull { it is java.net.Inet4Address && !it.isLoopbackAddress }
+            ?.hostAddress
+    } catch (_: Exception) { null }
 
     private fun showDevices() {
         lifecycleScope.launch {
             try {
                 val list = withContext(Dispatchers.IO) { client.devices() }
-                val msg = if (list.isEmpty()) "暂无设备记录" else list.joinToString("\n\n") {
-                    "${it.ip}\n${it.ua}\n访问 ${it.count} 次"
+                val myIp = withContext(Dispatchers.IO) { localIpv4() }
+                val sheet = Sheet(this@MainActivity, "已连接设备", "共 ${list.size} 台")
+                if (list.isEmpty()) sheet.text("暂无设备记录")
+                for (d in list) {
+                    val isMe = !myIp.isNullOrBlank() && d.ip == myIp
+                    val value = (if (isMe) "本机 · " else "") + "最近活跃 " + fmtLastSeen(d.last) + " · ${d.count} 次"
+                    sheet.row(R.drawable.ic_devices, d.ip, d.ua.take(60), value = value)
                 }
-                AlertDialog.Builder(this@MainActivity)
-                    .setTitle("已连接设备 (${list.size})")
-                    .setMessage(msg)
-                    .setPositiveButton("清空记录") { _, _ ->
-                        lifecycleScope.launch {
-                            try {
-                                withContext(Dispatchers.IO) { client.clearDevices() }
-                                toast("已清空")
-                            } catch (e: Exception) { toast("失败: ${e.message}") }
-                        }
-                    }
-                    .setNegativeButton("关闭", null).show()
+                if (list.isNotEmpty()) sheet.danger("清空记录") { confirmClearDevices(sheet) }
+                sheet.tonal("关闭") { sheet.dismiss() }
+                sheet.show()
             } catch (e: Exception) { toast("读取失败: ${e.message}") }
         }
+    }
+
+    private fun confirmClearDevices(sheet: Sheet) {
+        val confirm = Sheet(this, "清空设备记录?", "仅清除访问记录,不影响正在使用的设备")
+        confirm.danger("清空") {
+            confirm.dismiss()
+            sheet.dismiss()
+            lifecycleScope.launch {
+                try {
+                    withContext(Dispatchers.IO) { client.clearDevices() }
+                    toast("已清空")
+                } catch (e: Exception) { toast("失败: ${e.message}") }
+            }
+        }
+        confirm.tonal("取消") { confirm.dismiss() }
+        confirm.show()
     }
 
     private fun bindSettings() {
@@ -1792,36 +1966,13 @@ class MainActivity : AppCompatActivity() {
     // ---------- 发现 / 手动连接 ----------
 
     private fun showDiscoveryDialog() {
-        val wrap = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(8), dp(20), 0)
-        }
-        val status = TextView(this).apply {
-            text = "正在自动搜索(广播 + mDNS + 网段扫描)…"
-            setTextColor(getColor(R.color.text_dim)); textSize = 13f
-        }
-        val list = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(10), 0, 0)
-        }
-        wrap.addView(status); wrap.addView(list)
-
-        val dlg = AlertDialog.Builder(this)
-            .setTitle("发现服务器")
-            .setView(wrap)
-            .setPositiveButton("手动输入", null)
-            .setNeutralButton("扫码配对", null)
-            .setNegativeButton("取消", null)
-            .create()
-        dlg.setOnShowListener {
-            dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                dlg.dismiss(); showManualDialog()
-            }
-            dlg.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
-                dlg.dismiss(); startQrScan()
-            }
-        }
-        dlg.show()
+        val sheet = Sheet(this, "发现服务器", "自动搜索同一 WiFi 下的电脑")
+        val status = ScreenUi.note(this, "正在自动搜索(广播 + mDNS + 网段扫描)…")
+        val list = sheet.customArea()
+        list.addView(status)
+        sheet.tonal("手动输入") { sheet.dismiss(); showManualDialog() }
+        sheet.tonal("扫码配对") { sheet.dismiss(); startQrScan() }
+        sheet.show()
 
         val shown = HashSet<String>()
         lifecycleScope.launch {
@@ -1835,7 +1986,7 @@ class MainActivity : AppCompatActivity() {
                         (if (s.version.isNotBlank()) "v${s.version}  ·  " else "") + "点击连接"
                     row.setOnClickListener {
                         ServerConfig.baseUrl = s.baseUrl
-                        dlg.dismiss()
+                        sheet.dismiss()
                         connectAndLoad()
                     }
                     list.addView(row)
@@ -1850,31 +2001,25 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showManualDialog() {
-        val wrap = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(8), dp(20), 0)
-        }
-        val addr = EditText(this).apply {
-            hint = "http://192.168.x.x:52700"
-            setText(ServerConfig.baseUrl.ifBlank { "http://" })
-            setSingleLine()
-        }
-        val token = EditText(this).apply {
-            hint = "口令(没有可留空)"
-            setText(ServerConfig.token)
-            setSingleLine()
-        }
-        wrap.addView(addr); wrap.addView(token)
-        AlertDialog.Builder(this)
-            .setTitle("手动连接")
-            .setView(wrap)
-            .setPositiveButton("连接") { _, _ ->
-                ServerConfig.baseUrl = addr.text.toString().trim()
-                ServerConfig.token = token.text.toString().trim()
-                connectAndLoad()
+        val sheet = Sheet(this, "手动连接", "输入电脑上 linNas 服务的地址")
+        sheet.input("http://192.168.x.x:52700", ServerConfig.baseUrl.ifBlank { "http://" })
+        sheet.input(
+            "口令(没有可留空)", ServerConfig.token,
+            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD,
+        )
+        sheet.primary("连接") {
+            val addr = sheet.value(0)
+            if (!addr.startsWith("http://") && !addr.startsWith("https://")) {
+                sheet.inputView(0)?.error = "地址需以 http:// 或 https:// 开头"
+                return@primary
             }
-            .setNegativeButton("取消", null)
-            .show()
+            ServerConfig.baseUrl = addr
+            ServerConfig.token = sheet.value(1)
+            sheet.dismiss()
+            connectAndLoad()
+        }
+        sheet.tonal("取消") { sheet.dismiss() }
+        sheet.show()
     }
 
     // ---------- 搜索(当前目录 / 全库) ----------
@@ -1913,58 +2058,42 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showDirPicker(onPick: (String) -> Unit) {
-        val wrap = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(8), dp(16), 0)
-        }
-        val crumb = TextView(this).apply {
-            setTextColor(ThemeColors.textDim(this@MainActivity)); textSize = 12f; text = "选择目标文件夹"
-        }
-        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val scroll = ScrollView(this).apply { addView(box) }
-        wrap.addView(crumb)
-        wrap.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(300)))
-
-        var current = ""
-        val dlg = AlertDialog.Builder(this)
-            .setTitle("选择目标文件夹")
-            .setView(wrap)
-            .setPositiveButton("选这里") { _, _ -> if (current.isNotEmpty()) onPick(current) else toast("先进入一个库") }
-            .setNegativeButton("取消", null)
-            .create()
-        dlg.show()
-
-        fun row(label: String, onClick: () -> Unit) {
-            val tv = TextView(this).apply {
-                text = label
-                setTextColor(ThemeColors.text(this@MainActivity))
-                textSize = 14f
-                setPadding(dp(10), dp(12), dp(10), dp(12))
-                setOnClickListener { onClick() }
+        var current = if (curPath.isEmpty()) "" else curPath.trimEnd('/')
+        val sheet = Sheet(this, "选择目标文件夹", "移动 / 复制到指定目录")
+        val list = sheet.customArea()
+        fun render() {
+            list.removeAllViews()
+            list.addView(TextView(this).apply {
+                text = "当前: " + current.ifEmpty { "存储库" }
+                setTextColor(ThemeColors.textDim(this@MainActivity)); textSize = 12f
+                setPadding(dp(4), 0, dp(4), dp(8))
+            })
+            val path = current
+            fun addRow(label: String, target: String, icon: Int) {
+                list.addView(ScreenUi.row(this, icon, label, onClick = {
+                    current = target
+                    render()
+                }))
             }
-            box.addView(tv)
-        }
-
-        fun load(vp: String) {
-            current = vp
-            crumb.text = "目标: " + (vp.ifEmpty { "存储库" })
-            box.removeAllViews()
-            if (vp.isEmpty()) {
-                libs.forEach { lib -> row(lib.name) { load("/" + lib.id) } }
+            if (path.isEmpty()) {
+                libs.forEach { lib -> addRow(lib.name, "/" + lib.id, R.drawable.ic_library) }
                 return
             }
-            row(".. (上一级)") {
-                val parent = if (vp.count { it == '/' } <= 1) "" else vp.substringBeforeLast('/')
-                load(parent)
-            }
+            addRow(".. 上一级", if (path.count { it == '/' } <= 1) "" else path.substringBeforeLast('/'), R.drawable.ic_folder)
             lifecycleScope.launch {
-                val entries = try { withContext(Dispatchers.IO) { client.ls(vp).entries } } catch (_: Exception) { emptyList() }
+                val entries = try { withContext(Dispatchers.IO) { client.ls(path).entries } } catch (_: Exception) { emptyList() }
+                if (!sheet.isShowing() || current != path) return@launch
                 entries.filter { it.isDir }.forEach { e ->
-                    row(e.name + " /") { load(vp.trimEnd('/') + "/" + e.name) }
+                    addRow(e.name + " /", path.trimEnd('/') + "/" + e.name, R.drawable.ic_folder)
                 }
             }
         }
-        load(if (curPath.isEmpty()) "" else curPath.trimEnd('/'))
+        sheet.primary("选择此目录") {
+            if (current.isEmpty()) toast("先进入一个库") else { sheet.dismiss(); onPick(current) }
+        }
+        sheet.tonal("取消") { sheet.dismiss() }
+        sheet.show()
+        render()
     }
 
     // ---------- 排序 / 视图 / 主题 / 磁盘 ----------
@@ -2143,35 +2272,14 @@ class MainActivity : AppCompatActivity() {
 
     // ---------- 小工具 ----------
 
-    /** 统一的「更多」动作面板:圆角底部弹层,替代默认 PopupMenu 的突兀样式。 */
+    /** 统一的「更多」动作面板:改用 Sheet 视觉(拖动条 + 圆角卡片行),替代默认 PopupMenu 的突兀样式。 */
     private fun showActionSheet(title: String?, actions: List<Pair<String, () -> Unit>>) {
-        val dlg = BottomSheetDialog(this)
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(8), dp(6), dp(8), dp(20))
-        }
-        if (!title.isNullOrBlank()) {
-            box.addView(TextView(this).apply {
-                text = title
-                textSize = 13f
-                maxLines = 1
-                ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
-                setTextColor(ThemeColors.textDim(this@MainActivity))
-                setPadding(dp(16), dp(10), dp(16), dp(6))
-            })
-        }
+        val sheet = Sheet(this, title ?: "操作")
         for ((label, action) in actions) {
-            box.addView(TextView(this).apply {
-                text = label
-                textSize = 15f
-                setTextColor(ThemeColors.text(this@MainActivity))
-                setPadding(dp(16), dp(14), dp(16), dp(14))
-                background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_ripple)
-                setOnClickListener { dlg.dismiss(); action() }
-            })
+            val destructive = label.startsWith("删除") || label.startsWith("清空") || label.contains("移除")
+            sheet.row(0, label, destructive = destructive, onClick = action)
         }
-        dlg.setContentView(box)
-        dlg.show()
+        sheet.show()
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()

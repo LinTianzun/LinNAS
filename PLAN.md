@@ -1,6 +1,6 @@
-﻿# LinNAS — 本地云盘/NAS 方案与版本路线图
+# LinNAS — 本地云盘/NAS 方案与版本路线图
 
-> 当前组件版本（2026-11-26）：Windows 服务端 **1.7.0**；Android 客户端 **1.8.2**（`versionCode` 11）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
+> 当前组件版本（2026-11-26）：Windows 服务端 **1.7.0**；Android 客户端 **1.8.3**（`versionCode` 12）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
 
 > 下文保留早期技术决策与里程碑记录；历史版本号描述当时状态，不代表当前版本。
 
@@ -315,6 +315,18 @@
 - **滑动进度优化**：竖屏也支持左右滑动调进度，提示同时给出目标时间与偏移秒数（如 `→ 12:34  (+35 秒)`）。
 - **二级页视觉重做**：`ScreenScaffold` 统一顶栏（返回 + 标题 + 动作 + 分隔线）、卡片行、分组小标题、空状态与加载态；会话管理 / 用户管理 / 维护与索引 / 网络唤醒 / 存储库管理 / 操作日志 / 分享管理 / 版本检查统一风格，新增 `ScreenUi` 辅助与 `screen_dimens.xml`。
 - **版本**：Android `versionCode` 11 / `versionName` 1.8.2；产物 `release/linNas-1.8.2-debug.apk`（附 SHA-256）。
+- **验证**：`:app:compileDebugKotlin`、`:app:testDebugUnitTest`（15 个单测）、`:app:assembleDebug` 均 BUILD SUCCESSFUL。
+
+### M13.3 Android v1.8.3 浅色主题、播放页与二级弹窗重做（2026-11-26，Android v1.8.3）
+- **浅色主题「月白」**：原第 4 套主题「纯黑」改为浅色「月白」（ink `#F1F3F7` / surface `#FFFFFF` / 主色 `#3D6BA6`），`Theme.LinNas.Mono` 改继承 `Theme.LinNas.Light` 并补 `windowLightStatusBar`；六套主题变为「3 深 + 3 浅」。`DESIGN.md` 同步。
+- **播放器按 B 站风格重做**：横屏底部第二行改为「左侧分辨率标签（4K/1080P/720P/自动）+ 右侧紧凑文字按钮 画面比例 › 字幕 › 倍速 › 选集」，选集按钮仅横屏且多集时出现。
+- **选集面板**：背景改为 90% 半透明圆角面板（`bg_player_panel`，不再纯色），四边留白；支持四种关闭方式——右上关闭按钮、点击面板外的半透明遮罩、选中某一集、返回键；面板打开期间暂停控制层自动隐藏；宽度随屏幕自适应（屏宽 42%，上限 300dp）。
+- **三点「更多」弹窗**：重写为深色半透明三段式且不占满屏——①六个图标入口（倍速 / 字幕 / 画面比例 / 画中画 / 外部播放器 / 锁定横屏）②「定时关闭」分段（不开启 / 15:00 / 30:00 / 60:00 / 自定义）③开关行（自动连播、循环播放 单集/列表/不循环、镜像翻转）；状态写入 `linnas_ui` 并真实生效（播完按 定时 → 单集循环 → 列表循环 → 自动连播 顺序处理）。镜像翻转通过 `PlayerView.scaleX = -1f` 实现。
+- **竖屏详情可收起**：标题下新增「简介 · 展开/收起」折叠条，默认收起；进度行、操作行与选集区始终可见；折叠状态跨页面记忆（`player_detail_collapsed`）。
+- **二级弹窗统一重做**：新增主题化底部弹窗组件 `Sheet`（拖动条 / 标题 / 滚动区 / 底部按钮，语义色取色，支持列表行、勾选、输入、分段、键值、危险操作），替换原先的裸 `AlertDialog`：系统信息、设备管理、手动输入地址、改访问口令、添加存储库、文件详情、重命名、新建文件夹、删除确认、目录选择，以及收藏/历史/筛选/批量/备份记录/下载目录/发现服务器等。
+- **传输页删除**：已下载与已缓存条目支持「删除 / 移除」（`tclear` 按钮与长按卡片），会同时删除本机文件（`content://` 走 `DocumentsContract.deleteDocument`，FileProvider 的 `content://` 与 `file://` 回退到真实路径删除）与 SAF 副本，并二次确认；服务器文件不受影响。
+- **传输效率**：新增全局共享 `TransferHttp` 客户端（连接池 8 / 5 分钟），`Dispatcher` 并发上限 4/域、统一连接 10s·读写 60s 超时、开启失败重连；读缓冲统一 256KB，写盘改 `BufferedOutputStream`（保留 `fd.sync()`）；私有目录下载保留 Range 断点续传。
+- **版本**：Android `versionCode` 12 / `versionName` 1.8.3；产物 `release/linNas-1.8.3-debug.apk`（附 SHA-256）。
 - **验证**：`:app:compileDebugKotlin`、`:app:testDebugUnitTest`（15 个单测）、`:app:assembleDebug` 均 BUILD SUCCESSFUL。
 
 ### M14 Web UI 总览页与侧栏分组重构（2026-11-26，服务端 1.7.0）

@@ -1,10 +1,13 @@
 package com.linnas.app
 
 import android.annotation.SuppressLint
+import android.app.TimePickerDialog
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.graphics.Color
+import android.graphics.Typeface
 import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
@@ -20,6 +23,7 @@ import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
@@ -42,6 +46,7 @@ import androidx.recyclerview.widget.RecyclerView
 import coil.load
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.materialswitch.MaterialSwitch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -80,8 +85,8 @@ class PlayerActivity : AppCompatActivity() {
 
         private const val HIDE_DELAY = 3000L
 
-        /** 睡眠定时选项(分钟);0 表示关闭,-1 表示播完本集。 */
-        private val SLEEP_OPTIONS = listOf(0, 10, 20, 30, 60, -1)
+        /** 「定时关闭」分段预设(分钟);最后一项 -2 代表「自定义」。 */
+        private val SLEEP_PRESETS = listOf(0, 15, 30, 60, -2)
     }
 
     private var player: ExoPlayer? = null
@@ -99,14 +104,25 @@ class PlayerActivity : AppCompatActivity() {
     private lateinit var tvDur: TextView
     private lateinit var tvPosP: TextView
     private lateinit var tvDurP: TextView
-    private lateinit var btnSpeed: MaterialButton
-    private lateinit var btnSleep: MaterialButton
-    private lateinit var btnEpisodes: MaterialButton
+    private lateinit var btnSpeed: TextView
+    private lateinit var btnEpisodes: TextView
+    private lateinit var tvQuality: TextView
     private lateinit var audioManager: AudioManager
     private lateinit var landEpisodePanel: View
+    private lateinit var landEpisodeScrim: View
     private lateinit var rvLandEpisodes: RecyclerView
+    private lateinit var detailBody: View
+    private lateinit var tvDetailToggle: TextView
+    private lateinit var imgDetailChevron: ImageView
     private var longPressSpeed = 1f
     private var longPressing = false
+
+    /** linnas_ui:更多面板的开关/分段与竖屏详情折叠状态都存在这里。 */
+    private val uiPrefs by lazy { getSharedPreferences("linnas_ui", Context.MODE_PRIVATE) }
+    private var autoNext = true              // 自动连播(播完自动下一集)
+    private var loopMode = "none"            // 循环播放:single | list | none
+    private var mirror = false               // 镜像翻转
+    private var landEpisodesOpen = false     // 横屏选集面板是否打开(打开时暂停控制层自动隐藏)
 
     private val speeds = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
     private var speedIdx = speeds.indexOf(1.0f).coerceAtLeast(0)
@@ -167,18 +183,24 @@ class PlayerActivity : AppCompatActivity() {
         }
     }
 
-    private val hideControlsRunnable = Runnable { if (player?.isPlaying == true) hideControls() }
+    // 选集面板打开期间不自动隐藏控制层(否则面板关不掉)
+    private val hideControlsRunnable = Runnable {
+        if (landEpisodesOpen) return@Runnable
+        if (player?.isPlaying == true) hideControls()
+    }
 
     // 睡眠定时检查
     private val sleepRunnable = object : Runnable {
         override fun run() {
             val remain = sleepEndsAt - System.currentTimeMillis()
             if (remain > 0L) {
-                updateSleepButton()
+                // 剩余时间只在「更多」弹窗打开时由分段控件展示,这里只需继续轮询
                 handler.postDelayed(this, minOf(remain, 15_000L))
             } else {
                 sleepEndsAt = 0L
-                updateSleepButton()
+                sleepMinutes = 0
+                // 计时结束即取消,不再持久化,避免下次进页面又莫名暂停
+                uiPrefs.edit().putInt("player_sleep", 0).apply()
                 player?.pause()
                 toast("睡眠定时已到，已暂停")
                 showControls()
@@ -218,12 +240,22 @@ class PlayerActivity : AppCompatActivity() {
         tvPosP = findViewById(R.id.tv_pos_p)
         tvDurP = findViewById(R.id.tv_dur_p)
         btnSpeed = findViewById(R.id.btn_speed)
-        btnSleep = findViewById(R.id.btn_sleep)
         btnEpisodes = findViewById(R.id.btn_episodes)
+        tvQuality = findViewById(R.id.tv_quality)
         landEpisodePanel = findViewById(R.id.landEpisodePanel)
+        landEpisodeScrim = findViewById(R.id.landEpisodeScrim)
         rvLandEpisodes = findViewById(R.id.rv_land_episodes)
         rvLandEpisodes.layoutManager = LinearLayoutManager(this)
+        // 选集面板必须能关:关闭按钮 + 点面板外 scrim 都收起(原来只绑了按钮,面板一开容易退不出去)
         findViewById<View>(R.id.landEpisodeClose).setOnClickListener { toggleLandEpisodes(false) }
+        landEpisodeScrim.setOnClickListener { toggleLandEpisodes(false) }
+        // 竖屏「简介」折叠条
+        detailBody = findViewById(R.id.detailBody)
+        tvDetailToggle = findViewById(R.id.tv_detail_toggle)
+        imgDetailChevron = findViewById(R.id.img_detail_chevron)
+        findViewById<View>(R.id.detailToggleRow).setOnClickListener {
+            applyDetailCollapsed(detailBody.visibility != View.GONE, true)
+        }
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
         // 标题
@@ -270,16 +302,32 @@ class PlayerActivity : AppCompatActivity() {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_ENDED) {
                     PlaybackStore.clear(this@PlayerActivity, playbackKey)
-                    if (sleepAtEnd) {
-                        sleepAtEnd = false
-                        updateSleepButton()
-                        p.pause()
-                        toast("本集播放完毕，睡眠定时已触发")
-                        showControls()
-                    } else if (playIdx in 0 until playlist.size - 1) {
-                        loadListIndex(playIdx + 1)
-                    } else {
-                        showControls()
+                    when {
+                        // 「播完本集」睡眠优先,触发后不再连播
+                        sleepAtEnd -> {
+                            sleepAtEnd = false
+                            uiPrefs.edit().putInt("player_sleep", 0).apply()
+                            p.pause()
+                            toast("本集播放完毕，睡眠定时已触发")
+                            showControls()
+                        }
+                        // 单集循环:从头再播
+                        loopMode == "single" -> {
+                            p.seekTo(0)
+                            p.play()
+                        }
+                        // 列表循环:整张播放列表循环
+                        loopMode == "list" -> {
+                            if (playlist.size > 1) {
+                                loadListIndex((playIdx.coerceAtLeast(0) + 1) % playlist.size)
+                            } else {
+                                p.seekTo(0)
+                                p.play()
+                            }
+                        }
+                        // 自动连播:播到列表末尾为止;关闭则停在当前集
+                        autoNext && playIdx >= 0 && playIdx < playlist.size - 1 -> loadListIndex(playIdx + 1)
+                        else -> showControls()
                     }
                 }
                 updatePlayIcon()
@@ -289,7 +337,12 @@ class PlayerActivity : AppCompatActivity() {
 
         onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (isLandscape()) exitFullscreen() else finish()
+                // 选集面板开着时,返回键先关面板
+                when {
+                    landEpisodesOpen -> toggleLandEpisodes(false)
+                    isLandscape() -> exitFullscreen()
+                    else -> finish()
+                }
             }
         })
 
@@ -302,7 +355,7 @@ class PlayerActivity : AppCompatActivity() {
         updateVideoSize()
         loadIntro()
         updateSpeedButton()
-        updateSleepButton()
+        restoreUiPrefs()
         showControls()
     }
 
@@ -330,8 +383,12 @@ class PlayerActivity : AppCompatActivity() {
             overlay.visibility = View.GONE
             portraitVideoOverlay.visibility = View.VISIBLE
             applyImmersion(true)
+            // 竖屏没有选集侧栏,退出横屏/切竖屏时顺手收起,免得残留在视频上
+            if (landEpisodesOpen) toggleLandEpisodes(false)
         }
         videoContainer.layoutParams = params
+        // 选集按钮只在横屏且有多集时出现(竖屏藏在下方内容区)
+        updateEpisodeButtonVisibility()
     }
 
     private fun isLandscape(): Boolean =
@@ -348,11 +405,15 @@ class PlayerActivity : AppCompatActivity() {
 
     private fun hideControls() {
         if (!isLandscape()) return
+        // 选集面板还开着时不隐藏控制层(否则找不到关闭入口)
+        if (landEpisodesOpen) return
         overlay.visibility = View.GONE
     }
 
     private fun scheduleHide() {
         if (!isLandscape()) return
+        // 面板打开期间暂停自动隐藏,关闭后再恢复
+        if (landEpisodesOpen) return
         handler.removeCallbacks(hideControlsRunnable)
         handler.postDelayed(hideControlsRunnable, HIDE_DELAY)
     }
@@ -490,7 +551,8 @@ class PlayerActivity : AppCompatActivity() {
         val hasList = playlist.size > 1
         findViewById<View>(R.id.btn_prev).visibility = if (hasList) View.VISIBLE else View.GONE
         findViewById<View>(R.id.btn_next).visibility = if (hasList) View.VISIBLE else View.GONE
-        btnEpisodes.visibility = if (hasList) View.VISIBLE else View.GONE
+        // 选集按钮:横屏才显示(竖屏用下方内容区的选集列表),且需要多集
+        updateEpisodeButtonVisibility()
         findViewById<View>(R.id.btn_prev_p).visibility = if (hasList) View.VISIBLE else View.GONE
         findViewById<View>(R.id.btn_next_p).visibility = if (hasList) View.VISIBLE else View.GONE
 
@@ -510,7 +572,7 @@ class PlayerActivity : AppCompatActivity() {
         playbackKey = vp
         // 切集后"播完本集"睡眠作废
         sleepAtEnd = false
-        updateSleepButton()
+        uiPrefs.edit().putInt("player_sleep", if (sleepMinutes > 0) sleepMinutes else 0).apply()
         updateTitleWithIndex(name)
         refreshEpisodes()
         loadIntro()
@@ -578,27 +640,52 @@ class PlayerActivity : AppCompatActivity() {
         sheet.show()
     }
 
-    /** v1.8.1:横屏右侧选集面板的显示/隐藏。 */
+    /**
+     * v1.9:横屏右侧选集面板的显示/隐藏。
+     * 打开:面板宽 min(300dp, 屏宽*42%)、铺一层可点关闭的 scrim、暂停控制层自动隐藏;
+     * 关闭:面板滑出后 GONE,scrim 同时消失,恢复自动隐藏。
+     */
     private fun toggleLandEpisodes(show: Boolean) {
         if (show) {
+            landEpisodesOpen = true
+            val panelW = minOf(dp(300), (resources.displayMetrics.widthPixels * 0.42f).toInt())
+                .coerceAtLeast(dp(160))
+            val lp = landEpisodePanel.layoutParams
+            lp.width = panelW
+            landEpisodePanel.layoutParams = lp
             findViewById<TextView>(R.id.landEpisodeTitle).text = "选集(${playlist.size})"
-            rvLandEpisodes.adapter = EpisodeAdapter(playlist, playIdx) { i ->
+            rvLandEpisodes.adapter = EpisodeAdapter(playlist, playIdx, onDark = true) { i ->
+                // 选完某一集自动收起面板
                 toggleLandEpisodes(false)
                 loadListIndex(i)
             }
+            landEpisodeScrim.visibility = View.VISIBLE
             landEpisodePanel.visibility = View.VISIBLE
-            landEpisodePanel.translationX = dp(320).toFloat()
+            landEpisodePanel.translationX = (panelW + dp(20)).toFloat()
             landEpisodePanel.animate().translationX(0f).setDuration(180).start()
+            // 面板开着时暂停自动隐藏,并保证控制层可见(关闭按钮在面板里)
+            handler.removeCallbacks(hideControlsRunnable)
+            overlay.visibility = View.VISIBLE
         } else {
-            landEpisodePanel.animate().translationX(dp(320).toFloat()).setDuration(160)
+            landEpisodesOpen = false
+            landEpisodeScrim.visibility = View.GONE
+            val w = if (landEpisodePanel.width > 0) landEpisodePanel.width else dp(300)
+            landEpisodePanel.animate().translationX((w + dp(20)).toFloat()).setDuration(160)
                 .withEndAction { landEpisodePanel.visibility = View.GONE }
                 .start()
+            if (player?.isPlaying == true) scheduleHide()
         }
+    }
+
+    /** 选集按钮仅横屏且有多集时显示(竖屏隐藏在下方内容区)。 */
+    private fun updateEpisodeButtonVisibility() {
+        btnEpisodes.visibility = if (playlist.size > 1 && isLandscape()) View.VISIBLE else View.GONE
     }
 
     private inner class EpisodeAdapter(
         private val items: List<Pair<String, String>>,
         private val selected: Int,
+        private val onDark: Boolean = false,   // 横屏半透明深色面板固定白字
         private val onPick: (Int) -> Unit,
     ) : RecyclerView.Adapter<EpisodeAdapter.VH>() {
 
@@ -627,12 +714,19 @@ class PlayerActivity : AppCompatActivity() {
                 placeholder(R.drawable.bg_player_action)
                 error(R.drawable.bg_player_action)
             }
-            holder.name.setTextColor(
-                if (cur) ThemeColors.color(ctx, R.attr.lPrimary) else ThemeColors.text(ctx)
-            )
-            holder.index.setTextColor(
-                if (cur) ThemeColors.color(ctx, R.attr.lPrimary) else ThemeColors.textDim(ctx)
-            )
+            if (onDark) {
+                // 半透明深色面板固定白字,不随浅色主题变成黑字
+                holder.name.setTextColor(if (cur) Color.parseColor("#FFFFFF") else Color.parseColor("#E6FFFFFF"))
+                holder.index.setTextColor(if (cur) Color.parseColor("#FFFFFF") else Color.parseColor("#80FFFFFF"))
+                holder.badge.setTextColor(Color.parseColor("#F2F2F7"))
+            } else {
+                holder.name.setTextColor(
+                    if (cur) ThemeColors.color(ctx, R.attr.lPrimary) else ThemeColors.text(ctx)
+                )
+                holder.index.setTextColor(
+                    if (cur) ThemeColors.color(ctx, R.attr.lPrimary) else ThemeColors.textDim(ctx)
+                )
+            }
             holder.root.setOnClickListener { onPick(position) }
         }
     }
@@ -649,6 +743,20 @@ class PlayerActivity : AppCompatActivity() {
             introLoading = false
             val tv = findViewById<TextView>(R.id.tv_intro) ?: return@launch
             tv.text = buildIntroText(info)
+            // 横屏左下角清晰度标签(用 /api/info 的分辨率估算)
+            updateQualityLabel(info)
+        }
+    }
+
+    /** 用视频分辨率估算清晰度标签(4K/1080P/720P…),拿不到就显示"自动"。 */
+    private fun updateQualityLabel(info: FileInfo?) {
+        val h = info?.height ?: 0
+        tvQuality.text = when {
+            h >= 2000 -> "4K"
+            h >= 1000 -> "1080P"
+            h >= 700 -> "720P"
+            h > 0 -> "${h}P"
+            else -> "自动"
         }
     }
 
@@ -762,41 +870,13 @@ class PlayerActivity : AppCompatActivity() {
         p.playWhenReady = p.isPlaying
     }
 
-    private fun updateSleepButton() {
-        btnSleep.text = when {
-            sleepAtEnd -> "本集结束"
-            sleepMinutes > 0 -> "${sleepMinutes}分钟"
-            else -> "定时"
-        }
-    }
-
-    /** 睡眠定时面板:关 / 10 / 20 / 30 / 60 分钟 / 播完本集。 */
-    private fun showSleepPanel() {
-        handler.removeCallbacks(hideControlsRunnable)
-        val labels = SLEEP_OPTIONS.map {
-            when (it) {
-                0 -> "关闭"
-                -1 -> "播完本集"
-                else -> "${it} 分钟"
-            }
-        }.toTypedArray()
-        var checked = SLEEP_OPTIONS.indexOf(sleepMinutes)
-        if (sleepAtEnd) checked = SLEEP_OPTIONS.indexOf(-1)
-        if (checked < 0) checked = 0
-        AlertDialog.Builder(this)
-            .setTitle("睡眠定时")
-            .setSingleChoiceItems(labels, checked) { _, which ->
-                applySleepOption(SLEEP_OPTIONS[which])
-            }
-            .setNegativeButton("关闭", null)
-            .show()
-    }
-
+    /** 应用定时关闭(分钟;0=关闭,-1=播完本集)。状态写 linnas_ui,下次进页面沿用。 */
     private fun applySleepOption(minutes: Int) {
         handler.removeCallbacks(sleepRunnable)
         sleepAtEnd = minutes == -1
         sleepMinutes = if (minutes == -1) 0 else minutes
-        sleepEndsAt = if (minutes in 1..60) System.currentTimeMillis() + minutes * 60_000L else 0L
+        sleepEndsAt = if (minutes > 0) System.currentTimeMillis() + minutes * 60_000L else 0L
+        uiPrefs.edit().putInt("player_sleep", if (sleepAtEnd) -1 else sleepMinutes).apply()
         if (sleepMinutes > 0) {
             handler.postDelayed(sleepRunnable, minOf(sleepEndsAt - System.currentTimeMillis(), 15_000L))
             toast("${sleepMinutes} 分钟后自动暂停")
@@ -805,66 +885,188 @@ class PlayerActivity : AppCompatActivity() {
         } else {
             toast("已关闭睡眠定时")
         }
-        updateSleepButton()
     }
 
     /**
-     * 「更多」面板:图标 + 文案网格(不再用简陋的列表弹窗)。
-     * 画中画、睡眠定时、字幕等入口都收在这里,横屏/竖屏通用。
+     * 「更多」面板(B 站横屏三点菜单式):
+     * 第一段图标入口 + 定时关闭分段 + 开关行(自动连播/循环播放/镜像翻转),
+     * 深色半透明圆角、高度 wrap_content 只占下半屏;所有状态真实生效并写 linnas_ui。
      */
     private fun showMorePanel() {
         handler.removeCallbacks(hideControlsRunnable)
-        val view = LayoutInflater.from(this).inflate(R.layout.dialog_player_more, null)
-        val grid = view.findViewById<LinearLayout>(R.id.more_grid)
+        val content = LayoutInflater.from(this).inflate(R.layout.dialog_player_more, null)
+        var sheet: BottomSheetDialog? = null
+
+        // ---- 第一段:图标入口(6 个均分) ----
+        val grid = content.findViewById<LinearLayout>(R.id.more_grid)
         val entries = listOf(
-            Triple(R.drawable.ic_player_speed, "倍速") { showSpeedPanel() },
+            Triple(R.drawable.ic_player_speed, "倍速播放") { showSpeedPanel() },
             Triple(R.drawable.ic_player_subtitle, "字幕") { showSubtitlePanel() },
-            Triple(R.drawable.ic_player_pip, "画中画") { enterPictureInPictureIfPossible() },
-            Triple(R.drawable.ic_player_sleep, "定时") { showSleepPanel() },
             Triple(R.drawable.ic_player_aspect, "画面比例") { cycleResize() },
+            Triple(R.drawable.ic_player_pip, "画中画") { enterPictureInPictureIfPossible() },
+            Triple(R.drawable.ic_player_external, "外部播放器") { openExternalPlayer() },
             Triple(R.drawable.ic_rotate, "锁定横屏") { toggleRotationLock() },
-            Triple(R.drawable.ic_more, "外部播放器") { openExternalPlayer() },
         )
-        entries.chunked(4).forEach { rowItems ->
+        entries.chunked(6).forEach { rowItems ->
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER
-                setPadding(0, dp(6), 0, dp(6))
+                setPadding(0, dp(4), 0, dp(4))
             }
             rowItems.forEach { (iconRes, label, action) ->
-                row.addView(moreCell(iconRes, label, action),
-                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                row.addView(moreCell(iconRes, label) {
+                    // 先收起弹窗再打开二级面板,避免叠两层
+                    sheet?.dismiss()
+                    action()
+                }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             }
             grid.addView(row)
         }
-        val sheet = BottomSheetDialog(this)
-        sheet.setContentView(view)
-        sheet.setOnDismissListener { if (player?.isPlaying == true) scheduleHide() }
+
+        // ---- 第二段:定时关闭分段 ----
+        val sleepIds = listOf(
+            R.id.seg_sleep_off, R.id.seg_sleep_15, R.id.seg_sleep_30, R.id.seg_sleep_60, R.id.seg_sleep_custom,
+        )
+        sleepIds.forEachIndexed { i, id ->
+            content.findViewById<TextView>(id).setOnClickListener {
+                val preset = SLEEP_PRESETS[i]
+                if (preset == -2) {
+                    showCustomSleepPicker(content)
+                } else {
+                    applySleepOption(preset)
+                    updateSleepSegment(content)
+                }
+            }
+        }
+        updateSleepSegment(content)
+
+        // ---- 第三段:自动连播 ----
+        val swAuto = content.findViewById<MaterialSwitch>(R.id.sw_autonext)
+        swAuto.isChecked = autoNext
+        swAuto.setOnCheckedChangeListener { _, checked ->
+            autoNext = checked
+            uiPrefs.edit().putBoolean("player_autonext", checked).apply()
+        }
+        content.findViewById<View>(R.id.more_row_autonext).setOnClickListener { swAuto.toggle() }
+
+        // ---- 第三段:循环播放 ----
+        val loopIds = listOf(
+            R.id.seg_loop_single to "single",
+            R.id.seg_loop_list to "list",
+            R.id.seg_loop_none to "none",
+        )
+        loopIds.forEach { (id, mode) ->
+            content.findViewById<TextView>(id).setOnClickListener {
+                loopMode = mode
+                uiPrefs.edit().putString("player_loop", mode).apply()
+                updateLoopSegment(content)
+            }
+        }
+        updateLoopSegment(content)
+
+        // ---- 第三段:镜像翻转 ----
+        val swMirror = content.findViewById<MaterialSwitch>(R.id.sw_mirror)
+        swMirror.isChecked = mirror
+        swMirror.setOnCheckedChangeListener { _, checked -> applyMirror(checked) }
+        content.findViewById<View>(R.id.more_row_mirror).setOnClickListener { swMirror.toggle() }
+
+        // 最底部留出系统手势区,免得开关行贴着导航条
+        content.post {
+            val insets = content.rootWindowInsets
+            if (insets != null) {
+                val nav = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    insets.getInsets(WindowInsets.Type.navigationBars()).bottom
+                } else {
+                    @Suppress("DEPRECATION") insets.stableInsetBottom
+                }
+                if (nav > content.paddingBottom) {
+                    content.setPadding(content.paddingLeft, content.paddingTop, content.paddingRight, nav)
+                }
+            }
+        }
+
+        sheet = BottomSheetDialog(this).apply {
+            setContentView(content)
+            // 去掉 BottomSheet 默认白色圆角背板,改用内容自带的深色半透明圆角
+            findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
+                ?.setBackgroundColor(Color.TRANSPARENT)
+            setOnDismissListener { if (player?.isPlaying == true) scheduleHide() }
+        }
         sheet.show()
     }
 
-    /** 「更多」面板里的一格:图标 + 文案。 */
+    /** 定时关闭选中态:选中段白字加粗 + 底部 2dp 下划线(bg_player_seg_on),未选 60% 白。 */
+    private fun updateSleepSegment(root: View) {
+        val ids = listOf(
+            R.id.seg_sleep_off, R.id.seg_sleep_15, R.id.seg_sleep_30, R.id.seg_sleep_60, R.id.seg_sleep_custom,
+        )
+        val checked = when {
+            sleepAtEnd -> -1
+            sleepMinutes == 0 -> 0
+            sleepMinutes == 15 -> 1
+            sleepMinutes == 30 -> 2
+            sleepMinutes == 60 -> 3
+            sleepMinutes > 0 -> 4
+            else -> 0
+        }
+        ids.forEachIndexed { i, id ->
+            val tv = root.findViewById<TextView>(id)
+            val on = i == checked
+            tv.setBackgroundResource(if (on) R.drawable.bg_player_seg_on else R.drawable.bg_player_seg)
+            tv.setTextColor(if (on) Color.parseColor("#F2F2F7") else Color.parseColor("#99FFFFFF"))
+            tv.setTypeface(null, if (on) Typeface.BOLD else Typeface.NORMAL)
+        }
+        // 自定义段显示已选时长(h:mm),否则回到「自定义」
+        root.findViewById<TextView>(R.id.seg_sleep_custom).text =
+            if (checked == 4) String.format(Locale.US, "%d:%02d", sleepMinutes / 60, sleepMinutes % 60) else "自定义"
+    }
+
+    /** 循环播放三段文本:选中项白色加粗,未选 60% 白。 */
+    private fun updateLoopSegment(root: View) {
+        val pairs = listOf(
+            R.id.seg_loop_single to "single",
+            R.id.seg_loop_list to "list",
+            R.id.seg_loop_none to "none",
+        )
+        pairs.forEach { (id, mode) ->
+            val tv = root.findViewById<TextView>(id)
+            val on = loopMode == mode
+            tv.setTextColor(if (on) Color.parseColor("#FFFFFF") else Color.parseColor("#99FFFFFF"))
+            tv.setTypeface(null, if (on) Typeface.BOLD else Typeface.NORMAL)
+        }
+    }
+
+    /** 自定义定时:系统时间选择器(24h),得到 h:mm 后换算成分钟。 */
+    private fun showCustomSleepPicker(root: View) {
+        val base = if (sleepMinutes in 1..1439) sleepMinutes else 0
+        TimePickerDialog(this, { _, hour, minute ->
+            applySleepOption(hour * 60 + minute)
+            updateSleepSegment(root)
+        }, base / 60, base % 60, true).show()
+    }
+
+    /** 「更多」面板里的一格:图标 + 文案(紧凑、白色系,B 站图标入口)。 */
     private fun moreCell(iconRes: Int, label: String, action: () -> Unit): View {
         val cell = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             isClickable = true
             isFocusable = true
-            setPadding(dp(4), dp(10), dp(4), dp(10))
+            setPadding(dp(2), dp(6), dp(2), dp(6))
             background = ContextCompat.getDrawable(this@PlayerActivity, R.drawable.bg_ripple)
             setOnClickListener { action() }
         }
         cell.addView(android.widget.ImageView(this).apply {
             setImageResource(iconRes)
-            setColorFilter(ThemeColors.primary(this@PlayerActivity))
-            layoutParams = LinearLayout.LayoutParams(dp(26), dp(26))
+            setColorFilter(Color.parseColor("#E6FFFFFF"))
+            layoutParams = LinearLayout.LayoutParams(dp(24), dp(24))
         })
         cell.addView(TextView(this).apply {
             text = label
             textSize = 12f
             gravity = Gravity.CENTER
-            setTextColor(ThemeColors.text(this@PlayerActivity))
-            setPadding(0, dp(6), 0, 0)
+            setTextColor(Color.parseColor("#E6FFFFFF"))
+            setPadding(0, dp(5), 0, 0)
         })
         return cell
     }
@@ -897,8 +1099,64 @@ class PlayerActivity : AppCompatActivity() {
         resizeIdx = (resizeIdx + 1) % resizeModes.size
         view.resizeMode = resizeModes[resizeIdx]
         val label = when (resizeIdx) { 0 -> "适应"; 1 -> "裁剪"; else -> "拉伸" }
-        (findViewById<View>(R.id.btn_aspect) as MaterialButton).text = label
+        findViewById<TextView>(R.id.btn_aspect).text = label
         showHint("画面:$label")
+    }
+
+    // ---------- 更多面板开关的持久化与竖屏详情折叠 ----------
+
+    /** 恢复更多面板的开关/分段与竖屏「简介」折叠状态(linnas_ui)。 */
+    private fun restoreUiPrefs() {
+        autoNext = uiPrefs.getBoolean("player_autonext", true)
+        loopMode = uiPrefs.getString("player_loop", "none") ?: "none"
+        applyMirror(uiPrefs.getBoolean("player_mirror", false))
+        // 定时关闭:恢复上次选择并继续计时(状态真实生效)
+        val savedSleep = uiPrefs.getInt("player_sleep", 0)
+        when {
+            savedSleep == -1 -> sleepAtEnd = true
+            savedSleep > 0 -> {
+                sleepMinutes = savedSleep
+                sleepEndsAt = System.currentTimeMillis() + savedSleep * 60_000L
+                handler.postDelayed(sleepRunnable, minOf(sleepEndsAt - System.currentTimeMillis(), 15_000L))
+            }
+        }
+        // 竖屏简介默认收起(B 站默认折叠),用户展开后记住
+        applyDetailCollapsed(uiPrefs.getBoolean("player_detail_collapsed", true), false)
+    }
+
+    /** 镜像翻转:只翻 PlayerView 画面本身(scaleX = -1),字幕层以外的 UI 不动。 */
+    private fun applyMirror(on: Boolean) {
+        mirror = on
+        view.scaleX = if (on) -1f else 1f
+        uiPrefs.edit().putBoolean("player_mirror", on).apply()
+    }
+
+    /** 竖屏「简介」折叠:收起 meta + 简介区,150ms 过渡,状态持久化。 */
+    private fun applyDetailCollapsed(collapsed: Boolean, animate: Boolean) {
+        uiPrefs.edit().putBoolean("player_detail_collapsed", collapsed).apply()
+        tvDetailToggle.text = if (collapsed) "简介 · 展开" else "简介 · 收起"
+        imgDetailChevron.animate().rotation(if (collapsed) 90f else -90f)
+            .setDuration(if (animate) 150 else 0).start()
+        detailBody.animate().cancel()
+        if (collapsed) {
+            if (animate) {
+                detailBody.animate().alpha(0f).setDuration(150).withEndAction {
+                    detailBody.visibility = View.GONE
+                    detailBody.alpha = 1f
+                }.start()
+            } else {
+                detailBody.visibility = View.GONE
+                detailBody.alpha = 1f
+            }
+        } else {
+            detailBody.visibility = View.VISIBLE
+            if (animate) {
+                detailBody.alpha = 0f
+                detailBody.animate().alpha(1f).setDuration(150).start()
+            } else {
+                detailBody.alpha = 1f
+            }
+        }
     }
 
     // ---------- 按钮 ----------
@@ -925,8 +1183,6 @@ class PlayerActivity : AppCompatActivity() {
         btnSpeed.setOnClickListener { showSpeedPanel() }
         findViewById<View>(R.id.btn_subtitle).setOnClickListener { showSubtitlePanel() }
         btnEpisodes.setOnClickListener { showEpisodeSheet() }
-        btnSleep.setOnClickListener { showSleepPanel() }
-        findViewById<View>(R.id.btn_pip).setOnClickListener { enterPictureInPictureIfPossible() }
         findViewById<View>(R.id.btn_more).setOnClickListener { showMorePanel() }
 
         // 竖屏操作行

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 行首图标圆底:主色 12% 透明底。<item android:alpha> 在 API23+ 生效,可在不写死色值的前提下给语义色加透明度 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:alpha="0.12">
+        <shape android:shape="oval">
+            <solid android:color="?attr/lPrimary" />
+        </shape>
+    </item>
+</layer-list>

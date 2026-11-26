@@ -23,7 +23,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.Call
 import okhttp3.Callback
-import okhttp3.OkHttpClient
+import com.linnas.app.transfer.TransferHttp
 import okhttp3.Request
 import okhttp3.Response
 import com.linnas.app.SpeedMeter
@@ -179,11 +179,8 @@ class OfflineDownloadWorker(
         private const val NOTIFICATION_ID_BASE = 2000
     }
 
-    private val http = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
-        .writeTimeout(60, TimeUnit.SECONDS)
-        .build()
+    // 复用全局客户端(见 transfer/TransferService.kt 的 TransferHttp),避免每个缓存任务各建连接池
+    private val http = TransferHttp.client
 
     /** v1.8.1 每个任务的速度计量器。 */
     private val speedMeters = java.util.concurrent.ConcurrentHashMap<String, SpeedMeter>()
@@ -307,9 +304,11 @@ class OfflineDownloadWorker(
 
                 var received = 0L
                 var lastUpdate = 0L
-                FileOutputStream(part, plan.append).use { output ->
+                // 用 BufferedOutputStream 包裹 FileOutputStream 避免小块写入;raw 句柄保留给 fd.sync()
+                FileOutputStream(part, plan.append).use { raw ->
+                    val output = raw.buffered(TransferHttp.BUFFER_SIZE)
                     val stream = body.byteStream()
-                    val buffer = ByteArray(64 * 1024)
+                    val buffer = ByteArray(TransferHttp.BUFFER_SIZE)
                     while (true) {
                         coroutineContext.ensureActive()
                         val count = stream.read(buffer)
@@ -326,7 +325,8 @@ class OfflineDownloadWorker(
                             publishProgress(vpath, name, plan.offset + received, total, taskId)
                         }
                     }
-                    output.fd.sync()
+                    output.flush()
+                    raw.fd.sync()
                 }
 
                 if (plan.expectedBytes != null && received != plan.expectedBytes) {
