@@ -1,6 +1,6 @@
 # LinNAS — 本地云盘/NAS 方案与版本路线图
 
-> 当前组件版本（2026-11-27）：Windows 服务端 **1.8.1**；Android 客户端 **1.8.8**（`versionCode` 17）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
+> 当前组件版本（2026-11-27）：Windows 服务端 **1.8.1**；Android 客户端 **1.8.9**（`versionCode` 18）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
 
 > 下文保留早期技术决策与里程碑记录；历史版本号描述当时状态，不代表当前版本。
 
@@ -381,6 +381,14 @@
 - **图库支持 GIF 动图**：`ImageActivity` 原先交给 Coil，动图只显示首帧。新增 `isGifUrl()` 判定 + `fetchBytes()`（http 走含 token 的 URL，本地读文件）+ `decodeAnimated()`：API 28+ 用 `ImageDecoder` 解成 `AnimatedImageDrawable`，旧版本退回 `android.graphics.Movie` 的 `MovieDrawable` 逐帧绘制；缩放/双击/翻页/保存/分享逻辑不变。
 - **添加存储库「手动输入路径」统一弹层**：`MainActivity.showAddLibrary()` 里该兜底入口原为裸 `AlertDialog` + 独立输入框，改为 `Sheet` + `input()` + `onEnter`（回车即进入），与其余弹层一致；至此该页面弹层全部走 `Sheet`。
 - **版本**：Android `versionCode` 17 / `versionName` 1.8.8；产物 `release/linNas-1.8.8-debug.apk`（附 SHA-256）。
+- **验证**：`:app:compileDebugKotlin`、`:app:testDebugUnitTest`（15 个单测）、`:app:assembleDebug` 均 BUILD SUCCESSFUL。
+
+### M13.9 Android v1.8.9 服务器名称与 IP 同时展示（2026-11-27，Android v1.8.9）
+v1.8.8 只把「名 · host」拼成一行，用户反馈希望**名称和 IP 都要看得见**，不是用名称替换 IP。本版改为两行结构：
+- **设置页「当前服务器」行**：`activity_main.xml` 新增 `setServerAddr`（次级色小字，默认 gone）；`MainActivity.bindSettings()` 里 `setServer` 显示自定义名（无名称时退回 host，都没有显示「未连接」），`setServerAddr` 单独显示 `ServerConfig.host()`（含端口），名称为空时自动隐藏该行。
+- **登录页服务器栏**：`activity_login.xml` 的 `tvServer` 由 `maxLines=1` 放宽到 2，`ServerConfig.displayLabel()` 的「名 · 地址」在长名称下不被截断。
+- 局域网发现列表继续显示「名 · ip」，点击连接时缓存该名称，随后设置页与登录页自动带出。
+- **版本**：Android `versionCode` 18 / `versionName` 1.8.9；产物 `release/linNas-1.8.9-debug.apk`（附 SHA-256）。
 - **验证**：`:app:compileDebugKotlin`、`:app:testDebugUnitTest`（15 个单测）、`:app:assembleDebug` 均 BUILD SUCCESSFUL。
 
 ### M14 Web UI 总览页与侧栏分组重构（2026-11-26，服务端 1.7.0）

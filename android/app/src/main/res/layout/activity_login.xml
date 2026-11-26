@@ -84,7 +84,7 @@
                         android:layout_marginStart="8dp"
                         android:layout_weight="1"
                         android:ellipsize="end"
-                        android:maxLines="1"
+                        android:maxLines="2"
                         android:text="未设置服务器地址"
                         android:textColor="?attr/lText"
                         android:textSize="13sp" />

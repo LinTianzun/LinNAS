@@ -125,6 +125,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var transferList: LinearLayout
     private lateinit var transferEmpty: View
     private lateinit var setServer: TextView
+    private lateinit var setServerAddr: TextView
     private lateinit var setToken: TextView
     private lateinit var setServerVersion: TextView
     private lateinit var setAppVersion: TextView
@@ -228,6 +229,7 @@ class MainActivity : AppCompatActivity() {
         transferList = findViewById(R.id.transferList)
         transferEmpty = findViewById(R.id.transferEmpty)
         setServer = findViewById(R.id.setServer)
+        setServerAddr = findViewById(R.id.setServerAddr)
         setToken = findViewById(R.id.setToken)
         setServerVersion = findViewById(R.id.setServerVersion)
         setAppVersion = findViewById(R.id.setAppVersion)
@@ -2117,7 +2119,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun bindSettings() {
         // 优先展示服务端自定义名(替代裸 IP);没连上时显示地址或「未连接」。
-        setServer.text = ServerConfig.displayLabel().ifBlank { "未连接" }
+        val srvName = Prefs.serverNameFor(ServerConfig.baseUrl).trim()
+        val srvHost = ServerConfig.host().trim()
+        setServer.text = srvName.ifBlank { srvHost }.ifBlank { "未连接" }
+        setServerAddr.text = if (srvName.isBlank()) "" else srvHost
+        setServerAddr.visibility = if (setServerAddr.text.isBlank()) android.view.View.GONE else android.view.View.VISIBLE
         setToken.text = if (ServerConfig.token.isBlank()) "无口令" else "口令已设置"
         setServerVersion.text = if (serverVersion.isBlank()) "" else "服务端 v$serverVersion"
         val appVer = try {
