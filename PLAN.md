@@ -1,6 +1,6 @@
 # LinNAS — 本地云盘/NAS 方案与版本路线图
 
-> 当前组件版本（2026-11-27）：Windows 服务端 **1.8.1**；Android 客户端 **1.8.7**（`versionCode` 16）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
+> 当前组件版本（2026-11-27）：Windows 服务端 **1.8.1**；Android 客户端 **1.8.8**（`versionCode` 17）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
 
 > 下文保留早期技术决策与里程碑记录；历史版本号描述当时状态，不代表当前版本。
 
@@ -374,6 +374,14 @@
 - **添加存储库逐级浏览**：`showAddLibrary()` 重做为单个 `Sheet`——顶部面包屑 + 目录行容器，`reload()` 用 `seq` 版本号 + `isShowing()` 三重校验丢弃过期回调，整体重建行容器（不再逐行异步 addView，消除闪烁）；空路径列磁盘、非空先「.. 返回上一级」再列子目录，末尾固定「✓ 就选这个目录」；名称随目录自动填（盘符根填「C盘」）；选中即 `client.addLibrary()` 并 `connectAndLoad(silent=true)`。
 - **版本**：Android `versionCode` 16 / `versionName` 1.8.7；产物 `release/linNas-1.8.7-debug.apk`（附 SHA-256）。
 - **验证**：`:app:compileDebugKotlin`（仅 VersionCheckActivity 两处 `versionCode` deprecation 警告）、`:app:testDebugUnitTest`（15 个单测）、`:app:assembleDebug` 均 BUILD SUCCESSFUL。
+
+### M13.8 Android v1.8.8 服务器自定义名展示、GIF 动图与手动路径弹层统一（2026-11-27，Android v1.8.8）
+配合服务端 1.8.1 新增「服务器自定义显示名」（`server/config.go` 的 `ServerName` + `Config.DisplayName()`，`GET /api/health` 已回传 `name`），手机端把名称接到各处展示，并补齐两处遗留。
+- **名称替代 IP 展示**：`LinNasClient` 新增 `serverName()`（读 `/api/health` 的 `name`）与 `Prefs.setServerName(baseUrl,name)/serverNameFor(baseUrl)`（按 baseUrl 绑定缓存，换地址自动失效，明文非敏感）；`ServerConfig.host()` 与 `ServerConfig.displayLabel()`（优先「自定义名 · host」，无名字退化为 host）。`MainActivity.loadAfterAuth()` 拉取并缓存名称，`bindSettings()` 的设置页「服务器」行与 `LoginActivity` 登录页服务器栏都改用 `displayLabel()`；局域网发现选中服务器时顺便缓存其广播名。
+- **图库支持 GIF 动图**：`ImageActivity` 原先交给 Coil，动图只显示首帧。新增 `isGifUrl()` 判定 + `fetchBytes()`（http 走含 token 的 URL，本地读文件）+ `decodeAnimated()`：API 28+ 用 `ImageDecoder` 解成 `AnimatedImageDrawable`，旧版本退回 `android.graphics.Movie` 的 `MovieDrawable` 逐帧绘制；缩放/双击/翻页/保存/分享逻辑不变。
+- **添加存储库「手动输入路径」统一弹层**：`MainActivity.showAddLibrary()` 里该兜底入口原为裸 `AlertDialog` + 独立输入框，改为 `Sheet` + `input()` + `onEnter`（回车即进入），与其余弹层一致；至此该页面弹层全部走 `Sheet`。
+- **版本**：Android `versionCode` 17 / `versionName` 1.8.8；产物 `release/linNas-1.8.8-debug.apk`（附 SHA-256）。
+- **验证**：`:app:compileDebugKotlin`、`:app:testDebugUnitTest`（15 个单测）、`:app:assembleDebug` 均 BUILD SUCCESSFUL。
 
 ### M14 Web UI 总览页与侧栏分组重构（2026-11-26，服务端 1.7.0）
 - **问题**：主区 `.app` 限制 `max-width:1180px` 并居中，宽屏（1586px）左侧约 200px 死区；侧栏入口全塞在「更多」里，层级混乱。

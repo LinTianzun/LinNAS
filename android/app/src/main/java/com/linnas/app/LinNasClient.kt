@@ -26,6 +26,10 @@ object Prefs {
     private const val KEY_BIO_USER = "bio_user"
     private const val KEY_BIO_PASS = "bio_pass"
 
+    // 服务端自定义显示名缓存(与 baseUrl 绑定)。
+    private const val KEY_SERVER_NAME = "server_name"
+    private const val KEY_SERVER_NAME_BASE = "server_name_base"
+
     private lateinit var sp: android.content.SharedPreferences
     private var appCtx: Context? = null
 
@@ -197,6 +201,25 @@ object Prefs {
         BiometricGate.clearSecret(ctx, KEY_BIO_USER)
         BiometricGate.clearSecret(ctx, KEY_BIO_PASS)
     }
+
+    /**
+     * 缓存服务端的自定义显示名(与 baseUrl 绑定,换地址自动失效)。
+     * 只在本地展示用,非敏感信息,明文存 SharedPreferences。
+     */
+    fun setServerName(baseUrl: String, name: String) {
+        sp.edit()
+            .putString(KEY_SERVER_NAME, name)
+            .putString(KEY_SERVER_NAME_BASE, baseUrl.trimEnd('/'))
+            .apply()
+    }
+
+    /** 取 [baseUrl] 对应缓存的服务端显示名;未缓存或地址不匹配返回 ""。 */
+    fun serverNameFor(baseUrl: String): String {
+        val base = baseUrl.trimEnd('/')
+        if (base.isBlank()) return ""
+        if (sp.getString(KEY_SERVER_NAME_BASE, "") != base) return ""
+        return sp.getString(KEY_SERVER_NAME, "") ?: ""
+    }
 }
 
 // ---------- API 客户端 ----------
@@ -300,6 +323,13 @@ class LinNasClient {
     /** 服务端版本号(读 /api/health)。 */
     fun version(): String = try {
         JSONObject(get("/api/health")).optString("version", "")
+    } catch (_: Exception) {
+        ""
+    }
+
+    /** 服务端自定义显示名(读 /api/health 的 name;服务端未设置时回退 "LinNAS")。 */
+    fun serverName(): String = try {
+        JSONObject(get("/api/health")).optString("name", "")
     } catch (_: Exception) {
         ""
     }

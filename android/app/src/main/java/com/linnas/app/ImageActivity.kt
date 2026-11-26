@@ -3,10 +3,15 @@ package com.linnas.app
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.ImageDecoder
 import android.graphics.Matrix
+import android.graphics.Movie
+import android.graphics.PixelFormat
 import android.graphics.drawable.Drawable
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.DocumentsContract
 import android.view.GestureDetector
@@ -40,6 +45,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
+import java.nio.ByteBuffer
 import kotlin.math.abs
 import kotlin.math.min
 
@@ -333,6 +339,73 @@ class ImageActivity : AppCompatActivity() {
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
+    // ---------- 动图(GIF) ----------
+
+    /** 按文件名或 URL(去查询串)判断是否为 GIF,交给动画解码而不是 Coil 的静态首帧。 */
+    private fun isGifUrl(url: String, name: String): Boolean {
+        if (name.lowercase().endsWith(".gif")) return true
+        return url.lowercase().substringBefore('?').endsWith(".gif")
+    }
+
+    /** 取图片原始字节:网络走本 Activity 的 OkHttp(URL 已含 token),本地直接读文件。 */
+    private fun fetchBytes(url: String): ByteArray? = try {
+        when {
+            url.startsWith("http://") || url.startsWith("https://") -> {
+                val req = Request.Builder().url(url).build()
+                httpClient.newCall(req).execute().use { r ->
+                    if (!r.isSuccessful) null else r.body?.bytes()
+                }
+            }
+            url.isBlank() -> null
+            else -> {
+                val f = if (url.startsWith("file://")) Uri.parse(url).path?.let { File(it) } else File(url)
+                f?.takeIf { it.isFile }?.readBytes()
+            }
+        }
+    } catch (_: Exception) {
+        null
+    }
+
+    /** 把 GIF 字节解码成可播放动画的 Drawable:API 28+ 用 ImageDecoder,旧版本退回 Movie。 */
+    private fun decodeAnimated(bytes: ByteArray): Drawable? = try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            ImageDecoder.decodeDrawable(ImageDecoder.createSource(ByteBuffer.wrap(bytes)))
+        } else {
+            Movie.decodeByteArray(bytes, 0, bytes.size)?.let { MovieDrawable(it) }
+        }
+    } catch (_: Exception) {
+        null
+    }
+
+    /**
+     * API 28 以下的 GIF 兜底实现:`android.graphics.Movie` 虽已废弃但可用,
+     * 按自身 intrinsic 尺寸绘制(ImageView 的 MATRIX 会先把画布缩放到目标大小)。
+     */
+    private class MovieDrawable(private val movie: Movie) : Drawable() {
+        private var startMs = 0L
+        private val tick = Runnable { invalidateSelf() }
+
+        override fun getIntrinsicWidth(): Int = movie.width()
+        override fun getIntrinsicHeight(): Int = movie.height()
+
+        override fun draw(canvas: Canvas) {
+            val now = android.os.SystemClock.uptimeMillis()
+            if (startMs == 0L) startMs = now
+            val dur = movie.duration().let { if (it <= 0) 1000 else it }
+            movie.setTime(((now - startMs) % dur).toInt())
+            movie.draw(canvas, 0f, 0f)
+            unscheduleSelf(tick)
+            scheduleSelf(tick, now + 16)
+        }
+
+        override fun setAlpha(alpha: Int) {}
+
+        override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) {}
+
+        @Deprecated("Deprecated in Java")
+        override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
+    }
+
     // ---------- 可缩放图片 ----------
 
     /**
@@ -550,7 +623,25 @@ class ImageActivity : AppCompatActivity() {
             holder.progress.visibility = View.VISIBLE
             holder.errorBox.visibility = View.GONE
             holder.errorBox.setOnClickListener { bindLoad(holder, position) }
-            holder.zoom.load(toData(urls.getOrElse(position) { "" })) {
+            val url = urls.getOrElse(position) { "" }
+            // GIF 动图:Coil 默认只解首帧,这里单独取字节解码成动画 Drawable 播放。
+            if (isGifUrl(url, names.getOrElse(position) { "" })) {
+                Thread {
+                    val bytes = fetchBytes(url)
+                    val d = bytes?.let { decodeAnimated(it) }
+                    holder.zoom.post {
+                        holder.progress.visibility = View.GONE
+                        if (d != null) {
+                            holder.errorBox.visibility = View.GONE
+                            holder.zoom.setImageDrawable(d)
+                        } else {
+                            holder.errorBox.visibility = View.VISIBLE
+                        }
+                    }
+                }.start()
+                return
+            }
+            holder.zoom.load(toData(url)) {
                 crossfade(true)
                 listener(object : ImageRequest.Listener {
                     override fun onSuccess(request: ImageRequest, result: SuccessResult) {

@@ -1,4 +1,4 @@
-plugins {
+﻿plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
@@ -11,8 +11,8 @@ android {
         applicationId = "com.linnas.app"
         minSdk = 24
         targetSdk = 34
-        versionCode = 16
-        versionName = "1.8.7"
+        versionCode = 17
+        versionName = "1.8.8"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

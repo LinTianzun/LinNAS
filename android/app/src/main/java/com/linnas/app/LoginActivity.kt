@@ -69,7 +69,7 @@ class LoginActivity : AppCompatActivity() {
         val btnSwitchServer = findViewById<MaterialButton>(R.id.btnSwitchServer).also { btnSwitchServerView = it }
         val bioDivider = findViewById<View>(R.id.tvBioDivider).also { bioDividerView = it }
 
-        tvServer.text = ServerConfig.baseUrl.ifBlank { "未设置服务器地址" }
+        tvServer.text = ServerConfig.displayLabel().ifBlank { "未设置服务器地址" }
         btnSwitchServer.setOnClickListener { showSwitchServerSheet(tvServer) }
 
         // 复选框默认反映上次选择
@@ -104,6 +104,11 @@ class LoginActivity : AppCompatActivity() {
                         Prefs.saveBioCredentials(this@LoginActivity, u, p)
                     }
                     Prefs.setBool(KEY_AUTO_LOGIN, cbBio.isChecked)
+                    // 顺带缓存服务端自定义显示名,让登录页「服务器」一栏用名称替代 IP。
+                    runCatching {
+                        val nm = withContext(Dispatchers.IO) { client.serverName() }
+                        if (nm.isNotBlank()) Prefs.setServerName(ServerConfig.baseUrl, nm)
+                    }
                     setResult(RESULT_OK)
                     finish()
                 } catch (e: LockoutException) {
@@ -369,7 +374,7 @@ class LoginActivity : AppCompatActivity() {
             if (!addr.startsWith("http://") && !addr.startsWith("https://")) addr = "http://$addr"
             // ServerConfig.baseUrl 的 setter 本身写 Prefs("base_url"),持久化路径与全局一致
             ServerConfig.baseUrl = addr
-            tv.text = addr
+            tv.text = ServerConfig.displayLabel().ifBlank { addr }
             sheet.dismiss()
             toast("服务器地址已保存")
         }
@@ -405,6 +410,7 @@ class LoginActivity : AppCompatActivity() {
                     if (!found.add(s.baseUrl)) return@runOnUiThread
                     status.text = "找到 ${found.size} 台服务器,点击填入"
                     sheet.row(R.drawable.ic_server, s.name.ifBlank { "LinNAS" } + " · " + s.ip, s.baseUrl, dismissOnClick = false) {
+                        if (s.name.isNotBlank()) Prefs.setServerName(s.baseUrl, s.name)
                         sheet.inputView(0)?.setText(s.baseUrl)
                     }
                 }

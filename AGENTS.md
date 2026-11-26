@@ -1,4 +1,4 @@
-# AGENTS.md — 面向 AI / 协作开发者的仓库约定
+﻿# AGENTS.md — 面向 AI / 协作开发者的仓库约定
 
 本文件给在本仓库工作的 AI 编码助手与人类贡献者提供最小必要上下文与硬性约定。开始改动前，先读 [README.md](README.md)、[PLAN.md](PLAN.md) 与 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
@@ -24,7 +24,7 @@ release/    构建产物（APK / 服务端 exe，已被 .gitignore 忽略）
 | 组件 | 当前版本 | 版本号位置 |
 |---|---|---|
 | Windows 服务端 | 1.8.1 | `server/config.go` 的 `const Version` |
-| Android 客户端 | 1.8.7（versionCode 16） | `android/app/build.gradle.kts` |
+| Android 客户端 | 1.8.8（versionCode 17） | `android/app/build.gradle.kts` |
 
 改版本号时同时更新对应 README、`PLAN.md` 与 `RELEASING.md`；两个组件版本号互不推算。
 

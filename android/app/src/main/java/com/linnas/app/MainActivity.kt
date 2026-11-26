@@ -457,6 +457,9 @@ class MainActivity : AppCompatActivity() {
             }
             val loadedDisks = withContext(Dispatchers.IO) { client.disks() }
             serverVersion = withContext(Dispatchers.IO) { client.version() }
+            // 服务端自定义显示名(如「客厅NAS」):缓存后用于替代 IP 展示。
+            val remoteName = withContext(Dispatchers.IO) { client.serverName() }
+            if (remoteName.isNotBlank()) Prefs.setServerName(ServerConfig.baseUrl, remoteName)
             withContext(Dispatchers.Main) {
                 libs = loadedLibs
                 disksList = loadedDisks
@@ -1891,25 +1894,25 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 兜底:手动粘贴完整路径,进入后照常逐级浏览/校验
+        // 兜底:手动粘贴完整路径,进入后照常逐级浏览/校验(统一走 Sheet,与其余弹层一致)
         sheet.tonal("手动输入路径") {
-            val et = EditText(this).apply {
-                hint = "完整路径,如 D:\\电影"
-                setText(cur)
-                setSelection(text?.length ?: 0)
-                this.inputType = InputType.TYPE_CLASS_TEXT
-                setSingleLine()
-                setPadding(dp(16), dp(12), dp(16), dp(12))
-            }
-            AlertDialog.Builder(this)
-                .setTitle("手动输入路径")
-                .setView(et)
-                .setPositiveButton("进入") { _, _ ->
-                    val p = et.text?.toString()?.trim().orEmpty()
-                    if (p.isBlank()) toast("请输入完整路径") else { cur = p; nameAuto(); reload() }
+            val input = Sheet(this, "手动输入路径", "粘贴或输入电脑上的完整路径")
+            input.input("完整路径,如 D:\\电影", cur, InputType.TYPE_CLASS_TEXT)
+            fun submit() {
+                val p = input.value(0).trim()
+                if (p.isBlank()) {
+                    input.inputView(0)?.error = "请输入完整路径"
+                    return
                 }
-                .setNegativeButton("取消", null)
-                .show()
+                cur = p
+                nameAuto()
+                input.dismiss()
+                reload()
+            }
+            input.onEnter { submit() }
+            input.primary("进入") { submit() }
+            input.tonal("取消") { input.dismiss() }
+            input.show()
         }
         sheet.primary("添加为存储库") { addCurrent() }
         sheet.show()
@@ -2113,7 +2116,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun bindSettings() {
-        setServer.text = ServerConfig.baseUrl.ifBlank { "未连接" }
+        // 优先展示服务端自定义名(替代裸 IP);没连上时显示地址或「未连接」。
+        setServer.text = ServerConfig.displayLabel().ifBlank { "未连接" }
         setToken.text = if (ServerConfig.token.isBlank()) "无口令" else "口令已设置"
         setServerVersion.text = if (serverVersion.isBlank()) "" else "服务端 v$serverVersion"
         val appVer = try {
@@ -2158,6 +2162,7 @@ class MainActivity : AppCompatActivity() {
                     row.findViewById<TextView>(R.id.srvMeta).text =
                         (if (s.version.isNotBlank()) "v${s.version}  ·  " else "") + "点击连接"
                     row.setOnClickListener {
+                        if (s.name.isNotBlank()) Prefs.setServerName(s.baseUrl, s.name)
                         ServerConfig.baseUrl = s.baseUrl
                         sheet.dismiss()
                         connectAndLoad()

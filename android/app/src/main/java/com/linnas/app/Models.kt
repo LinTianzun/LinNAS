@@ -213,4 +213,22 @@ object ServerConfig {
 
     /** 清除本地会话(退出登录 / 会话失效时)。 */
     fun clearSession() = Prefs.clearSession()
+
+    /** baseUrl 去掉协议与结尾斜杠后的 host(:port),用于展示;地址为空返回 ""。 */
+    fun host(): String = baseUrl.trim()
+        .removePrefix("https://").removePrefix("http://").trimEnd('/')
+
+    /**
+     * 界面展示用服务器名:优先服务端自定义显示名(如「客厅NAS」),再拼 host;
+     * 没有自定义名时退化为 host;两者都空返回 ""。用于替代过去直接显示 IP。
+     */
+    fun displayLabel(): String {
+        val name = Prefs.serverNameFor(baseUrl).trim()
+        val h = host()
+        return when {
+            name.isNotBlank() && h.isNotBlank() -> "$name · $h"
+            name.isNotBlank() -> name
+            else -> h
+        }
+    }
 }
