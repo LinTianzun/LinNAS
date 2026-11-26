@@ -41,6 +41,12 @@ const state = {
   searchResults: [],
   devices: [],
   trash: [],
+  trashView: localStorage.getItem("linnas_trash_view") || "list",
+  // 存储空间分析
+  storageTab: "large",       // large | dups
+  storageLarge: [],
+  storageDups: null,
+  storageScanTimer: null,
   // v1.4.0 D 安全
   auth: { multiUser: false, userCount: 0, idleLockMinutes: 30, username: "", role: "", session: false, locked: false },
   users: [],
@@ -346,6 +352,7 @@ function renderSidebar() {
   $("#btn-search").classList.toggle("active", state.view === "search");
   $("#btn-devices").classList.toggle("active", state.view === "devices");
   $("#btn-trash").classList.toggle("active", state.view === "trash");
+  $("#btn-storage").classList.toggle("active", state.view === "storage");
   $("#btn-audit").classList.toggle("active", state.view === "audit");
   $("#btn-shares").classList.toggle("active", state.view === "shares");
   $("#btn-remote").classList.toggle("active", state.view === "remote");
@@ -432,7 +439,7 @@ function emptyState(icon, title, hint, withAdd) {
 }
 
 /* ============================================================ 视图切换 */
-const VIEWS = ["view-home", "view-browse", "view-vault", "view-media", "view-music", "view-search", "view-devices", "view-trash", "view-audit", "view-shares", "view-remote", "view-pair"];
+const VIEWS = ["view-home", "view-browse", "view-vault", "view-media", "view-music", "view-search", "view-devices", "view-trash", "view-storage", "view-audit", "view-shares", "view-remote", "view-pair"];
 function showView(target) {
   VIEWS.forEach((v) => { const el = document.getElementById(v); if (el) el.hidden = v !== target; });
   if (typeof updateMiniPlayer === "function") updateMiniPlayer();
@@ -746,6 +753,32 @@ function renderEntries() {
     if (canWrite()) {
       addBtn("edit", "改名", () => renameEntry(vp, e.name));
       addBtn("trash", "删除", () => deleteEntry(vp, e), "del");
+    }
+
+    // 「不在媒体库展示」开关：文件夹或媒体文件且可写时显示
+    if ((e.isDir || kind === "video" || kind === "image" || kind === "audio") && canWrite()) {
+      const mhBtn = document.createElement("button");
+      mhBtn.className = "btn icon-btn";
+      const syncMh = () => {
+        const hid = !!e.mediaHidden;
+        mhBtn.classList.toggle("media-hidden", hid);
+        mhBtn.title = hid ? "显示于媒体库" : "不在媒体库展示";
+        mhBtn.setAttribute("aria-label", mhBtn.title);
+        mhBtn.innerHTML = svgIcon("eye");
+        row.classList.toggle("media-hidden-row", hid);
+      };
+      syncMh();
+      mhBtn.onclick = async (ev) => {
+        ev.stopPropagation();
+        const next = !e.mediaHidden;
+        try {
+          await api("/api/libs/media-hide", { method: "POST", body: { vpath: vp, hidden: next } });
+          e.mediaHidden = next;
+          syncMh();
+          toast(next ? "已设为不在媒体库展示" : "已显示于媒体库");
+        } catch (err) { toast("失败: " + err.message); }
+      };
+      acts.appendChild(mhBtn);
     }
 
     row.appendChild(chk); row.appendChild(icon); row.appendChild(meta); row.appendChild(acts);
@@ -1960,6 +1993,24 @@ async function openSettings() {
     if (!isAdmin()) i.disabled = true;
     return i;
   };
+  // 索引自动刷新:每 N 秒增量对账一次(0 = 关闭) + 立即刷新索引
+  const refreshInput = numInput(s.indexRefreshSeconds != null ? s.indexRefreshSeconds : 120, 0, 86400, 90);
+  const refreshWrap = document.createElement("div"); refreshWrap.style.cssText = "display:flex;gap:8px;align-items:center;flex-wrap:wrap";
+  const refreshUnit = document.createElement("span"); refreshUnit.textContent = "秒自动对账一次(0 = 关闭)"; refreshUnit.style.cssText = "font-size:12.5px;color:var(--muted)";
+  const refreshSave = document.createElement("button"); refreshSave.className = "btn primary"; refreshSave.textContent = "保存"; refreshSave.disabled = !isAdmin();
+  refreshSave.onclick = async () => {
+    const v = Math.max(0, Math.min(86400, parseInt(refreshInput.value, 10) || 0));
+    try { await api("/api/settings", { method: "POST", body: { indexRefreshSeconds: v } }); toast(v > 0 ? `索引每 ${v} 秒自动刷新` : "已关闭索引自动刷新"); }
+    catch (e) { toast("失败: " + e.message); }
+  };
+  const refreshNow = document.createElement("button"); refreshNow.className = "btn"; refreshNow.textContent = "立即刷新索引";
+  refreshNow.onclick = async () => {
+    try { await api("/api/index/refresh", { method: "POST", body: {} }); toast("已触发索引刷新"); }
+    catch (e) { toast("失败: " + e.message); }
+  };
+  refreshWrap.appendChild(refreshInput); refreshWrap.appendChild(refreshUnit); refreshWrap.appendChild(refreshSave); refreshWrap.appendChild(refreshNow);
+  idxGroup.appendChild(row("自动刷新", refreshWrap));
+
   const daysInput = numInput(s.trashRetentionDays != null ? s.trashRetentionDays : 30, 0, 3650, 90);
   const daysWrap = document.createElement("div"); daysWrap.style.cssText = "display:flex;gap:8px;align-items:center";
   daysWrap.appendChild(daysInput);
@@ -2695,7 +2746,7 @@ function renderDevices() {
 }
 
 /* ============================================================ 回收站 */
-$("#btn-trash").onclick = async () => { showTrash(); await loadTrash(); };
+$("#btn-trash").onclick = async () => { showTrash(); syncTrashViewButtons(); await loadTrash(); };
 $("#btn-trash-refresh").onclick = () => loadTrash();
 $("#btn-trash-empty").onclick = async () => {
   const ok = await askConfirm("清空回收站", "将彻底删除回收站中的所有文件,不可恢复。");
@@ -2703,38 +2754,313 @@ $("#btn-trash-empty").onclick = async () => {
   try { const r = await api("/api/trash/empty", { method: "POST", body: {} }); await loadTrash(); toast(`已清理 ${r.count} 项`); }
   catch (e) { toast("失败: " + e.message); }
 };
+function syncTrashViewButtons() {
+  $$("#trash-viewmode button").forEach((b) => b.classList.toggle("on", b.dataset.view === state.trashView));
+}
+$$("#trash-viewmode button").forEach((b) => {
+  b.onclick = () => {
+    state.trashView = b.dataset.view === "grid" ? "grid" : "list";
+    localStorage.setItem("linnas_trash_view", state.trashView);
+    syncTrashViewButtons();
+    renderTrash();
+  };
+});
 async function loadTrash() {
   const wrap = $("#trash-list");
+  wrap.className = "";
   wrap.innerHTML = '<div class="pempty">加载中…</div>';
   let items = [];
   try { items = await api("/api/trash"); } catch (e) { wrap.innerHTML = `<div class="pempty">加载失败: ${e.message}</div>`; return; }
   state.trash = items || [];
+  renderTrash();
+}
+function trashActions(it) {
+  const acts = document.createElement("div"); acts.className = "facts";
+  const ab = (ic, title, fn, extra) => { const b = document.createElement("button"); b.className = "btn icon-btn " + (extra || ""); b.title = title; b.setAttribute("aria-label", title); b.innerHTML = svgIcon(ic); b.onclick = (ev) => { ev.stopPropagation(); fn(); }; acts.appendChild(b); };
+  ab("refresh", "恢复", async () => {
+    try { await api("/api/trash/restore", { method: "POST", body: { id: it.id, lib: it.libId } }); await loadTrash(); toast("已恢复"); }
+    catch (e) { toast("失败: " + e.message); }
+  });
+  ab("trash", "彻底删除", async () => {
+    const ok = await askConfirm("彻底删除", `永久删除「${it.name}」?不可恢复。`);
+    if (!ok) return;
+    try { await api("/api/trash/delete", { method: "POST", body: { id: it.id, lib: it.libId } }); await loadTrash(); toast("已删除"); }
+    catch (e) { toast("失败: " + e.message); }
+  }, "del");
+  return acts;
+}
+function renderTrash() {
+  const wrap = $("#trash-list");
+  wrap.className = "";
   wrap.innerHTML = "";
   if (!state.trash.length) { wrap.innerHTML = '<div class="pempty">回收站是空的</div>'; return; }
+  const grid = state.trashView === "grid";
+  if (grid) wrap.className = "file-list grid";
+  const iconMap = { dir: "folder", video: "video", image: "image", audio: "music", archive: "archive", file: "file" };
   for (const it of state.trash) {
     const kind = it.isDir ? "dir" : kindOf(it.name);
+    if (grid) {
+      const card = document.createElement("div");
+      card.className = "frow" + (it.isDir ? " is-dir" : "");
+      const icon = document.createElement("div"); icon.className = "fi t-" + kind;
+      icon.innerHTML = svgIcon(iconMap[kind] || "file");
+      const meta = document.createElement("div"); meta.className = "fmain";
+      const nm = document.createElement("div"); nm.className = "fname"; nm.textContent = it.name;
+      const sb = document.createElement("div"); sb.className = "fsub"; sb.textContent = (it.isDir ? "文件夹" : fmtSize(it.size)) + " · " + fmtTime(it.trashedAt);
+      meta.appendChild(nm); meta.appendChild(sb);
+      card.appendChild(icon); card.appendChild(meta); card.appendChild(trashActions(it));
+      wrap.appendChild(card);
+    } else {
+      const row = document.createElement("div"); row.className = "vrow";
+      const icon = document.createElement("div"); icon.className = "fi t-" + kind;
+      icon.innerHTML = svgIcon(kind === "dir" ? "folder" : "file");
+      const meta = document.createElement("div"); meta.className = "vm";
+      meta.innerHTML = `<div class="vname"></div><div class="vsub"></div>`;
+      meta.querySelector(".vname").textContent = it.name;
+      meta.querySelector(".vsub").textContent = (it.isDir ? "文件夹" : fmtSize(it.size)) + " · 原位置 " + (it.origPath || "") + " · " + fmtTime(it.trashedAt);
+      row.appendChild(icon); row.appendChild(meta); row.appendChild(trashActions(it));
+      wrap.appendChild(row);
+    }
+  }
+}
+
+/* ============================================================ 存储空间 */
+$("#btn-storage").onclick = () => showStorage();
+$("#btn-storage-refresh").onclick = () => { loadStorageSummary(); loadStorageTab(); };
+$$("#storage-tabs button").forEach((b) => {
+  b.onclick = () => {
+    $$("#storage-tabs button").forEach((x) => x.classList.remove("on"));
+    b.classList.add("on");
+    state.storageTab = b.dataset.tab === "dups" ? "dups" : "large";
+    $("#storage-large").hidden = state.storageTab !== "large";
+    $("#storage-dups").hidden = state.storageTab !== "dups";
+    loadStorageTab();
+  };
+});
+
+function showStorage() {
+  state.view = "storage";
+  showView("view-storage");
+  renderSidebar();
+  loadStorageSummary();
+  loadStorageTab();
+}
+function loadStorageTab() {
+  if (state.storageTab === "dups") loadDupsStatus();
+  else loadStorageLarge();
+}
+
+async function loadStorageSummary() {
+  const el = $("#storage-overview");
+  const sub = $("#storage-sub");
+  el.innerHTML = "";
+  try {
+    const s = await api("/api/storage/summary");
+    renderStorageSummary(s);
+  } catch (e) {
+    sub.textContent = "无法统计存储占用";
+    el.innerHTML = `<div class="st-empty">${e.message || "索引未启用"}</div>`;
+  }
+}
+function renderStorageSummary(s) {
+  const el = $("#storage-overview");
+  const sub = $("#storage-sub");
+  el.innerHTML = "";
+  const libs = (s && s.libs) || [];
+  sub.textContent = `共 ${s.totalFiles || 0} 个文件 · 占用 ${fmtSize(s.totalBytes || 0)}`;
+  if (!libs.length) { el.innerHTML = '<div class="st-empty">暂无索引数据（需先建立文件索引）</div>'; return; }
+  for (const lib of libs) {
+    const card = document.createElement("div"); card.className = "st-card";
+    card.innerHTML = `
+      <div class="st-top">
+        <div class="lc-disc">${svgIcon("drive")}</div>
+        <div class="st-titles"><div class="st-name"></div><div class="st-path"></div></div>
+      </div>
+      <div class="st-meta"><span class="st-files"></span><span class="st-size"></span></div>`;
+    card.querySelector(".st-name").textContent = lib.name || lib.id;
+    card.querySelector(".st-path").textContent = lib.path || "";
+    card.querySelector(".st-files").textContent = `${lib.files || 0} 个文件`;
+    card.querySelector(".st-size").textContent = fmtSize(lib.bytes || 0);
+    el.appendChild(card);
+  }
+}
+
+async function loadStorageLarge() {
+  const el = $("#storage-large");
+  el.innerHTML = '<div class="st-empty">加载中…</div>';
+  let r;
+  try { r = await api("/api/storage/large?limit=100"); }
+  catch (e) { el.innerHTML = `<div class="st-empty">加载失败: ${e.message}</div>`; return; }
+  state.storageLarge = (r && r.items) || [];
+  el.innerHTML = "";
+  const head = document.createElement("div"); head.className = "st-toolbar";
+  const h = document.createElement("span"); h.className = "st-hint";
+  h.textContent = `最大的 ${state.storageLarge.length} 个文件 · 合计 ${fmtSize((r && r.totalSize) || 0)}`;
+  head.appendChild(h);
+  el.appendChild(head);
+  if (!state.storageLarge.length) { const e2 = document.createElement("div"); e2.className = "st-empty"; e2.textContent = "没有找到文件（需先建立文件索引）"; el.appendChild(e2); return; }
+  const iconMap = { video: "video", image: "image", audio: "music", archive: "archive", file: "file" };
+  const list = document.createElement("div"); list.className = "st-list";
+  for (const it of state.storageLarge) {
+    const kind = it.kind || kindOf(it.name);
     const row = document.createElement("div"); row.className = "vrow";
     const icon = document.createElement("div"); icon.className = "fi t-" + kind;
-    icon.innerHTML = svgIcon(kind === "dir" ? "folder" : "file");
+    icon.innerHTML = svgIcon(iconMap[kind] || "file");
     const meta = document.createElement("div"); meta.className = "vm";
     meta.innerHTML = `<div class="vname"></div><div class="vsub"></div>`;
     meta.querySelector(".vname").textContent = it.name;
-    meta.querySelector(".vsub").textContent = (it.isDir ? "文件夹" : fmtSize(it.size)) + " · 原位置 " + (it.origPath || "") + " · " + fmtTime(it.trashedAt);
+    meta.querySelector(".vsub").textContent = it.path + " · " + fmtSize(it.size) + (it.modTime ? " · " + fmtTime(it.modTime) : "");
     const acts = document.createElement("div"); acts.className = "facts";
-    const ab = (ic, title, fn, extra) => { const b = document.createElement("button"); b.className = "btn icon-btn " + (extra || ""); b.title = title; b.innerHTML = svgIcon(ic); b.onclick = fn; acts.appendChild(b); };
-    ab("refresh", "恢复", async () => {
-      try { await api("/api/trash/restore", { method: "POST", body: { id: it.id, lib: it.libId } }); await loadTrash(); toast("已恢复"); }
-      catch (e) { toast("失败: " + e.message); }
-    });
-    ab("trash", "彻底删除", async () => {
-      const ok = await askConfirm("彻底删除", `永久删除「${it.name}」?不可恢复。`);
-      if (!ok) return;
-      try { await api("/api/trash/delete", { method: "POST", body: { id: it.id, lib: it.libId } }); await loadTrash(); toast("已删除"); }
-      catch (e) { toast("失败: " + e.message); }
-    }, "del");
+    const ab = (ic, title, fn) => { const b = document.createElement("button"); b.className = "btn icon-btn"; b.title = title; b.setAttribute("aria-label", title); b.innerHTML = svgIcon(ic); b.onclick = (ev) => { ev.stopPropagation(); fn(); }; acts.appendChild(b); };
+    ab("folder", "打开所在文件夹", () => openPath(it.path.replace(/\/[^/]*$/, "") || "/"));
+    ab("info", "详情", () => showInfo(it.path));
+    ab("download", "下载", () => { location.href = apiUrl("/api/raw?dl=1&vpath=" + enc(it.path)); });
     row.appendChild(icon); row.appendChild(meta); row.appendChild(acts);
-    wrap.appendChild(row);
+    list.appendChild(row);
   }
+  el.appendChild(list);
+}
+
+function stopDupPoll() { if (state.storageScanTimer) { clearTimeout(state.storageScanTimer); state.storageScanTimer = null; } }
+async function loadDupsStatus() {
+  try {
+    const d = await api("/api/storage/duplicates");
+    renderStorageDups(d);
+    if (d && d.scanning) pollDupScan();
+  } catch (e) {
+    $("#storage-dups").innerHTML = `<div class="st-empty">加载失败: ${e.message}</div>`;
+  }
+}
+function pollDupScan() {
+  stopDupPoll();
+  state.storageScanTimer = setTimeout(async () => {
+    state.storageScanTimer = null;
+    if (state.view !== "storage") return;
+    let d;
+    try { d = await api("/api/storage/duplicates"); } catch (e) { return; }
+    renderStorageDups(d);
+    if (d && d.scanning) pollDupScan();
+  }, 1000);
+}
+async function startDupScan() {
+  let r;
+  try { r = await api("/api/storage/duplicates/scan", { method: "POST", body: { minSizeMB: 1 } }); }
+  catch (e) { toast("失败: " + e.message); return; }
+  if (r && r.busy) toast("已有扫描在进行中");
+  await loadDupsStatus();
+}
+function renderStorageDups(d) {
+  const el = $("#storage-dups");
+  state.storageDups = d || {};
+  d = d || {};
+  el.innerHTML = "";
+
+  // 顶部工具栏
+  const bar = document.createElement("div"); bar.className = "st-toolbar";
+  const scanBtn = document.createElement("button"); scanBtn.className = "btn primary";
+  if (d.scanning) { scanBtn.disabled = true; scanBtn.innerHTML = svgIcon("refresh") + " 扫描中…"; }
+  else scanBtn.innerHTML = svgIcon("search") + " 扫描重复文件";
+  scanBtn.onclick = () => startDupScan();
+  bar.appendChild(scanBtn);
+  const hint = document.createElement("span"); hint.className = "st-hint";
+  if (d.scanning) hint.textContent = "正在扫描重复文件，请稍候…";
+  else if (d.scannedAt) hint.textContent = `上次扫描 ${fmtTime(d.scannedAt)} · 最小 ${fmtSize(d.minSize || 0)} · ${d.candidateGroups || 0} 组 / ${d.candidateFiles || 0} 个文件 · 可释放 ${fmtSize(d.wastedBytes || 0)}`;
+  else hint.textContent = "按大小分组 + 抽样哈希判定候选，删除前需人工确认；文件将移入回收站，可恢复。";
+  bar.appendChild(hint);
+  el.appendChild(bar);
+
+  // 进度条
+  if (d.scanning) {
+    const pr = d.progress || { done: 0, total: 0 };
+    const pct = pr.total ? Math.min(100, Math.round((pr.done / pr.total) * 100)) : 0;
+    const pg = document.createElement("div"); pg.className = "st-progress";
+    const track = document.createElement("div"); track.className = "st-bar";
+    const fill = document.createElement("i");
+    if (pr.total) fill.style.width = pct + "%"; else track.classList.add("indet");
+    track.appendChild(fill);
+    const pctTxt = document.createElement("span"); pctTxt.className = "st-pct";
+    pctTxt.textContent = pr.total ? `${pr.done} / ${pr.total}（${pct}%）` : "扫描中…";
+    pg.appendChild(track); pg.appendChild(pctTxt);
+    el.appendChild(pg);
+  }
+
+  const groups = d.groups || [];
+  if (!groups.length) {
+    const e2 = document.createElement("div"); e2.className = "st-empty";
+    e2.textContent = d.scanning ? "" : (d.scannedAt ? "未发现重复文件。" : "点击「扫描重复文件」开始检测。");
+    if (e2.textContent) el.appendChild(e2);
+    return;
+  }
+
+  // 分组
+  groups.forEach((g) => {
+    const files = g.files || [];
+    const gWrap = document.createElement("div"); gWrap.className = "dup-group";
+    const head = document.createElement("div"); head.className = "dup-head";
+    const title = document.createElement("div"); title.className = "dh-title";
+    title.textContent = `重复组 · ${files.length} 个文件 · 每个 ${fmtSize(g.size)}`;
+    const meta = document.createElement("div"); meta.className = "dh-meta";
+    const save = document.createElement("span"); save.className = "dh-save";
+    save.textContent = `可节省 ${fmtSize((g.size || 0) * Math.max(0, files.length - 1))}`;
+    meta.appendChild(save);
+    head.appendChild(title); head.appendChild(meta);
+    gWrap.appendChild(head);
+
+    const filesWrap = document.createElement("div"); filesWrap.className = "dup-files";
+    files.forEach((f, idx) => {
+      const row = document.createElement("div"); row.className = "dup-file";
+      const lab = document.createElement("label");
+      const cb = document.createElement("input"); cb.type = "checkbox"; cb.dataset.vpath = f.path;
+      cb.checked = idx !== 0; // 默认勾选除第一项外的副本，至少保留一份
+      const inner = document.createElement("div"); inner.className = "df-inner";
+      const nm = document.createElement("span"); nm.className = "df-name"; nm.textContent = f.name;
+      const pth = document.createElement("span"); pth.className = "df-path"; pth.textContent = f.path;
+      inner.appendChild(nm); inner.appendChild(pth);
+      lab.appendChild(cb); lab.appendChild(inner);
+      const keep = document.createElement("span"); keep.className = "df-keep";
+      const updKeep = () => { keep.textContent = cb.checked ? "将删除" : "保留"; keep.classList.toggle("del", cb.checked); };
+      cb.addEventListener("change", () => {
+        const boxes = Array.from(filesWrap.querySelectorAll('input[type="checkbox"]'));
+        if (boxes.every((x) => x.checked)) { cb.checked = false; toast("每组至少保留一份"); }
+        updKeep(); updateDupDeleteBtn();
+      });
+      updKeep();
+      row.appendChild(lab); row.appendChild(keep);
+      filesWrap.appendChild(row);
+    });
+    gWrap.appendChild(filesWrap);
+    el.appendChild(gWrap);
+  });
+
+  // 底部删除
+  const acts = document.createElement("div"); acts.className = "dup-actions";
+  const delBtn = document.createElement("button"); delBtn.className = "btn danger"; delBtn.id = "dup-delete-btn";
+  delBtn.innerHTML = svgIcon("trash") + " 删除选中副本（移入回收站）";
+  delBtn.onclick = deleteSelectedDups;
+  const note = document.createElement("span"); note.className = "st-hint"; note.textContent = "选中项将移入各自存储库的回收站，可随时恢复。";
+  acts.appendChild(delBtn); acts.appendChild(note);
+  el.appendChild(acts);
+  updateDupDeleteBtn();
+}
+function updateDupDeleteBtn() {
+  const btn = $("#dup-delete-btn");
+  if (!btn) return;
+  const n = $$('#storage-dups input[type="checkbox"]:checked').length;
+  btn.disabled = n === 0;
+  btn.title = n === 0 ? "请先勾选要删除的副本" : `删除 ${n} 个副本`;
+}
+async function deleteSelectedDups() {
+  const paths = $$('#storage-dups input[type="checkbox"]:checked').map((b) => b.dataset.vpath).filter(Boolean);
+  if (!paths.length) { toast("未选中任何副本"); return; }
+  const ok = await askConfirm("删除重复副本", `将把 ${paths.length} 个副本移入回收站（可恢复）。确定继续？`, "删除");
+  if (!ok) return;
+  let done = 0, errs = 0;
+  for (const p of paths) {
+    try { await api("/api/delete", { method: "POST", body: { vpath: p } }); done++; }
+    catch (e) { errs++; }
+  }
+  toast(errs ? `已删除 ${done} 项，${errs} 项失败` : `已删除 ${done} 项，正在重新扫描…`);
+  await startDupScan();
 }
 
 /* ============================================================ 启动 */

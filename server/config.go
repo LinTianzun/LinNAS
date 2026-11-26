@@ -23,6 +23,9 @@ type Config struct {
 	TrashRetentionDays int `json:"trashRetentionDays"`
 	// TranscodeCacheMB 转码缓存上限(MB),超出按最久未用淘汰;0 = 不限制。默认 2048。
 	TranscodeCacheMB int `json:"transcodeCacheMB"`
+	// IndexRefreshSeconds 索引自动对账间隔(秒),用于发现资源管理器等外部改动;0 = 关闭。默认 120。
+	// 刻意不加 omitempty:0(关闭)也需要能持久化。
+	IndexRefreshSeconds int `json:"indexRefreshSeconds"`
 	// WolHosts 记住的 Wake-on-LAN 主机列表。
 	WolHosts []WolHost `json:"wolHosts,omitempty"`
 }
@@ -41,6 +44,9 @@ type Library struct {
 	ReadOnly bool     `json:"readOnly"` // disallow uploads/deletes
 	Enabled  bool     `json:"enabled"`  // whether it is served
 	Exclude  []string `json:"exclude"`  // 相对子目录黑名单(隐藏且不索引),如 "U盘备份"
+	// MediaHide 标记为「不在媒体库展示」的路径:相对库根、正斜杠(文件或目录)。
+	// 这些路径仍索引、仍可在文件浏览/搜索中访问,只是不出现在媒体库(视频/图片/音乐)。
+	MediaHide []string `json:"mediaHide"`
 }
 
 // String renders config for logging.

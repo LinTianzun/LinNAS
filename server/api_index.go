@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 )
 
 // indexUpdate 挂接一次增量索引更新(后台执行,索引不可用时为 no-op)。
@@ -68,7 +69,8 @@ func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {
 	sortBy := r.URL.Query().Get("sort")
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	hits, err := s.index.Media(kind, lib, sortBy, offset, limit)
+	hidden := mediaHiddenPrefixes(s.cfg)
+	hits, err := s.index.Media(kind, lib, sortBy, offset, limit, hidden)
 	if err != nil {
 		writeErr(w, 500, "查询失败: "+err.Error())
 		return
@@ -95,4 +97,22 @@ func (s *Server) handleIndexStatus(w http.ResponseWriter, r *http.Request) {
 	st := s.index.Status()
 	st["stats"] = s.index.Stats()
 	writeJSON(w, 200, st)
+}
+
+// handleIndexRefresh POST /api/index/refresh {lib} — 立即触发一次对账(可指定单库)。
+func (s *Server) handleIndexRefresh(w http.ResponseWriter, r *http.Request) {
+	if s.index == nil {
+		writeErr(w, 503, "索引未启用")
+		return
+	}
+	var req struct {
+		Lib string `json:"lib"`
+	}
+	_ = readJSON(r, &req) // body 可空
+	if libID := strings.TrimSpace(req.Lib); libID != "" {
+		s.index.RescanLib(s.cfg, libID)
+	} else {
+		s.index.ReconcileAll(s.cfg)
+	}
+	writeJSON(w, 200, map[string]bool{"started": true})
 }

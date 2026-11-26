@@ -1,6 +1,6 @@
 # LinNAS — 本地云盘/NAS 方案与版本路线图
 
-> 当前组件版本（2026-11-25）：Windows 服务端 **1.7.0**；Android 客户端 **1.5.0**（`versionCode` 7）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
+> 当前组件版本（2026-11-26）：Windows 服务端 **1.7.0**；Android 客户端 **1.8.0**（`versionCode` 9）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
 
 > 下文保留早期技术决策与里程碑记录；历史版本号描述当时状态，不代表当前版本。
 
@@ -274,3 +274,16 @@
 - **设置页**：系统信息补充多用户（用户数）、空闲锁屏、回收站保留、转码缓存上限、保险箱是否已初始化；服务器管理卡片新增会话/用户/网络唤醒/维护/存储库五个入口（用户管理与维护/存储库仅管理员可见）。
 - **版本**：Android `versionCode` 8 / `versionName` 1.7.0；产物 `release/linNas-1.7.0-debug.apk`（附 SHA-256）。
 - **验证**：本地镜像 Gradle 8.7 + JDK 21 执行 `:app:compileDebugKotlin` 与 `:app:assembleDebug` 均 BUILD SUCCESSFUL（仅原有 Mdns/OfflineDownloader 弃用告警）。
+
+### M13 Android v1.8.0 体验升级（2026-11-26，Android v1.8.0）
+- **统一传输中心**：新增前台 `TransferService` + `TransferStore`，把「下载 / ZIP 打包下载」统一入队；支持暂停 / 继续（断点续传）、失败重试与失败原因展示、取消；下载目录改用 SAF（`ACTION_OPEN_DOCUMENT_TREE`）由用户在手机上自选，修复离线缓存与 ZIP 打包下载卡死/失败问题。
+- **文件多选 + 批量操作**：文件页支持多选，批量删除 / 移动 / 复制 / 打包下载(ZIP) / 离线缓存。
+- **生物识别**：新增 `BiometricGate`（API 28+ 平台 `BiometricPrompt`、24-27 `FingerprintManager`、无硬件时降级锁屏凭据；敏感串用 Android Keystore AES/GCM 加密存储）。保险箱指纹解锁与生物识别登录；Manifest 补 `USE_BIOMETRIC` / `USE_FINGERPRINT`。
+- **版本检查**：新增 `VersionCheckActivity`，展示本机 App 版本与服务端版本，并可「检查更新」；服务端新增 `GET /api/app/version`、`GET /api/app/apk`（来源 `release/android-version.json` 与 APK，带防路径穿越）。
+- **收藏 / 最近访问 / 搜索历史 + 筛选**：新增 `FavoritesStore`（收藏、最近访问 30 条、搜索历史 12 条，本机 SharedPreferences）；文件操作菜单可收藏/取消收藏，顶部菜单可查看「收藏与最近」「搜索历史」；文件页新增按类型 / 大小 / 时间筛选（`FileFilters` 纯函数），排序按钮显示当前筛选状态。
+- **播放器 B 站式重做**：竖屏详情 + 选集抽屉；横屏全屏手势（左/右双击快退快进、上下滑音量/亮度、水平拖动进度、长按倍速）；倍速面板（0.5–2.0）、字幕轨切换、睡眠定时（10/20/30/60 分钟或播完本集）。
+- **媒体库按文件夹分组**：`MediaGridAdapter` 支持分组标题（`item_media_header`），媒体按父文件夹分组显示（库根用库名）。
+- **设置页重排**：按「连接 / 账号 / 服务器管理 / 外观 / 关于」分组收敛，新增版本检查入口与 App/服务端版本展示。
+- **全局视觉打磨**：新增 `DESIGN.md` 设计规范（颜色/字号/间距/圆角/组件样式/页面骨架，纯 XML + 代码动态视图，无 Compose）；补充 `dimens.xml` / `styles.xml` 与一批 `bg_*`、`ic_player_*` drawable，统一卡片/按钮/播放器控件外观。
+- **版本**：Android `versionCode` 9 / `versionName` 1.8.0；产物 `release/linNas-1.8.0-debug.apk`（附 SHA-256）。
+- **验证**：本地镜像 Gradle 8.7 + JDK 21 执行 `:app:compileDebugKotlin`、`:app:testDebugUnitTest`、`:app:assembleDebug` 均 BUILD SUCCESSFUL；Android 单测 11 个通过（新增 `FileFiltersTest` 3 个），Go 侧新增 `app_update_test.go` 并通过 `go test ./...`。

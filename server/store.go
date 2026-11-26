@@ -166,10 +166,11 @@ func BaseVirtual(vp string) string {
 
 // ListEntries describes one directory entry for the API.
 type ListEntries struct {
-	Name    string `json:"name"`
-	IsDir   bool   `json:"isDir"`
-	Size    int64  `json:"size"`
-	ModTime int64  `json:"modTime"` // unix seconds
+	Name        string `json:"name"`
+	IsDir       bool   `json:"isDir"`
+	Size        int64  `json:"size"`
+	ModTime     int64  `json:"modTime"` // unix seconds
+	MediaHidden bool   `json:"mediaHidden"`
 }
 
 // dirEntries lists abs directory, sorted dirs-first then case-insensitive name.
@@ -217,6 +218,7 @@ func (s *Server) dirEntriesFiltered(lib *Library, abs string) ([]ListEntries, er
 		trashDir = filepath.Clean(trashDirFor(lib))
 	}
 	out := make([]ListEntries, 0, len(ents))
+	prefixes := mediaHiddenPrefixes(s.cfg)
 	for _, e := range ents {
 		child := filepath.Join(abs, e.Name)
 		clean := filepath.Clean(child)
@@ -229,6 +231,9 @@ func (s *Server) dirEntriesFiltered(lib *Library, abs string) ([]ListEntries, er
 		// 未完成的上传(.part)不显示,避免污染目录
 		if !e.IsDir && strings.HasSuffix(strings.ToLower(e.Name), ".part") {
 			continue
+		}
+		if lib != nil {
+			e.MediaHidden = vpathMediaHidden(prefixes, VirtualPath(lib, child))
 		}
 		out = append(out, e)
 	}

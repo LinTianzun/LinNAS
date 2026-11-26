@@ -1,23 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 文件/目录行:圆角卡片 + 圆形图标底 + 点击涟漪。所有 id 与 Kotlin 引用保持一致。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
     android:gravity="center_vertical"
-    android:minHeight="64dp"
-    android:paddingStart="8dp"
-    android:paddingEnd="4dp"
-    android:paddingTop="6dp"
-    android:paddingBottom="6dp"
-    android:background="?attr/selectableItemBackground">
+    android:minHeight="@dimen/row_min_height"
+    android:background="@drawable/bg_card"
+    android:foreground="@drawable/bg_ripple"
+    android:paddingStart="@dimen/card_padding"
+    android:paddingEnd="@dimen/space_2"
+    android:paddingTop="@dimen/space_2"
+    android:paddingBottom="@dimen/space_2"
+    android:layout_marginBottom="@dimen/space_2">
+
     <FrameLayout
-        android:layout_width="42dp"
-        android:layout_height="42dp"
-        android:background="@drawable/bg_tile">
+        android:layout_width="@dimen/tile_lg"
+        android:layout_height="@dimen/tile_lg"
+        android:background="@drawable/bg_icon_circle">
         <ImageView
             android:id="@+id/ficon"
-            android:layout_width="22dp"
-            android:layout_height="22dp"
+            android:layout_width="@dimen/icon_lg"
+            android:layout_height="@dimen/icon_lg"
             android:layout_gravity="center"
             android:tint="?attr/lPrimary"
             android:contentDescription="类型图标" />
@@ -29,11 +33,12 @@
             android:visibility="gone"
             android:contentDescription="缩略图" />
     </FrameLayout>
+
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:layout_marginStart="14dp"
+        android:layout_marginStart="@dimen/space_3"
         android:orientation="vertical">
         <TextView
             android:id="@+id/fname"
@@ -47,16 +52,17 @@
             style="@style/TextMeta"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
+            android:layout_marginTop="@dimen/space_1"
             android:maxLines="1"
             android:ellipsize="end" />
     </LinearLayout>
+
     <ImageButton
         android:id="@+id/fmore"
-        android:layout_width="40dp"
-        android:layout_height="40dp"
+        android:layout_width="@dimen/tile_md"
+        android:layout_height="@dimen/tile_md"
         android:background="?attr/selectableItemBackgroundBorderless"
-        android:padding="10dp"
+        android:padding="@dimen/space_3"
         android:src="@drawable/ic_more"
         android:tint="?attr/lTextDim"
         android:contentDescription="更多操作" />

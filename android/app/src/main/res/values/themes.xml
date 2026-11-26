@@ -190,7 +190,7 @@
 
     <!-- ===== 文本样式 ===== -->
     <style name="TextTitle">
-        <item name="android:textSize">26sp</item>
+        <item name="android:textSize">@dimen/text_2xl</item>
         <item name="android:textStyle">bold</item>
         <item name="android:textColor">?attr/lText</item>
         <item name="android:letterSpacing">-0.02</item>
@@ -201,11 +201,11 @@
         <item name="android:letterSpacing">0.08</item>
     </style>
     <style name="TextItem">
-        <item name="android:textSize">15sp</item>
+        <item name="android:textSize">@dimen/text_md</item>
         <item name="android:textColor">?attr/lText</item>
     </style>
     <style name="TextMeta">
-        <item name="android:textSize">12sp</item>
+        <item name="android:textSize">@dimen/text_caption</item>
         <item name="android:textColor">?attr/lTextDim</item>
     </style>
     <!-- 分区标题:比 TextLabel 更醒目,用于设置/传输页 -->
@@ -213,12 +213,13 @@
         <item name="android:textSize">14sp</item>
         <item name="android:textStyle">bold</item>
         <item name="android:textColor">?attr/lText</item>
+        <item name="android:letterSpacing">0.02</item>
     </style>
 
     <!-- ===== 通用卡片 ===== -->
     <style name="CardGroup">
         <item name="cardBackgroundColor">?attr/lSurface</item>
-        <item name="cardCornerRadius">18dp</item>
+        <item name="cardCornerRadius">@dimen/radius_lg</item>
         <item name="cardElevation">0dp</item>
         <item name="strokeColor">?attr/lOutline</item>
         <item name="strokeWidth">1dp</item>
@@ -240,10 +241,10 @@
         <item name="android:focusable">true</item>
     </style>
     <style name="RowIcon">
-        <item name="android:layout_width">34dp</item>
-        <item name="android:layout_height">34dp</item>
-        <item name="android:padding">7dp</item>
-        <item name="android:background">@drawable/bg_tile</item>
+        <item name="android:layout_width">@dimen/tile_md</item>
+        <item name="android:layout_height">@dimen/tile_md</item>
+        <item name="android:padding">9dp</item>
+        <item name="android:background">@drawable/bg_icon_circle</item>
         <item name="android:tint">?attr/lPrimary</item>
         <item name="android:scaleType">fitCenter</item>
     </style>
@@ -252,7 +253,7 @@
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_weight">1</item>
         <item name="android:layout_marginStart">14dp</item>
-        <item name="android:textSize">15sp</item>
+        <item name="android:textSize">@dimen/text_md</item>
         <item name="android:textColor">?attr/lText</item>
     </style>
     <style name="RowValue">
@@ -267,7 +268,7 @@
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">1dp</item>
         <item name="android:layout_marginStart">64dp</item>
-        <item name="android:background">?attr/lOutline</item>
+        <item name="android:background">@drawable/bg_divider</item>
     </style>
     <style name="RowChevron">
         <item name="android:layout_width">18dp</item>
@@ -301,7 +302,7 @@
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_weight">1</item>
         <item name="android:layout_marginStart">6dp</item>
-        <item name="android:textSize">18sp</item>
+        <item name="android:textSize">@dimen/text_xl</item>
         <item name="android:textStyle">bold</item>
         <item name="android:textColor">?attr/lText</item>
         <item name="android:maxLines">1</item>
@@ -337,18 +338,19 @@
     <style name="EmptyTitle">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:layout_marginTop">14dp</item>
-        <item name="android:textSize">15sp</item>
+        <item name="android:layout_marginTop">@dimen/space_4</item>
+        <item name="android:textSize">@dimen/text_md</item>
+        <item name="android:textStyle">bold</item>
         <item name="android:textColor">?attr/lText</item>
     </style>
     <style name="EmptyHint">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:layout_marginTop">6dp</item>
-        <item name="android:paddingStart">32dp</item>
-        <item name="android:paddingEnd">32dp</item>
+        <item name="android:layout_marginTop">@dimen/space_2</item>
+        <item name="android:paddingStart">@dimen/space_8</item>
+        <item name="android:paddingEnd">@dimen/space_8</item>
         <item name="android:gravity">center</item>
-        <item name="android:textSize">13sp</item>
+        <item name="android:textSize">@dimen/text_sm</item>
         <item name="android:lineSpacingExtra">3dp</item>
         <item name="android:textColor">?attr/lTextDim</item>
     </style>

@@ -54,7 +54,20 @@ object UiPrefs {
 
     private val tabIds = setOf(R.id.tab_files, R.id.tab_media, R.id.tab_transfers, R.id.tab_settings)
 
-    /** 下载保存位置:系统下载目录下的子文件夹名(空 = 直接存下载目录)。 */
+    /** 下载保存位置:SAF 目录(用户用系统文件夹选择器选出,可见、可分享)。 */
+    fun downloadTreeUri(ctx: Context): String =
+        sp(ctx).getString("download_tree", "") ?: ""
+
+    fun setDownloadTree(ctx: Context, uri: String) =
+        sp(ctx).edit().putString("download_tree", uri).apply()
+
+    fun downloadTreeName(ctx: Context): String =
+        sp(ctx).getString("download_tree_name", "").orEmpty()
+
+    fun setDownloadTreeName(ctx: Context, name: String) =
+        sp(ctx).edit().putString("download_tree_name", name).apply()
+
+    /** 下载保存位置(旧字段:下载目录下的子文件夹名,仅用于显示回退)。 */
     fun downloadDir(ctx: Context): String = sp(ctx).getString("download_dir", "linNas") ?: ""
     fun setDownloadDir(ctx: Context, v: String) = sp(ctx).edit().putString("download_dir", v).apply()
 }

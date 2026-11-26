@@ -17,6 +17,9 @@
     <!-- 旧版本回退 -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
+    <!-- v1.8.0 生物识别(保险箱解锁 / 生物识别登录) -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <uses-permission android:name="android.permission.USE_FINGERPRINT" />
 
     <application
         android:name=".LinNasApp"
@@ -85,6 +88,11 @@
             android:name=".LibraryAdminActivity"
             android:exported="false"
             android:configChanges="orientation|screenSize|keyboardHidden" />
+        <!-- v1.8.0 版本检查 / 更新 -->
+        <activity
+            android:name=".VersionCheckActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
         <!-- M3 内置播放器页;P1 支持画中画 -->
         <activity
             android:name=".PlayerActivity"
@@ -103,6 +111,21 @@
             android:name=".upload.UploadService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <!-- v1.8.0 统一下载 / 打包下载前台服务 -->
+        <service
+            android:name=".transfer.TransferService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+        <!-- v1.8.0 下载完成后打开/分享应用私有文件 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"

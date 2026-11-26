@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 选中态高亮：高表面色填充 + primary 描边，跨主题可辨识 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="?attr/lSurfaceHigh" />
+    <corners android:radius="@dimen/radius_md" />
+    <stroke
+        android:width="@dimen/stroke_hairline"
+        android:color="?attr/lPrimary" />
+</shape>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 播放页操作项(圆角块) -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="?attr/lSurfaceHigh" />
+    <corners android:radius="14dp" />
+</shape>

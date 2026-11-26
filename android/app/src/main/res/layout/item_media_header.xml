@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v1.8.0 媒体库分组标题(占满一行) -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/mgroup"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:paddingStart="@dimen/space_3"
+    android:paddingEnd="@dimen/space_3"
+    android:paddingTop="@dimen/space_4"
+    android:paddingBottom="@dimen/space_1"
+    android:textColor="?attr/lPrimary"
+    android:textSize="@dimen/text_sm"
+    android:textStyle="bold"
+    android:maxLines="1"
+    android:ellipsize="end" />

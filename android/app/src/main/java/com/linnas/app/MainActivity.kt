@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.text.Editable
 import android.text.TextWatcher
@@ -33,6 +34,7 @@ import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import com.linnas.app.backup.BackupConfig
 import com.linnas.app.backup.PhotoBackupScheduler
+import com.linnas.app.transfer.TransferService
 import com.linnas.app.upload.UploadService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -96,6 +98,10 @@ class MainActivity : AppCompatActivity() {
     private var viewMode = "list"
     private var sortKey = "name"
     private var sortAsc = true
+    // v1.8.0 文件列表筛选(类型/大小/时间)
+    private var typeFilter = "all"   // all/dir/video/image/audio/archive/other
+    private var sizeFilter = "all"   // all/lt10m/b10_100m/b100m_1g/gt1g
+    private var timeFilter = "all"   // all/today/7d/30d
     private var globalSearch = false
     private var searchSeq = 0
     private lateinit var downloadList: LinearLayout
@@ -131,6 +137,32 @@ class MainActivity : AppCompatActivity() {
 
     private val permLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
+
+    /** v1.8.0:用户用系统文件夹选择器挑一个可见的下载目录(SAF),长期保存权限。 */
+    private val downloadTreeLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+            if (uri == null) return@registerForActivityResult
+            try {
+                val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                contentResolver.takePersistableUriPermission(uri, flags)
+                UiPrefs.setDownloadTree(this, uri.toString())
+                val name = queryTreeName(uri)
+                UiPrefs.setDownloadTreeName(this, name)
+                setDownloadDir.text = name
+                toast("下载将保存到「$name」")
+            } catch (e: Exception) {
+                toast("无法使用该文件夹:${e.message ?: "权限被拒绝"}")
+            }
+        }
+
+    private fun queryTreeName(uri: Uri): String = try {
+        contentResolver.query(uri, null, null, null, null)?.use { c ->
+            val idx = c.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+            if (idx >= 0 && c.moveToFirst()) c.getString(idx) else null
+        } ?: uri.lastPathSegment ?: "已选文件夹"
+    } catch (_: Exception) {
+        uri.lastPathSegment ?: "已选文件夹"
+    }
 
     private val loginLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         if (r.resultCode == RESULT_OK) {
@@ -202,7 +234,12 @@ class MainActivity : AppCompatActivity() {
         fileGrid.adapter = gridAdapter
 
         mediaAdapter = MediaGridAdapter({ vp -> client.thumbUrl(vp) }, ::onMediaOpen)
-        mediaGrid.layoutManager = GridLayoutManager(this, 2)
+        val mediaGlm = GridLayoutManager(this, 2)
+        mediaGlm.spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
+            override fun getSpanSize(position: Int) =
+                if (mediaAdapter.isHeader(position)) 2 else 1
+        }
+        mediaGrid.layoutManager = mediaGlm
         mediaGrid.adapter = mediaAdapter
 
         findViewById<View>(R.id.btnRefresh).setOnClickListener { connectAndLoad(silent = true) }
@@ -433,14 +470,48 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun filterFiles() {
-        val q = searchInput.text?.toString()?.trim()?.lowercase().orEmpty()
-        val rows = if (q.isEmpty()) allRows else allRows.filter {
+        val raw = searchInput.text?.toString()?.trim().orEmpty()
+        val q = raw.lowercase()
+        if (q.length >= 2) FavoritesStore.addSearch(this, raw)
+        val byQuery = if (q.isEmpty()) allRows else allRows.filter {
             when (it) {
                 is ListRow.Lib -> it.lib.name.lowercase().contains(q)
                 is ListRow.FileRow -> it.e.name.lowercase().contains(q)
             }
         }
-        applyAndSubmit(rows)
+        applyAndSubmit(byQuery.filter { rowMatchesFilters(it) })
+        runCatching {
+            findViewById<com.google.android.material.button.MaterialButton>(R.id.btnSort)
+                .text = sortLabelText()
+        }
+    }
+
+        /** v1.8.0 类型 / 大小 / 时间筛选(委托 FileFilters 纯函数,便于单测)。 */
+    private fun rowMatchesFilters(row: ListRow): Boolean {
+        if (row !is ListRow.FileRow) return true
+        return FileFilters.matches(row.e, typeFilter, sizeFilter, timeFilter, System.currentTimeMillis())
+    }
+
+    private fun hasActiveFilter(): Boolean =
+        typeFilter != "all" || sizeFilter != "all" || timeFilter != "all"
+
+    private fun sortLabelText(): String {
+        val k = when (sortKey) { "size" -> "大小"; "mtime" -> "时间"; else -> "名称" }
+        val base = k + (if (sortAsc) " ↑" else " ↓")
+        return if (hasActiveFilter()) "$base ·筛" else base
+    }
+
+    /** v1.8.0:媒体库按父文件夹分组(库根用库名,子目录用目录名)。 */
+    private fun groupByFolder(entries: List<Entry>): List<Pair<String, List<Entry>>> {
+        val map = LinkedHashMap<String, MutableList<Entry>>()
+        for (e in entries) {
+            val vp = e.vpath ?: ""
+            val parent = if (vp.isBlank()) "" else vp.substringBeforeLast('/', "")
+            val label = libs.firstOrNull { parent == "/" + it.id }?.name
+                ?: parent.substringAfterLast('/').ifBlank { "根目录" }
+            map.getOrPut(label) { mutableListOf() }.add(e)
+        }
+        return map.map { it.key to (it.value as List<Entry>) }
     }
 
     private fun renderCrumbs() {
@@ -478,6 +549,8 @@ class MainActivity : AppCompatActivity() {
             is ListRow.Lib -> enterLib(row.lib)
             is ListRow.FileRow -> {
                 val e = row.e
+                val vpNow = e.vpath ?: (curPath.trimEnd('/') + "/" + e.name)
+                FavoritesStore.touchRecent(this, FavoritesStore.Ref(vpNow, e.name, e.isDir))
                 if (e.isDir) {
                     val vp = e.vpath ?: (curPath.trimEnd('/') + "/" + e.name)
                     crumbs.add(e.name to vp)
@@ -515,6 +588,7 @@ class MainActivity : AppCompatActivity() {
                 else -> popup.menu.add(0, 7, 6, "缓存到手机")
             }
         }
+        popup.menu.add(0, 9, 4, if (FavoritesStore.isFavorite(this, vp)) "取消收藏" else "收藏")
         popup.setOnMenuItemClickListener { mi ->
             when (mi.itemId) {
                 1 -> renameDialog(vp, e.name)
@@ -527,18 +601,52 @@ class MainActivity : AppCompatActivity() {
                 6 -> showInfoDialog(vp, e)
                 7 -> toggleOffline(vp, e)
                 8 -> downloadZip(vp, e)
+                9 -> {
+                    val nowFav = FavoritesStore.toggleFavorite(this, FavoritesStore.Ref(vp, e.name, e.isDir))
+                    toast(if (nowFav) "已收藏" else "已取消收藏")
+                }
             }
             true
         }
         popup.show()
     }
 
-    /** v1.7.0:把单个文件/文件夹打包成 zip 下载(/api/zip)。 */
+    /** v1.8.0:把单个文件/文件夹打包成 zip 下载(/api/zip)。 */
     private fun downloadZip(vp: String, e: Entry) {
         val base = (if (e.isDir) e.name else e.name.substringBeforeLast('.')).ifBlank { "下载" }
         val zipName = "$base.zip"
-        Downloads.enqueue(this, client.zipUrl(listOf(vp), zipName), zipName, UiPrefs.downloadDir(this))
-        toast("开始打包下载 $zipName")
+        startDownload(client.zipUrl(listOf(vp), zipName), zipName, TransferStore.KIND_ZIP)
+    }
+
+    /** v1.8.0 统一入队下载:走 TransferService(可暂停/续传/重试,保存到用户选的目录)。 */
+    private fun startDownload(url: String, name: String, kind: String) {
+        val item = TransferStore.Item(
+            id = java.util.UUID.randomUUID().toString(),
+            title = name,
+            url = url,
+            fileName = name,
+            kind = kind,
+            treeUri = UiPrefs.downloadTreeUri(this),
+        )
+        TransferService.enqueue(this, item)
+        val dest = UiPrefs.downloadTreeName(this).ifBlank { "应用私有目录" }
+        toast("开始下载 $name → $dest")
+        selectTab(2)
+        refreshTransfers()
+    }
+
+    /** v1.8.0 打开已完成的下载文件(content:// 走系统查看器,file:// 走 FileProvider)。 */
+    private fun openTransferFile(item: TransferStore.Item) {
+        val uri = item.localUri.ifBlank { toast("暂无可用文件"); return }
+        val mime = item.mime.ifBlank { "application/octet-stream" }
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(Uri.parse(uri), mime)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            })
+        } catch (e: Exception) {
+            toast("没有可用的打开方式:${e.message}")
+        }
     }
 
     /** P1:/api/info 详情弹窗(文件夹给递归统计,媒体给 ffprobe 技术信息)。 */
@@ -640,8 +748,7 @@ class MainActivity : AppCompatActivity() {
                     Intent(Intent.ACTION_VIEW).apply { setDataAndType(Uri.parse(client.rawUrl(vp)), "image/*") }
                 )
                 else -> {
-                    Downloads.enqueue(this, client.rawUrl(vp, true), e.name, UiPrefs.downloadDir(this))
-                    toast("已开始下载 ${e.name}")
+                    startDownload(client.rawUrl(vp, true), e.name, TransferStore.KIND_DOWNLOAD)
                 }
             }
         } catch (_: Exception) {
@@ -699,17 +806,221 @@ class MainActivity : AppCompatActivity() {
     private fun showTopMenu(anchor: View) {
         val popup = PopupMenu(this, anchor)
         if (canWrite()) popup.menu.add(0, 1, 0, "新建文件夹")
-        popup.menu.add(0, 2, 1, "重新扫描服务器")
-        popup.menu.add(0, 3, 2, "连接其他服务器")
+        popup.menu.add(0, 4, 1, "批量选择…")
+        popup.menu.add(0, 2, 2, "重新扫描服务器")
+        popup.menu.add(0, 3, 3, "连接其他服务器")
+        popup.menu.add(0, 10, 4, "收藏与最近…")
+        popup.menu.add(0, 11, 5, "搜索历史…")
+        popup.menu.add(0, 12, 6, "按类型筛选…")
+        popup.menu.add(0, 13, 7, "按大小筛选…")
+        popup.menu.add(0, 14, 8, "按时间筛选…")
+        if (hasActiveFilter()) popup.menu.add(0, 15, 9, "清除筛选")
         popup.setOnMenuItemClickListener { mi ->
             when (mi.itemId) {
                 1 -> mkdirDialog()
+                4 -> showBatchSelect()
                 2 -> connectAndLoad(silent = true)
                 3 -> showDiscoveryDialog()
+                10 -> showFavoritesAndRecents()
+                11 -> showSearchHistory()
+                12 -> chooseTypeFilter()
+                13 -> chooseSizeFilter()
+                14 -> chooseTimeFilter()
+                15 -> {
+                    typeFilter = "all"; sizeFilter = "all"; timeFilter = "all"
+                    filterFiles(); toast("已清除筛选")
+                }
             }
             true
         }
         popup.show()
+    }
+
+    // ---------- v1.8.0 收藏 / 最近访问 / 搜索历史 / 筛选 ----------
+
+    private fun showFavoritesAndRecents() {
+        val favs = FavoritesStore.favorites(this)
+        val recents = FavoritesStore.recents(this)
+        if (favs.isEmpty() && recents.isEmpty()) { toast("还没有收藏或最近访问"); return }
+        val labels = mutableListOf<String>()
+        val refs = mutableListOf<FavoritesStore.Ref>()
+        if (favs.isNotEmpty()) {
+            labels.add("── 收藏 ──"); refs.add(FavoritesStore.Ref("", "", false))
+            favs.forEach { labels.add("★ " + it.name); refs.add(it) }
+        }
+        if (recents.isNotEmpty()) {
+            labels.add("── 最近访问 ──"); refs.add(FavoritesStore.Ref("", "", false))
+            recents.forEach { labels.add("· " + it.name); refs.add(it) }
+        }
+        AlertDialog.Builder(this)
+            .setTitle("收藏与最近")
+            .setItems(labels.toTypedArray()) { _, which ->
+                val r = refs[which]
+                if (r.vpath.isNotBlank()) {
+                    if (r.isDir) { crumbs.clear(); navigateTo(r.vpath) }
+                    else openFile(Entry(r.name, false, 0L, 0L, r.vpath))
+                }
+            }
+            .setNeutralButton("清空最近") { _, _ ->
+                FavoritesStore.clearRecents(this); toast("已清空最近访问")
+            }
+            .setNegativeButton("关闭", null)
+            .show()
+    }
+
+    private fun showSearchHistory() {
+        val hist = FavoritesStore.searchHistory(this)
+        if (hist.isEmpty()) { toast("暂无搜索历史"); return }
+        AlertDialog.Builder(this)
+            .setTitle("搜索历史")
+            .setItems(hist.toTypedArray()) { _, which ->
+                searchInput.setText(hist[which])
+                searchInput.setSelection(searchInput.text?.length ?: 0)
+            }
+            .setNeutralButton("清空") { _, _ ->
+                FavoritesStore.clearSearch(this); toast("已清空搜索历史")
+            }
+            .setNegativeButton("关闭", null)
+            .show()
+    }
+
+    private fun chooseTypeFilter() {
+        val keys = arrayOf("all", "dir", "video", "image", "audio", "archive", "other")
+        val names = arrayOf("全部", "仅文件夹", "视频", "图片", "音乐", "压缩包", "其他")
+        val idx = keys.indexOf(typeFilter).coerceAtLeast(0)
+        AlertDialog.Builder(this).setTitle("按类型筛选")
+            .setSingleChoiceItems(names, idx) { d, which -> typeFilter = keys[which]; d.dismiss(); filterFiles() }
+            .setNegativeButton("取消", null).show()
+    }
+
+    private fun chooseSizeFilter() {
+        val keys = arrayOf("all", "lt10m", "b10_100m", "b100m_1g", "gt1g")
+        val names = arrayOf("全部", "小于 10MB", "10–100MB", "100MB–1GB", "大于 1GB")
+        val idx = keys.indexOf(sizeFilter).coerceAtLeast(0)
+        AlertDialog.Builder(this).setTitle("按大小筛选")
+            .setSingleChoiceItems(names, idx) { d, which -> sizeFilter = keys[which]; d.dismiss(); filterFiles() }
+            .setNegativeButton("取消", null).show()
+    }
+
+    private fun chooseTimeFilter() {
+        val keys = arrayOf("all", "today", "7d", "30d")
+        val names = arrayOf("全部", "今天", "近 7 天", "近 30 天")
+        val idx = keys.indexOf(timeFilter).coerceAtLeast(0)
+        AlertDialog.Builder(this).setTitle("按时间筛选")
+            .setSingleChoiceItems(names, idx) { d, which -> timeFilter = keys[which]; d.dismiss(); filterFiles() }
+            .setNegativeButton("取消", null).show()
+    }
+
+    // ---------- v1.8.0 多选 + 批量操作 ----------
+
+    /** 当前目录可选条目(文件与文件夹)。 */
+    private fun currentEntries(): List<Entry> =
+        allRows.mapNotNull { (it as? ListRow.FileRow)?.e }
+
+    private fun vpathOf(e: Entry): String = e.vpath ?: (curPath.trimEnd('/') + "/" + e.name)
+
+    /** 多选对话框:勾选若干条目后进入批量操作。 */
+    private fun showBatchSelect(preselect: String? = null) {
+        if (curPath.isEmpty()) { toast("先进入一个存储库"); return }
+        val rows = currentEntries()
+        if (rows.isEmpty()) { toast("当前目录没有可选条目"); return }
+        val labels = rows.map { e -> (if (e.isDir) "[文件夹] " else "") + e.name }.toTypedArray()
+        val checked = BooleanArray(rows.size)
+        if (preselect != null) {
+            val i = rows.indexOfFirst { vpathOf(it) == preselect }
+            if (i >= 0) checked[i] = true
+        }
+        AlertDialog.Builder(this)
+            .setTitle("选择条目(${rows.size})")
+            .setMultiChoiceItems(labels, checked) { _, which, isChecked -> checked[which] = isChecked }
+            .setPositiveButton("下一步") { _, _ ->
+                val picked = rows.filterIndexed { i, _ -> checked[i] }
+                if (picked.isEmpty()) toast("未选择任何条目") else showBatchActions(picked)
+            }
+            .setNeutralButton("全选") { _, _ ->
+                for (i in checked.indices) checked[i] = true
+                showBatchActions(rows)
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun showBatchActions(picked: List<Entry>) {
+        val vps = picked.map { vpathOf(it) }
+        val actions = arrayOf("打包下载(ZIP)", "删除", "移动到…", "复制到…", "加入离线缓存")
+        AlertDialog.Builder(this)
+            .setTitle("已选 ${picked.size} 项")
+            .setItems(actions) { _, which ->
+                when (which) {
+                    0 -> {
+                        val base = if (picked.size == 1) picked[0].name.substringBeforeLast('.')
+                        else (curPath.trimEnd('/').substringAfterLast('/').ifBlank { "linNas" }) + "${picked.size}项"
+                        val zipName = "$base.zip"
+                        startDownload(client.zipUrl(vps, zipName), zipName, TransferStore.KIND_ZIP)
+                    }
+                    1 -> confirmBatchDelete(picked)
+                    2 -> { if (!canWrite()) { toast("只读账号无法移动"); return@setItems }
+                        showDirPicker { dest -> batchTransfer(vps, dest, move = true) } }
+                    3 -> { if (!canWrite()) { toast("只读账号无法复制"); return@setItems }
+                        showDirPicker { dest -> batchTransfer(vps, dest, move = false) } }
+                    4 -> batchOffline(picked)
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun confirmBatchDelete(picked: List<Entry>) {
+        if (!canWrite()) { toast("只读账号无法删除"); return }
+        AlertDialog.Builder(this)
+            .setTitle("批量删除")
+            .setMessage("确定删除选中的 ${picked.size} 项?删除后可在回收站找回(若服务端启用了回收站)。")
+            .setPositiveButton("删除") { _, _ ->
+                lifecycleScope.launch {
+                    var ok = 0
+                    var fail = 0
+                    for (e in picked) {
+                        try {
+                            withContext(Dispatchers.IO) { client.delete(vpathOf(e)) }
+                            ok++
+                        } catch (_: Exception) {
+                            fail++
+                        }
+                    }
+                    toast("已删除 $ok 项${if (fail > 0) ",失败 $fail 项" else ""}")
+                    loadDir()
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun batchTransfer(vps: List<String>, dest: String, move: Boolean) {
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    if (move) client.move(vps, dest) else client.copy(vps, dest)
+                }
+                toast("已${if (move) "移动" else "复制"} ${vps.size} 项")
+                loadDir()
+            } catch (e: Exception) {
+                toast("批量操作失败:${e.message}")
+            }
+        }
+    }
+
+    private fun batchOffline(picked: List<Entry>) {
+        val files = picked.filter { !it.isDir }
+        if (files.isEmpty()) { toast("只有文件可以离线缓存"); return }
+        lifecycleScope.launch {
+            var started = 0
+            for (e in files) {
+                if (OfflineDownloader.start(this@MainActivity, vpathOf(e), e.name, e.size)) started++
+            }
+            toast("已加入离线缓存 $started 项")
+            selectTab(2)
+            refreshTransfers()
+        }
     }
 
     private fun mkdirDialog() {
@@ -773,7 +1084,7 @@ class MainActivity : AppCompatActivity() {
             } catch (_: Exception) { }
             withContext(Dispatchers.Main) {
                 mediaAll = all   // P2:播放列表来源
-                mediaAdapter.submit(all)
+                mediaAdapter.submitGrouped(groupByFolder(all))
                 mediaEmpty.visibility = if (all.isEmpty()) View.VISIBLE else View.GONE
             }
         }
@@ -807,7 +1118,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnBackupDir).setOnClickListener {
             showDirPicker { dir -> etBackupDir.setText(dir) }
         }
-        setDownloadDir.text = UiPrefs.downloadDir(this).ifBlank { "下载目录" }
+        setDownloadDir.text = UiPrefs.downloadTreeName(this).ifBlank { "下载目录" }
         findViewById<View>(R.id.btnDownloadDir).setOnClickListener { showDownloadDirDialog() }
         findViewById<View>(R.id.btnSaveBackup).setOnClickListener { saveBackup(swBackup.isChecked) }
         findViewById<View>(R.id.btnBackupNow).setOnClickListener {
@@ -834,22 +1145,18 @@ class MainActivity : AppCompatActivity() {
         backupStatus.text = "上次:${BackupConfig.lastResult(this)}  ·  累计 ${BackupConfig.uploadedCount(this)} 张"
     }
 
-    /** 下载保存位置:系统「下载」目录下的子文件夹(UiPrefs.downloadDir)。 */
+    /** v1.8.0 下载保存位置:用系统文件夹选择器(SAF)让用户直接选手机里的目录。 */
     private fun showDownloadDirDialog() {
-        val input = EditText(this).apply {
-            hint = "子文件夹名(如 linNas;留空存到下载根目录)"
-            setText(UiPrefs.downloadDir(this@MainActivity))
-            setSingleLine()
-        }
+        val current = UiPrefs.downloadTreeName(this).ifBlank { "未选择(保存到应用私有目录)" }
         AlertDialog.Builder(this)
             .setTitle("下载保存位置")
-            .setMessage("文件会保存到「手机 / 下载 / 子文件夹」;留空则直接存到「下载」。")
-            .setView(input)
-            .setPositiveButton("保存") { _, _ ->
-                val v = input.text.toString().trim()
-                UiPrefs.setDownloadDir(this, v)
-                setDownloadDir.text = v.ifBlank { "下载目录" }
-                toast(if (v.isBlank()) "已改为「下载」根目录" else "已改为「下载/$v」")
+            .setMessage("当前:$current\n\n选择一个手机里可见的文件夹,下载与打包的文件会保存到那里,完成后可在「传输」页直接打开或分享。")
+            .setPositiveButton("选择文件夹") { _, _ -> downloadTreeLauncher.launch(null) }
+            .setNeutralButton("清除") { _, _ ->
+                UiPrefs.setDownloadTree(this, "")
+                UiPrefs.setDownloadTreeName(this, "")
+                setDownloadDir.text = "下载目录"
+                toast("已改回应用私有目录(仅本应用可见)")
             }
             .setNegativeButton("取消", null)
             .show()
@@ -959,27 +1266,55 @@ class MainActivity : AppCompatActivity() {
             }
             offlineList.addView(v)
         }
-        // 下载队列(系统 DownloadManager 提供进度)
+        // v1.8.0 下载 / 打包下载区(TransferService + TransferStore)
         downloadList.removeAllViews()
-        val dls = Downloads.tasks(this)
-        downloadEmpty.visibility = if (dls.isEmpty()) View.VISIBLE else View.GONE
-        for (d in dls) {
+        val downloads = TransferStore.all(this)
+        downloadEmpty.visibility = if (downloads.isEmpty()) View.VISIBLE else View.GONE
+        for (d in downloads) {
             val v = layoutInflater.inflate(R.layout.item_transfer, downloadList, false)
-            v.findViewById<TextView>(R.id.tname).text = d.name
-            val pct = if (d.total > 0) ((d.done * 100) / d.total).toInt() else 0
-            val stateText = when (d.status) {
-                android.app.DownloadManager.STATUS_SUCCESSFUL -> "已完成"
-                android.app.DownloadManager.STATUS_FAILED -> "失败"
-                else -> "$pct%"
+            v.findViewById<TextView>(R.id.tname).text = d.title
+            val stateText = when (d.state) {
+                TransferStore.ST_DONE -> "已完成 · ${d.fileName}"
+                TransferStore.ST_FAILED -> "失败:${d.error}"
+                TransferStore.ST_CANCELLED -> "已取消"
+                TransferStore.ST_PAUSED -> "已暂停 ${d.percent}%"
+                TransferStore.ST_QUEUED -> "排队中"
+                else -> "${d.percent}%"
             }
             v.findViewById<TextView>(R.id.tstate).text = stateText
             val bar = v.findViewById<LinearProgressIndicator>(R.id.tprog)
             bar.max = 100
-            bar.setProgressCompat(if (d.status == android.app.DownloadManager.STATUS_SUCCESSFUL) 100 else pct, true)
-            val clear = v.findViewById<com.google.android.material.button.MaterialButton>(R.id.tclear)
-            clear.visibility = View.GONE
+            val pct = if (d.total > 0 && d.state != TransferStore.ST_DONE) d.percent else 100
+            bar.setProgressCompat(if (d.state == TransferStore.ST_DONE) 100 else pct, true)
+
+            // 主操作:进行中=暂停/继续/重试,已完成=打开
             val btn = v.findViewById<com.google.android.material.button.MaterialButton>(R.id.tact)
-            btn.visibility = View.GONE
+            when (d.state) {
+                TransferStore.ST_DONE -> {
+                    btn.visibility = View.VISIBLE
+                    btn.text = "打开"
+                    btn.setOnClickListener { openTransferFile(d) }
+                }
+                TransferStore.ST_PAUSED, TransferStore.ST_FAILED -> {
+                    btn.visibility = View.VISIBLE
+                    btn.text = "继续"
+                    btn.setOnClickListener { TransferService.resume(this, d.id); refreshTransfers() }
+                }
+                TransferStore.ST_CANCELLED -> btn.visibility = View.GONE
+                else -> {
+                    btn.visibility = View.VISIBLE
+                    btn.text = "暂停"
+                    btn.setOnClickListener { TransferService.pause(this, d.id); refreshTransfers() }
+                }
+            }
+            val clear = v.findViewById<com.google.android.material.button.MaterialButton>(R.id.tclear)
+            clear.visibility = View.VISIBLE
+            clear.text = if (d.state == TransferStore.ST_DONE) "移除" else "取消"
+            clear.setOnClickListener {
+                if (d.state != TransferStore.ST_DONE) TransferService.cancel(this, d.id)
+                TransferStore.remove(this, d.id)
+                refreshTransfers()
+            }
             downloadList.addView(v)
         }
     }
@@ -1041,6 +1376,10 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<View>(R.id.btnLibAdmin).setOnClickListener {
             startActivity(Intent(this, LibraryAdminActivity::class.java))
+        }
+        // v1.8.0 版本检查 / 更新
+        findViewById<View>(R.id.btnVersionCheck).setOnClickListener {
+            startActivity(Intent(this, VersionCheckActivity::class.java))
         }
     }
 
@@ -1439,11 +1778,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupSortView() {
         val btnSort = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnSort)
-        fun label(): String {
-            val k = when (sortKey) { "size" -> "大小"; "mtime" -> "时间"; else -> "名称" }
-            return k + (if (sortAsc) " ↑" else " ↓")
-        }
-        btnSort.text = label()
+        btnSort.text = sortLabelText()
         btnSort.setOnClickListener {
             val popup = PopupMenu(this, btnSort)
             popup.menu.add(0, 1, 0, "按名称").isCheckable = true
@@ -1459,8 +1794,8 @@ class MainActivity : AppCompatActivity() {
                 }
                 UiPrefs.setSortKey(this, sortKey)
                 UiPrefs.setSortAsc(this, sortAsc)
-                btnSort.text = label()
-                applyAndSubmit(allRows)
+                btnSort.text = sortLabelText()
+                filterFiles()
                 true
             }
             popup.show()

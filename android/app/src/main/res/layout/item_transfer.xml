@@ -1,12 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 传输任务卡片:圆角卡片 + 进度条 + 文字操作按钮。所有 id 与 Kotlin 引用保持一致。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:background="@drawable/bg_card"
-    android:padding="14dp"
-    android:layout_marginBottom="8dp">
+    android:padding="@dimen/card_padding"
+    android:layout_marginBottom="@dimen/space_3">
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -18,30 +20,34 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:textColor="?attr/lText"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_md"
+            android:textStyle="bold"
             android:maxLines="1"
             android:ellipsize="middle" />
         <TextView
             android:id="@+id/tstate"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
+            android:layout_marginStart="@dimen/space_2"
             android:textColor="?attr/lTextDim"
-            android:textSize="12sp" />
+            android:textSize="@dimen/text_caption" />
     </LinearLayout>
+
     <com.google.android.material.progressindicator.LinearProgressIndicator
         android:id="@+id/tprog"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
+        android:layout_marginTop="@dimen/space_3"
         app:trackColor="?attr/lOutline"
-        app:trackCornerRadius="3dp"
-        app:trackThickness="5dp" />
+        app:trackCornerRadius="@dimen/radius_pill"
+        app:trackThickness="6dp"
+        app:indicatorColor="?attr/lPrimary" />
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:layout_marginTop="6dp"
+        android:layout_marginTop="@dimen/space_2"
         android:gravity="end">
         <com.google.android.material.button.MaterialButton
             android:id="@+id/tclear"
@@ -50,15 +56,15 @@
             android:layout_height="wrap_content"
             android:minWidth="0dp"
             android:text="清除"
-            android:textSize="12sp" />
+            android:textSize="@dimen/text_caption" />
         <com.google.android.material.button.MaterialButton
             android:id="@+id/tact"
             style="@style/Widget.Material3.Button.TextButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:minWidth="0dp"
-            android:layout_marginStart="8dp"
+            android:layout_marginStart="@dimen/space_2"
             android:text="暂停"
-            android:textSize="12sp" />
+            android:textSize="@dimen/text_caption" />
     </LinearLayout>
 </LinearLayout>

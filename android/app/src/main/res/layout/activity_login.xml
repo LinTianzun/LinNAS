@@ -24,6 +24,15 @@
         android:textColor="?attr/lTextDim"
         android:textSize="13sp" />
 
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnBioLogin"
+        style="@style/Widget.Material3.Button.OutlinedButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:text="指纹/面容登录"
+        android:visibility="gone" />
+
     <com.google.android.material.textfield.TextInputEditText
         android:id="@+id/etUser"
         android:layout_width="match_parent"
@@ -41,6 +50,13 @@
         android:hint="密码"
         android:inputType="textPassword"
         android:maxLines="1" />
+
+    <com.google.android.material.checkbox.MaterialCheckBox
+        android:id="@+id/cbBioLogin"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="记住并用指纹/面容登录" />
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btnLogin"

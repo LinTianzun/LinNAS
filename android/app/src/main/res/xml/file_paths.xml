@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider 可共享/可打开的应用私有目录(v1.8.0 下载中心)。 -->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <external-files-path name="downloads" path="Download/" />
+    <files-path name="internal" path="." />
+    <external-files-path name="offline" path="offline/" />
+    <cache-path name="cache" path="." />
+</paths>

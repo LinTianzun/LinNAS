@@ -25,6 +25,7 @@ type Server struct {
 	auth     *authStore
 	audit    *auditLog
 	shares   *shareStore
+	dup      *dupScanState
 }
 
 // NewServer creates the HTTP mux with all routes registered.
@@ -38,6 +39,7 @@ func NewServer(cfg *Config) *Server {
 		auth:     newAuthStore(cfg.DataDir, cfg.IdleLockMinutes),
 		audit:    newAuditLog(cfg.DataDir),
 		shares:   newShareStore(cfg.DataDir),
+		dup:      newDupScanState(),
 	}
 
 	api := http.NewServeMux()
@@ -46,6 +48,11 @@ func NewServer(cfg *Config) *Server {
 	api.HandleFunc("POST /api/libs", s.handleAddLib)
 	api.HandleFunc("DELETE /api/libs", s.handleRemoveLib)
 	api.HandleFunc("GET /api/disks", s.handleDisks)
+	// 存储空间分析:汇总 / 大文件 / 重复文件候选
+	api.HandleFunc("GET /api/storage/summary", s.handleStorageSummary)
+	api.HandleFunc("GET /api/storage/large", s.handleStorageLarge)
+	api.HandleFunc("POST /api/storage/duplicates/scan", s.handleStorageDupScan)
+	api.HandleFunc("GET /api/storage/duplicates", s.handleStorageDupStatus)
 	api.HandleFunc("GET /api/ls", s.handleList)
 	api.HandleFunc("GET /api/size", s.handleSize)
 	api.HandleFunc("GET /api/info", s.handleInfo)
@@ -58,6 +65,7 @@ func NewServer(cfg *Config) *Server {
 	api.HandleFunc("GET /api/media", s.handleMedia)
 	api.HandleFunc("GET /api/index/status", s.handleIndexStatus)
 	api.HandleFunc("POST /api/reindex", s.handleReindex)
+	api.HandleFunc("POST /api/index/refresh", s.handleIndexRefresh)
 	api.HandleFunc("POST /api/mkdir", s.handleMkdir)
 	api.HandleFunc("POST /api/rename", s.handleRename)
 	api.HandleFunc("POST /api/delete", s.handleDelete)
@@ -70,6 +78,7 @@ func NewServer(cfg *Config) *Server {
 	// 目录选择器 / 编辑存储库 / 文件移动复制
 	api.HandleFunc("GET /api/fs/dirs", s.handleFsDirs)
 	api.HandleFunc("POST /api/libs/update", s.handleLibUpdate)
+	api.HandleFunc("POST /api/libs/media-hide", s.handleMediaHide)
 	api.HandleFunc("POST /api/move", s.handleMove)
 	api.HandleFunc("POST /api/copy", s.handleCopy)
 
@@ -129,6 +138,10 @@ func NewServer(cfg *Config) *Server {
 
 	// 打包下载(文件夹/多选 → zip 流)
 	api.HandleFunc("GET /api/zip", s.handleZip)
+
+	// Android 客户端在线更新(v1.8.0)
+	api.HandleFunc("GET /api/app/version", s.handleAppVersion)
+	api.HandleFunc("GET /api/app/apk", s.handleAppApk)
 
 	// Wake-on-LAN 网络唤醒
 	api.HandleFunc("GET /api/wol", s.handleWolList)

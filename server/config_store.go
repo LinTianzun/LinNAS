@@ -16,12 +16,13 @@ func LoadConfig(dataDir string) (*Config, error) {
 		return nil, err
 	}
 	cfg := &Config{
-		Port:               DefaultPort,
-		Host:               "",
-		DataDir:            dataDir,
-		IdleLockMinutes:    30,
-		TrashRetentionDays: defaultTrashRetentionDays,
-		TranscodeCacheMB:   defaultTranscodeCacheMB,
+		Port:                DefaultPort,
+		Host:                "",
+		DataDir:             dataDir,
+		IdleLockMinutes:     30,
+		TrashRetentionDays:  defaultTrashRetentionDays,
+		TranscodeCacheMB:    defaultTranscodeCacheMB,
+		IndexRefreshSeconds: 120,
 	}
 	raw, err := os.ReadFile(filepath.Join(dataDir, configFileName))
 	if errors.Is(err, os.ErrNotExist) {

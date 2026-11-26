@@ -21,11 +21,12 @@ import (
 type Index struct {
 	db *sql.DB
 
-	mu        sync.Mutex
-	scanning  bool
-	lastScan  time.Time
-	scanNote  string
-	fileCount int
+	mu          sync.Mutex
+	scanning    bool
+	reconciling bool
+	lastScan    time.Time
+	scanNote    string
+	fileCount   int
 }
 
 // IndexHit is one search/media result row.
@@ -629,6 +630,175 @@ func (ix *Index) RescanLib(cfg *Config, libID string) {
 	}()
 }
 
+// ============================================================
+//  周期性增量对账:发现资源管理器等外部改动。
+// ============================================================
+
+// reconcileRow 是磁盘上「应有」的一条索引行。
+type reconcileRow struct {
+	path, parent, name, kind string
+	isDir                    bool
+	size, modTime            int64
+}
+
+// ReconcileLib 用 WalkDir 得到磁盘上应有的行,与该库现有 DB 行做差异比较,
+// 仅对差异写入(新增/大小/时间/类型变化 → INSERT OR REPLACE;库有盘无 → 删除),
+// 单事务提交。库不可用(os.Stat 失败)保留旧索引返回 nil;全量扫描进行中则跳过。
+func (ix *Index) ReconcileLib(cfg *Config, lib Library) error {
+	ix.mu.Lock()
+	scanning := ix.scanning
+	ix.mu.Unlock()
+	if scanning {
+		return nil
+	}
+	if _, err := os.Stat(lib.Path); err != nil {
+		log.Printf("库 %s 不可用,跳过对账,保留旧索引: %v", lib.Name, err)
+		return nil
+	}
+	vaultDir := vaultDirForConfig(cfg)
+
+	disk := make(map[string]reconcileRow)
+	walkErr := filepath.WalkDir(lib.Path, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if dec := indexWalkDecision(cfg, &lib, vaultDir, p, d); dec.skip {
+			if dec.skipSubtree {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if p == filepath.Clean(lib.Path) {
+			return nil
+		}
+		info, ierr := d.Info()
+		if ierr != nil {
+			return ierr
+		}
+		vpath := VirtualPath(&lib, p)
+		kind := "other"
+		if d.IsDir() {
+			kind = "dir"
+		} else {
+			kind = kindForExt(fileExt(p))
+		}
+		disk[vpath] = reconcileRow{
+			path: vpath, parent: DirVirtual(vpath), name: d.Name(), kind: kind,
+			isDir: d.IsDir(), size: info.Size(), modTime: info.ModTime().Unix(),
+		}
+		return nil
+	})
+	if walkErr != nil {
+		return walkErr
+	}
+
+	// 读取该库现有 DB 行(is_dir → int)。
+	type dbRow struct {
+		isDir   int
+		size    int64
+		modTime int64
+	}
+	dbRows := make(map[string]dbRow)
+	rows, err := ix.db.Query(`SELECT path,is_dir,size,mod_time FROM files WHERE lib_id = ?`, lib.ID)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var p string
+		var r dbRow
+		if err := rows.Scan(&p, &r.isDir, &r.size, &r.modTime); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		dbRows[p] = r
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	_ = rows.Close()
+
+	tx, err := ix.db.Begin()
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	var changed, removed int
+	for vpath, r := range disk {
+		id := 0
+		if r.isDir {
+			id = 1
+		}
+		old, ok := dbRows[vpath]
+		if !ok || old.isDir != id || old.size != r.size || old.modTime != r.modTime {
+			if _, err := tx.Exec(`INSERT OR REPLACE INTO files
+				(lib_id,path,parent,name,is_dir,size,mod_time,kind) VALUES (?,?,?,?,?,?,?,?)`,
+				lib.ID, r.path, r.parent, r.name, id, r.size, r.modTime, r.kind); err != nil {
+				return err
+			}
+			changed++
+		}
+		delete(dbRows, vpath)
+	}
+	// 剩余即「库有盘无」的残留行,删除。
+	for vpath := range dbRows {
+		if _, err := tx.Exec(`DELETE FROM files WHERE lib_id = ? AND path = ?`, lib.ID, vpath); err != nil {
+			return err
+		}
+		removed++
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	committed = true
+	if changed > 0 || removed > 0 {
+		log.Printf("库 %s 对账: 新增/更新 %d 项,移除 %d 项", lib.Name, changed, removed)
+	}
+	return nil
+}
+
+// ReconcileAll 对每个启用库调用 ReconcileLib,最后刷新计数。
+// reconciling 受 ix.mu 保护,防止重入;全量扫描进行中直接跳过。
+func (ix *Index) ReconcileAll(cfg *Config) {
+	cfgSnapshot := *cfg
+	cfgSnapshot.Libraries = append([]Library(nil), cfg.Libraries...)
+	for i := range cfgSnapshot.Libraries {
+		cfgSnapshot.Libraries[i].Exclude = append([]string(nil), cfgSnapshot.Libraries[i].Exclude...)
+		cfgSnapshot.Libraries[i].MediaHide = append([]string(nil), cfgSnapshot.Libraries[i].MediaHide...)
+	}
+
+	ix.mu.Lock()
+	if ix.scanning || ix.reconciling {
+		ix.mu.Unlock()
+		return
+	}
+	ix.reconciling = true
+	ix.mu.Unlock()
+	defer func() {
+		ix.mu.Lock()
+		ix.reconciling = false
+		ix.mu.Unlock()
+	}()
+
+	for _, lib := range cfgSnapshot.Libraries {
+		if !lib.Enabled {
+			continue
+		}
+		if err := ix.ReconcileLib(&cfgSnapshot, lib); err != nil {
+			log.Printf("库 %s 对账失败,保留旧索引: %v", lib.Name, err)
+		}
+	}
+	if err := ix.refreshCount(); err != nil {
+		log.Printf("更新索引计数失败: %v", err)
+	}
+}
+
 // RemoveLibRows drops every indexed row of one library (used when a library is
 // removed from the config or disabled).
 func (ix *Index) RemoveLibRows(libID string) {
@@ -681,7 +851,8 @@ func (ix *Index) Search(q string, libID string, limit int) ([]IndexHit, error) {
 }
 
 // Media lists files of one kind (video/image/audio) for the media view.
-func (ix *Index) Media(kind, libID, sortBy string, offset, limit int) ([]IndexHit, error) {
+// hidden 为「不在媒体库展示」的完整虚拟前缀(如 /lib1/dir),命中的路径被排除。
+func (ix *Index) Media(kind, libID, sortBy string, offset, limit int, hidden []string) ([]IndexHit, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
@@ -701,6 +872,15 @@ func (ix *Index) Media(kind, libID, sortBy string, offset, limit int) ([]IndexHi
 	if libID != "" {
 		where += " AND lib_id = ?"
 		args = append(args, libID)
+	}
+	// 排除「不在媒体库展示」的前缀:等于前缀本身,或位于其子目录下。
+	for _, prefix := range hidden {
+		prefix = strings.TrimSuffix(strings.ReplaceAll(prefix, "\\", "/"), "/")
+		if prefix == "" {
+			continue
+		}
+		where += ` AND path <> ? COLLATE NOCASE AND path NOT LIKE ? ESCAPE '\'`
+		args = append(args, prefix, likeEscape(prefix)+"/%")
 	}
 	args = append(args, limit, offset)
 	rows, err := ix.db.Query(`SELECT lib_id,path,name,size,mod_time,kind FROM files WHERE `+where+

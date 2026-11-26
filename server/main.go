@@ -168,6 +168,23 @@ func main() {
 				log.Printf("索引较新(%s),跳过启动扫描", ix.lastScanText())
 			}
 		}()
+		// 周期性增量对账:发现资源管理器等外部改动(移动/删除/重命名)。
+		// 首次延迟,避免与启动全量扫描抢资源(扫描中 Reconcile 会自然跳过)。
+		go func() {
+			time.Sleep(30 * time.Second)
+			for {
+				secs := cfg.IndexRefreshSeconds // 运行期可变化,每次重新读取
+				if secs <= 0 {
+					time.Sleep(30 * time.Second)
+					continue
+				}
+				time.Sleep(time.Duration(secs) * time.Second)
+				if cfg.IndexRefreshSeconds <= 0 {
+					continue
+				}
+				ix.ReconcileAll(cfg)
+			}
+		}()
 	}
 	// mDNS 广播:手机端可直接发现本机,无需手输 IP。
 	if adv := startMDNS(cfg.Port, "linNas"); adv != nil {

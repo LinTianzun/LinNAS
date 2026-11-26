@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 主要按钮底：primary 填充 + 圆角 + 系统按压高亮 -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="?android:attr/colorControlHighlight">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="?attr/lPrimary" />
+            <corners android:radius="@dimen/radius_md" />
+        </shape>
+    </item>
+</ripple>

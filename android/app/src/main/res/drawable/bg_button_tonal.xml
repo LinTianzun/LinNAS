@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 次级按钮底：高表面色填充 + 1dp 描边 + 系统按压高亮 -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="?android:attr/colorControlHighlight">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="?attr/lSurfaceHigh" />
+            <corners android:radius="@dimen/radius_md" />
+            <stroke
+                android:width="@dimen/stroke_hairline"
+                android:color="?attr/lOutline" />
+        </shape>
+    </item>
+</ripple>

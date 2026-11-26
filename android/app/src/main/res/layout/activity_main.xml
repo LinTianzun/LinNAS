@@ -1081,6 +1081,27 @@
                                     android:contentDescription="进入"
                                     android:src="@drawable/ic_chevron" />
                             </LinearLayout>
+
+                            <View style="@style/RowDivider" />
+
+                            <LinearLayout
+                                android:id="@+id/btnVersionCheck"
+                                style="@style/RowItem">
+
+                                <ImageView
+                                    style="@style/RowIcon"
+                                    android:contentDescription="版本"
+                                    android:src="@drawable/ic_refresh" />
+
+                                <TextView
+                                    style="@style/RowTitle"
+                                    android:text="版本检查 / 更新" />
+
+                                <ImageView
+                                    style="@style/RowChevron"
+                                    android:contentDescription="进入"
+                                    android:src="@drawable/ic_chevron" />
+                            </LinearLayout>
                         </LinearLayout>
                     </com.google.android.material.card.MaterialCardView>
 

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    视觉规范 Token —— 间距 / 圆角 / 字号 / 行高 / 组件尺寸。
+    所有布局与样式统一引用本文件，禁止在布局里散落硬编码尺寸。
+-->
+<resources>
+
+    <!-- ============ 间距 Spacing（4 的倍数节奏） ============ -->
+    <dimen name="space_1">4dp</dimen>
+    <dimen name="space_2">8dp</dimen>
+    <dimen name="space_3">12dp</dimen>
+    <dimen name="space_4">16dp</dimen>
+    <dimen name="space_6">24dp</dimen>
+    <dimen name="space_8">32dp</dimen>
+
+    <!-- ============ 圆角 Radius ============ -->
+    <dimen name="radius_sm">8dp</dimen>
+    <dimen name="radius_md">12dp</dimen>
+    <dimen name="radius_lg">16dp</dimen>
+    <dimen name="radius_xl">20dp</dimen>
+    <dimen name="radius_pill">999dp</dimen>
+
+    <!-- ============ 字号 Type scale ============ -->
+    <dimen name="text_xs">11sp</dimen>
+    <dimen name="text_caption">12sp</dimen>
+    <dimen name="text_sm">13sp</dimen>
+    <dimen name="text_md">15sp</dimen>
+    <dimen name="text_lg">17sp</dimen>
+    <dimen name="text_xl">20sp</dimen>
+    <dimen name="text_2xl">24sp</dimen>
+
+    <!-- ============ 行高 Line height ============ -->
+    <dimen name="line_xs">15dp</dimen>
+    <dimen name="line_sm">18dp</dimen>
+    <dimen name="line_md">22dp</dimen>
+    <dimen name="line_lg">28dp</dimen>
+
+    <!-- ============ 组件尺寸 ============ -->
+    <dimen name="stroke_hairline">1dp</dimen>
+    <dimen name="icon_xs">16dp</dimen>
+    <dimen name="icon_sm">18dp</dimen>
+    <dimen name="icon_md">22dp</dimen>
+    <dimen name="icon_lg">24dp</dimen>
+    <dimen name="tile_sm">34dp</dimen>
+    <dimen name="tile_md">42dp</dimen>
+    <dimen name="tile_lg">44dp</dimen>
+    <dimen name="row_min_height">64dp</dimen>
+    <dimen name="header_height">56dp</dimen>
+    <dimen name="button_height">44dp</dimen>
+    <dimen name="touch_target">44dp</dimen>
+    <dimen name="card_padding">16dp</dimen>
+</resources>

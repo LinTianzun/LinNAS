@@ -1,14 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 媒体网格卡:圆角卡片 + 封面占位 + 标题。所有 id 与 Kotlin 引用保持一致。 -->
 <com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_margin="5dp"
+    android:layout_margin="@dimen/space_2"
     app:cardBackgroundColor="?attr/lSurface"
-    app:cardCornerRadius="14dp"
+    app:cardCornerRadius="@dimen/radius_md"
     app:cardElevation="0dp"
     app:strokeColor="?attr/lOutline"
-    app:strokeWidth="1dp">
+    app:strokeWidth="@dimen/stroke_hairline">
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -16,7 +18,7 @@
         <ImageView
             android:id="@+id/mthumb"
             android:layout_width="match_parent"
-            android:layout_height="112dp"
+            android:layout_height="128dp"
             android:scaleType="centerCrop"
             android:background="?attr/lSurfaceHigh"
             android:contentDescription="封面" />
@@ -24,12 +26,12 @@
             android:id="@+id/mname"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:paddingStart="10dp"
-            android:paddingEnd="10dp"
-            android:paddingTop="8dp"
-            android:paddingBottom="10dp"
+            android:paddingStart="@dimen/space_3"
+            android:paddingEnd="@dimen/space_3"
+            android:paddingTop="@dimen/space_2"
+            android:paddingBottom="@dimen/space_3"
             android:textColor="?attr/lText"
-            android:textSize="12.5sp"
+            android:textSize="@dimen/text_sm"
             android:maxLines="2"
             android:ellipsize="end" />
     </LinearLayout>

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    空状态插图占位：三层同心圆（layer-list，纯矢量为 shape，无位图）。
+    用作空列表的视觉锚点，尺寸约 104dp，可直接作为 ImageView 的 src。
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:width="104dp"
+        android:height="104dp"
+        android:gravity="center"
+        android:alpha="0.45">
+        <shape android:shape="oval">
+            <solid android:color="?attr/lSurfaceHigh" />
+        </shape>
+    </item>
+    <item
+        android:width="72dp"
+        android:height="72dp"
+        android:gravity="center"
+        android:alpha="0.7">
+        <shape android:shape="oval">
+            <solid android:color="?attr/lSurfaceHigh" />
+        </shape>
+    </item>
+    <item
+        android:width="40dp"
+        android:height="40dp"
+        android:gravity="center">
+        <shape android:shape="oval">
+            <solid android:color="?attr/lOutline" />
+        </shape>
+    </item>
+</layer-list>

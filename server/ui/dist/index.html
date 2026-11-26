@@ -47,6 +47,7 @@
       <button class="lib-item" id="btn-media"><span data-icon="film"></span><span class="nm">媒体库</span></button>
       <button class="lib-item" id="btn-music"><span data-icon="music"></span><span class="nm">音乐</span></button>
       <button class="lib-item" id="btn-devices"><span data-icon="monitor"></span><span class="nm">设备</span></button>
+      <button class="lib-item" id="btn-storage"><span data-icon="drive"></span><span class="nm">存储空间</span></button>
       <button class="lib-item" id="btn-trash"><span data-icon="trash"></span><span class="nm">回收站</span></button>
       <button class="lib-item" id="btn-vault"><span data-icon="lock"></span><span class="nm">隐私保险箱</span></button>
       <button class="lib-item" id="btn-pair"><span data-icon="smartphone"></span><span class="nm">手机连接</span></button>
@@ -330,11 +331,33 @@
       </div>
     </section>
 
+    <!-- 存储空间 -->
+    <section class="view" id="view-storage" hidden>
+      <div class="page-head">
+        <h1><span data-icon="drive" class="title-ic"></span>存储空间</h1>
+        <div class="ph-tools">
+          <div class="seg" id="storage-tabs" role="tablist" aria-label="存储分析视图">
+            <button data-tab="large" class="on" role="tab">大文件</button>
+            <button data-tab="dups" role="tab">重复文件</button>
+          </div>
+          <button class="btn" id="btn-storage-refresh"><span data-icon="refresh"></span>刷新</button>
+        </div>
+      </div>
+      <p class="page-sub" id="storage-sub">正在统计…</p>
+      <div class="storage-overview" id="storage-overview"></div>
+      <div class="storage-panel" id="storage-large"></div>
+      <div class="storage-panel" id="storage-dups" hidden></div>
+    </section>
+
     <!-- 回收站 -->
     <section class="view" id="view-trash" hidden>
       <div class="page-head">
         <h1><span data-icon="trash" class="title-ic"></span>回收站</h1>
         <div class="btns">
+          <div class="seg" id="trash-viewmode" role="tablist" aria-label="回收站视图">
+            <button data-view="list" class="on" role="tab">列表</button>
+            <button data-view="grid" role="tab">网格</button>
+          </div>
           <button class="btn" id="btn-trash-refresh"><span data-icon="refresh"></span>刷新</button>
           <button class="btn danger" id="btn-trash-empty">清空回收站</button>
         </div>
