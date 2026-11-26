@@ -2,7 +2,6 @@ package com.linnas.app
 
 import android.os.Bundle
 import android.widget.Button
-import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -16,6 +15,8 @@ import kotlinx.coroutines.withContext
 /**
  * 操作日志页(P2):列出服务器 /api/audit 最近 200 条操作记录。
  * 仅管理员可见(服务端 authorize 对非管理员返回 403,这里入口也按角色隐藏)。
+ *
+ * v1.8:行改用统一的圆角卡片行(ScreenUi.row),空态用 bg_empty 插图。
  */
 class AuditActivity : AppCompatActivity() {
 
@@ -38,31 +39,41 @@ class AuditActivity : AppCompatActivity() {
 
     private fun loadList() {
         hint.text = "加载中…"
+        list.removeAllViews()
         lifecycleScope.launch {
             val entries = try {
                 withContext(Dispatchers.IO) { client.audit(200) }
             } catch (e: Exception) {
                 toast("读取日志失败:${e.message}")
                 hint.text = "服务器记录的操作(最近 200 条)"
+                list.removeAllViews()
+                list.addView(
+                    ScreenUi.emptyState(this@AuditActivity, "读取失败", e.message ?: "无法获取操作日志"),
+                )
                 return@launch
             }
             list.removeAllViews()
             if (entries.isEmpty()) {
-                hint.text = "暂无日志记录"
+                hint.text = "服务器记录的操作(最近 200 条)"
+                list.addView(
+                    ScreenUi.emptyState(this@AuditActivity, "暂无日志记录", "服务器上的操作会显示在这里"),
+                )
                 return@launch
             }
             hint.text = "共 ${entries.size} 条 · 点击查看详情"
             for (e in entries) {
-                val row = layoutInflater.inflate(R.layout.item_file, list, false)
-                val icon = row.findViewById<ImageView>(R.id.ficon)
                 val ok = e.status < 400
-                icon.setImageResource(if (ok) R.drawable.ic_file else R.drawable.ic_file)
-                icon.setColorFilter(getColor(if (ok) R.color.mint else R.color.danger))
-                row.findViewById<TextView>(R.id.fname).text = e.action.ifBlank { e.method }
-                row.findViewById<TextView>(R.id.fmeta).text = buildMeta(e)
-                row.findViewById<ImageView>(R.id.fmore).visibility = android.view.View.GONE
-                row.setOnClickListener { showDetail(e) }
-                list.addView(row)
+                list.addView(
+                    ScreenUi.row(
+                        this@AuditActivity,
+                        R.drawable.ic_history,
+                        e.action.ifBlank { e.method },
+                        buildMeta(e),
+                        value = e.status.toString(),
+                        tintAttr = if (ok) R.attr.lSuccess else R.attr.lDanger,
+                        onClick = { showDetail(e) },
+                    ),
+                )
             }
         }
     }
@@ -73,7 +84,7 @@ class AuditActivity : AppCompatActivity() {
         if (e.user.isNotBlank()) {
             sb.append(if (sb.isEmpty()) "" else "  ·  ").append(e.user)
         }
-        sb.append("  ·  ").append(e.status)
+        sb.append("  ·  ").append(e.method)
         return sb.toString()
     }
 

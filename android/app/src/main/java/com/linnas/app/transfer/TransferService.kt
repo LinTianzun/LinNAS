@@ -13,6 +13,7 @@ import android.provider.DocumentsContract
 import android.webkit.MimeTypeMap
 import androidx.core.app.NotificationCompat
 import androidx.core.content.FileProvider
+import com.linnas.app.SpeedMeter
 import com.linnas.app.TransferStore
 import com.linnas.app.UiPrefs
 import kotlinx.coroutines.CoroutineScope
@@ -164,8 +165,12 @@ class TransferService : Service() {
         val fileName = safeName(item.fileName.ifBlank { "下载" })
         val mime = item.mime.ifBlank { guessMime(fileName) }
 
-        TransferStore.put(this, item.copy(state = TransferStore.ST_RUNNING, error = "", done = 0, total = item.total))
+        TransferStore.put(this, item.copy(
+            state = TransferStore.ST_RUNNING, error = "", done = 0,
+            total = item.total, speedBps = 0, updatedAt = System.currentTimeMillis(),
+        ))
         updateNotify(item.title, 0, true)
+        val speed = SpeedMeter()
 
         // 私有目录下载支持断点续传;SAF 目标每次从头写(系统文档接口不支持在已有文件里定位)。
         var part: File? = null
@@ -222,9 +227,11 @@ class TransferService : Service() {
                     if (now - lastUi >= 400) {
                         lastUi = now
                         val doneNow = from + received
+                        val bps = speed.update(now, doneNow)
                         TransferStore.put(this, TransferStore.get(this, id)?.copy(
                             state = TransferStore.ST_RUNNING, done = doneNow,
                             total = if (total > 0) total else 0,
+                            speedBps = bps, updatedAt = now,
                         ) ?: item)
                         updateNotify(item.title, percent(doneNow, total), total <= 0)
                     }
@@ -251,7 +258,8 @@ class TransferService : Service() {
                     id = id, title = item.title, url = item.url, fileName = fileName, kind = item.kind,
                     treeUri = item.treeUri, total = finalSize, done = finalSize,
                     state = TransferStore.ST_DONE, localUri = finalUri, mime = mime,
-                    createdAt = item.createdAt,
+                    createdAt = item.createdAt, speedBps = 0,
+                    updatedAt = System.currentTimeMillis(),
                 ))
                 updateNotify("已下载 ${item.title}", 100, false)
             }

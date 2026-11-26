@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    二级页(ScreenScaffold 家族)专用补充尺寸。
+    只新增 token,不改动既有 dimens.xml,避免与其它并行改动冲突。
+-->
+<resources>
+    <!-- 空状态插图(bg_empty 同心圆占位)尺寸,对应 bg_empty 的 104dp 外圈。 -->
+    <dimen name="screen_empty_illustration">104dp</dimen>
+</resources>

@@ -297,14 +297,16 @@
                         style="@style/ChipButton"
                         android:layout_marginStart="6dp"
                         android:text="画中画"
-                        android:textColor="#FFFFFF" />
+                        android:textColor="#FFFFFF"
+                        android:visibility="gone" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_sleep"
                         style="@style/ChipButton"
                         android:layout_marginStart="6dp"
                         android:text="定时"
-                        android:textColor="#FFFFFF" />
+                        android:textColor="#FFFFFF"
+                        android:visibility="gone" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_episodes"
@@ -326,6 +328,56 @@
                         android:textColor="#FFFFFF" />
                 </LinearLayout>
             </LinearLayout>
+        </LinearLayout>
+
+        <!-- v1.8.1 横屏右侧选集面板(点「选集」从右侧滑出,不再占满屏幕) -->
+        <LinearLayout
+            android:id="@+id/landEpisodePanel"
+            android:layout_width="300dp"
+            android:layout_height="match_parent"
+            android:layout_gravity="end"
+            android:background="@drawable/bg_player_sheet"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="16dp"
+                android:paddingTop="12dp"
+                android:paddingEnd="8dp"
+                android:paddingBottom="8dp">
+
+                <TextView
+                    android:id="@+id/landEpisodeTitle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textColor="#FFFFFF"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <ImageButton
+                    android:id="@+id/landEpisodeClose"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="关闭选集"
+                    android:padding="8dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_close"
+                    android:tint="#FFFFFF" />
+            </LinearLayout>
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rv_land_episodes"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:clipToPadding="false"
+                android:paddingBottom="16dp" />
         </LinearLayout>
     </FrameLayout>
 
@@ -483,12 +535,13 @@
                         android:textSize="11sp" />
                 </LinearLayout>
 
-                <LinearLayout
-                    android:id="@+id/act_pip"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:layout_marginEnd="8dp"
+                <LinearLayout
+                    android:id="@+id/act_pip"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="8dp"
+                    android:visibility="gone"
                     android:background="@drawable/bg_player_action"
                     android:clickable="true"
                     android:focusable="true"

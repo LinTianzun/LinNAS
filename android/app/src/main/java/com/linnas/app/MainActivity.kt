@@ -131,6 +131,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var setDownloadDir: TextView
 
     private val handler = Handler(Looper.getMainLooper())
+    // v1.8.1 传输页:复用行视图(此前每秒重建整页 → 进度条反复从 0 动画,看起来在闪烁)
+    private val uploadViews = mutableMapOf<String, View>()
+    private val offlineViews = mutableMapOf<String, View>()
+    private val downloadViews = mutableMapOf<String, View>()
+    private val uploadSpeeds = mutableMapOf<String, SpeedMeter>()
+
     private val poller = object : Runnable {
         override fun run() {
             if (currentTab == R.id.tab_transfers) refreshTransfers()
@@ -1336,22 +1342,36 @@ class MainActivity : AppCompatActivity() {
     // ---------- 传输 ----------
 
     private fun refreshTransfers() {
+        renderUploads()
+        renderOffline()
+        renderDownloads()
+    }
+
+    // ---------- 上传区 ----------
+
+    private fun renderUploads() {
         transferList.removeAllViews()
+        uploadViews.clear()
         val tasks = UploadService.progress.values.toList()
         transferEmpty.visibility = if (tasks.isEmpty()) View.VISIBLE else View.GONE
         for (t in tasks) {
             val v = layoutInflater.inflate(R.layout.item_transfer, transferList, false)
-            v.findViewById<TextView>(R.id.tname).text = t.name
+            uploadViews[t.name] = v
             val pct = if (t.size > 0) ((t.sent * 100) / t.size).toInt() else 0
+            val bps = uploadSpeeds.getOrPut(t.name) { SpeedMeter() }
+                .update(System.currentTimeMillis(), t.sent)
+            v.findViewById<TextView>(R.id.tname).text = t.name
             v.findViewById<TextView>(R.id.tstate).text = when {
                 t.state == UploadService.ST_DONE -> "已完成"
                 t.state.startsWith("失败") -> t.state
-                else -> "${t.state} $pct%"
+                else -> "${t.state} $pct%" + if (bps > 0) " · ${SpeedMeter.format(bps)}" else ""
             }
             val bar = v.findViewById<LinearProgressIndicator>(R.id.tprog)
             bar.max = 100
-            bar.setProgressCompat(if (t.state == UploadService.ST_DONE) 100 else pct, true)
-            // P1:单任务操作(暂停/继续/取消/重试/清除)
+            // 动画只在进度真的变化时播放,避免每 tick 重播动画造成"闪烁"
+            val target = if (t.state == UploadService.ST_DONE) 100 else pct
+            if (bar.progress != target) bar.setProgressCompat(target, true)
+            bar.visibility = if (t.state == UploadService.ST_DONE) View.GONE else View.VISIBLE
             val actionable = t.state != UploadService.ST_DONE
             val btn = v.findViewById<com.google.android.material.button.MaterialButton>(R.id.tact)
             btn.visibility = if (actionable) View.VISIBLE else View.GONE
@@ -1376,32 +1396,44 @@ class MainActivity : AppCompatActivity() {
             clear.visibility = if (actionable) View.GONE else View.VISIBLE
             clear.setOnClickListener {
                 UploadService.progress.remove(t.name)
+                uploadSpeeds.remove(t.name)
                 refreshTransfers()
             }
             v.findViewById<View>(R.id.tmore).visibility = View.GONE
             transferList.addView(v)
         }
-        // 离线缓存区(OfflineStore 登记的任务)
+    }
+
+    // ---------- 离线缓存区 ----------
+
+    private fun renderOffline() {
         val offlineList = findViewById<LinearLayout>(R.id.offlineList)
         val offlineEmpty = findViewById<View>(R.id.offlineEmpty)
         offlineList.removeAllViews()
+        offlineViews.clear()
         val offs = OfflineStore.all(this)
         offlineEmpty.visibility = if (offs.isEmpty()) View.VISIBLE else View.GONE
         for (o in offs) {
             val v = layoutInflater.inflate(R.layout.item_transfer, offlineList, false)
-            v.findViewById<TextView>(R.id.tname).text = o.name
+            offlineViews[o.vpath] = v
             val pct = o.percent
+            v.findViewById<TextView>(R.id.tname).text = o.name
             v.findViewById<TextView>(R.id.tstate).text = when (o.status) {
-                OfflineStore.ST_DOWNLOADING -> "缓存中 $pct%"
+                OfflineStore.ST_DOWNLOADING ->
+                    "缓存中 $pct%" + if (o.speedBps > 0) " · ${SpeedMeter.format(o.speedBps)}" else ""
                 OfflineStore.ST_PAUSED -> "已暂停 $pct%"
-                OfflineStore.ST_DONE -> "已缓存 · 仅本应用可播"
+                OfflineStore.ST_DONE -> if (o.savedUri.isNotBlank())
+                    "已缓存 · 已保存到「${UiPrefs.downloadTreeName(this).ifBlank { "下载目录" }}」"
+                else "已缓存 · 仅本应用可播"
                 else -> "失败: ${o.msg}"
             }
             val bar = v.findViewById<LinearProgressIndicator>(R.id.tprog)
             bar.max = 100
-            bar.setProgressCompat(if (o.status == OfflineStore.ST_DONE) 100 else pct, true)
             // 完成后满格进度条会让人以为还在下载 —— 直接隐藏
             bar.visibility = if (o.status == OfflineStore.ST_DONE) View.GONE else View.VISIBLE
+            if (bar.visibility == View.VISIBLE) {
+                if (bar.progress != pct) bar.setProgressCompat(pct, true)
+            }
             val btn = v.findViewById<com.google.android.material.button.MaterialButton>(R.id.tact)
             btn.visibility = View.VISIBLE
             btn.text = when (o.status) {
@@ -1426,7 +1458,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             val more = v.findViewById<com.google.android.material.button.MaterialButton>(R.id.tmore)
-            more.visibility = if (o.status == OfflineStore.ST_DONE) View.VISIBLE else View.GONE
+            more.visibility = if (o.status == OfflineStore.ST_DONE && o.savedUri.isBlank()) View.VISIBLE else View.GONE
             more.text = "另存"
             more.setOnClickListener { exportOffline(o) }
             val clear = v.findViewById<com.google.android.material.button.MaterialButton>(R.id.tclear)
@@ -1439,12 +1471,18 @@ class MainActivity : AppCompatActivity() {
             }
             offlineList.addView(v)
         }
-        // v1.8.0 下载 / 打包下载区(TransferService + TransferStore)
+    }
+
+    // ---------- 下载区 ----------
+
+    private fun renderDownloads() {
         downloadList.removeAllViews()
+        downloadViews.clear()
         val downloads = TransferStore.all(this)
         downloadEmpty.visibility = if (downloads.isEmpty()) View.VISIBLE else View.GONE
         for (d in downloads) {
             val v = layoutInflater.inflate(R.layout.item_transfer, downloadList, false)
+            downloadViews[d.id] = v
             v.findViewById<TextView>(R.id.tname).text = d.title
             val stateText = when (d.state) {
                 TransferStore.ST_DONE -> "已保存 · " + (
@@ -1456,15 +1494,14 @@ class MainActivity : AppCompatActivity() {
                 TransferStore.ST_CANCELLED -> "已取消"
                 TransferStore.ST_PAUSED -> "已暂停 ${d.percent}%"
                 TransferStore.ST_QUEUED -> "排队中"
-                else -> "${d.percent}%"
+                else -> "${d.percent}%" + if (d.speedBps > 0) " · ${SpeedMeter.format(d.speedBps)}" else ""
             }
             v.findViewById<TextView>(R.id.tstate).text = stateText
             val bar = v.findViewById<LinearProgressIndicator>(R.id.tprog)
             bar.max = 100
             val pct = if (d.total > 0 && d.state != TransferStore.ST_DONE) d.percent else 100
-            bar.setProgressCompat(if (d.state == TransferStore.ST_DONE) 100 else pct, true)
-
-            // 主操作:进行中=暂停/继续/重试,已完成=打开
+            bar.visibility = if (d.state == TransferStore.ST_DONE) View.GONE else View.VISIBLE
+            if (bar.visibility == View.VISIBLE && bar.progress != pct) bar.setProgressCompat(pct, true)
             val btn = v.findViewById<com.google.android.material.button.MaterialButton>(R.id.tact)
             when (d.state) {
                 TransferStore.ST_DONE -> {

@@ -54,3 +54,4 @@ ui-preview/
 # ===== 本地临时产物（不入库）=====
 .smoke/
 .task-spec.md
+.task-spec*.md

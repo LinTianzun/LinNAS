@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.GestureDetector
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
@@ -19,11 +20,13 @@ import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.widget.ImageButton
+import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.AudioAttributes
@@ -36,6 +39,7 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import coil.load
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.button.MaterialButton
 import kotlinx.coroutines.Dispatchers
@@ -99,6 +103,10 @@ class PlayerActivity : AppCompatActivity() {
     private lateinit var btnSleep: MaterialButton
     private lateinit var btnEpisodes: MaterialButton
     private lateinit var audioManager: AudioManager
+    private lateinit var landEpisodePanel: View
+    private lateinit var rvLandEpisodes: RecyclerView
+    private var longPressSpeed = 1f
+    private var longPressing = false
 
     private val speeds = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
     private var speedIdx = speeds.indexOf(1.0f).coerceAtLeast(0)
@@ -212,6 +220,10 @@ class PlayerActivity : AppCompatActivity() {
         btnSpeed = findViewById(R.id.btn_speed)
         btnSleep = findViewById(R.id.btn_sleep)
         btnEpisodes = findViewById(R.id.btn_episodes)
+        landEpisodePanel = findViewById(R.id.landEpisodePanel)
+        rvLandEpisodes = findViewById(R.id.rv_land_episodes)
+        rvLandEpisodes.layoutManager = LinearLayoutManager(this)
+        findViewById<View>(R.id.landEpisodeClose).setOnClickListener { toggleLandEpisodes(false) }
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
         // 标题
@@ -547,9 +559,13 @@ class PlayerActivity : AppCompatActivity() {
         rv.adapter = EpisodeAdapter(playlist, playIdx) { i -> loadListIndex(i) }
     }
 
-    /** 选集抽屉。 */
+    /** 选集:横屏从右侧滑出面板;竖屏用底部弹层。 */
     private fun showEpisodeSheet() {
         handler.removeCallbacks(hideControlsRunnable)
+        if (isLandscape()) {
+            toggleLandEpisodes(true)
+            return
+        }
         val content = LayoutInflater.from(this).inflate(R.layout.dialog_player_sheet, null)
         content.findViewById<TextView>(R.id.sheet_title).text = "选集(${playlist.size})"
         val rv = content.findViewById<RecyclerView>(R.id.rv_sheet_episodes)
@@ -562,6 +578,24 @@ class PlayerActivity : AppCompatActivity() {
         sheet.show()
     }
 
+    /** v1.8.1:横屏右侧选集面板的显示/隐藏。 */
+    private fun toggleLandEpisodes(show: Boolean) {
+        if (show) {
+            findViewById<TextView>(R.id.landEpisodeTitle).text = "选集(${playlist.size})"
+            rvLandEpisodes.adapter = EpisodeAdapter(playlist, playIdx) { i ->
+                toggleLandEpisodes(false)
+                loadListIndex(i)
+            }
+            landEpisodePanel.visibility = View.VISIBLE
+            landEpisodePanel.translationX = dp(320).toFloat()
+            landEpisodePanel.animate().translationX(0f).setDuration(180).start()
+        } else {
+            landEpisodePanel.animate().translationX(dp(320).toFloat()).setDuration(160)
+                .withEndAction { landEpisodePanel.visibility = View.GONE }
+                .start()
+        }
+    }
+
     private inner class EpisodeAdapter(
         private val items: List<Pair<String, String>>,
         private val selected: Int,
@@ -572,6 +606,7 @@ class PlayerActivity : AppCompatActivity() {
             val index: TextView = root.findViewById(R.id.ep_index)
             val name: TextView = root.findViewById(R.id.ep_name)
             val badge: TextView = root.findViewById(R.id.ep_badge)
+            val thumb: android.widget.ImageView = root.findViewById(R.id.ep_thumb)
         }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH =
@@ -585,6 +620,13 @@ class PlayerActivity : AppCompatActivity() {
             holder.index.text = (position + 1).toString()
             holder.name.text = items[position].second
             holder.badge.visibility = if (cur) View.VISIBLE else View.GONE
+            // 选集封面缩略图(服务端 ffmpeg 抽帧)
+            val vp = items[position].first
+            holder.thumb.load(client.thumbUrl(vp, 240)) {
+                crossfade(true)
+                placeholder(R.drawable.bg_player_action)
+                error(R.drawable.bg_player_action)
+            }
             holder.name.setTextColor(
                 if (cur) ThemeColors.color(ctx, R.attr.lPrimary) else ThemeColors.text(ctx)
             )
@@ -766,22 +808,65 @@ class PlayerActivity : AppCompatActivity() {
         updateSleepButton()
     }
 
-    /** 更多面板:画面比例 / 睡眠定时 / 字幕 / 锁定横屏 / 外部播放器。 */
+    /**
+     * 「更多」面板:图标 + 文案网格(不再用简陋的列表弹窗)。
+     * 画中画、睡眠定时、字幕等入口都收在这里,横屏/竖屏通用。
+     */
     private fun showMorePanel() {
         handler.removeCallbacks(hideControlsRunnable)
-        AlertDialog.Builder(this)
-            .setTitle("更多")
-            .setItems(arrayOf("画面比例", "睡眠定时", "字幕", "锁定横屏", "外部播放器")) { _, which ->
-                when (which) {
-                    0 -> cycleResize()
-                    1 -> showSleepPanel()
-                    2 -> showSubtitlePanel()
-                    3 -> toggleRotationLock()
-                    4 -> openExternalPlayer()
-                }
+        val view = LayoutInflater.from(this).inflate(R.layout.dialog_player_more, null)
+        val grid = view.findViewById<LinearLayout>(R.id.more_grid)
+        val entries = listOf(
+            Triple(R.drawable.ic_player_speed, "倍速") { showSpeedPanel() },
+            Triple(R.drawable.ic_player_subtitle, "字幕") { showSubtitlePanel() },
+            Triple(R.drawable.ic_player_pip, "画中画") { enterPictureInPictureIfPossible() },
+            Triple(R.drawable.ic_player_sleep, "定时") { showSleepPanel() },
+            Triple(R.drawable.ic_player_aspect, "画面比例") { cycleResize() },
+            Triple(R.drawable.ic_rotate, "锁定横屏") { toggleRotationLock() },
+            Triple(R.drawable.ic_more, "外部播放器") { openExternalPlayer() },
+        )
+        entries.chunked(4).forEach { rowItems ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+                setPadding(0, dp(6), 0, dp(6))
             }
-            .setNegativeButton("关闭", null)
-            .show()
+            rowItems.forEach { (iconRes, label, action) ->
+                row.addView(moreCell(iconRes, label, action),
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            }
+            grid.addView(row)
+        }
+        val sheet = BottomSheetDialog(this)
+        sheet.setContentView(view)
+        sheet.setOnDismissListener { if (player?.isPlaying == true) scheduleHide() }
+        sheet.show()
+    }
+
+    /** 「更多」面板里的一格:图标 + 文案。 */
+    private fun moreCell(iconRes: Int, label: String, action: () -> Unit): View {
+        val cell = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            isClickable = true
+            isFocusable = true
+            setPadding(dp(4), dp(10), dp(4), dp(10))
+            background = ContextCompat.getDrawable(this@PlayerActivity, R.drawable.bg_ripple)
+            setOnClickListener { action() }
+        }
+        cell.addView(android.widget.ImageView(this).apply {
+            setImageResource(iconRes)
+            setColorFilter(ThemeColors.primary(this@PlayerActivity))
+            layoutParams = LinearLayout.LayoutParams(dp(26), dp(26))
+        })
+        cell.addView(TextView(this).apply {
+            text = label
+            textSize = 12f
+            gravity = Gravity.CENTER
+            setTextColor(ThemeColors.text(this@PlayerActivity))
+            setPadding(0, dp(6), 0, 0)
+        })
+        return cell
     }
 
     /** 进入横屏全屏(B 站式):切横屏、隐藏系统栏、显示控制层。 */
@@ -898,6 +983,16 @@ class PlayerActivity : AppCompatActivity() {
                 togglePlay()
                 return true
             }
+
+            /** v1.8.1:长按视频临时 2 倍速,松手恢复原倍速。 */
+            override fun onLongPress(e: MotionEvent) {
+                val p = player ?: return
+                if (longPressing) return
+                longPressing = true
+                longPressSpeed = p.playbackParameters.speed
+                p.setPlaybackSpeed(2f)
+                showHint("2.0x 倍速播放")
+            }
         })
 
         videoContainer.setOnTouchListener { _, ev ->
@@ -911,12 +1006,15 @@ class PlayerActivity : AppCompatActivity() {
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    if (!isLandscape()) return@setOnTouchListener true
                     val dx = ev.x - downX
                     val dy = ev.y - downY
+                    // v1.8.1:竖屏也支持左右滑动调进度(左右滑动优先于上下滑动)
+                    if (!isLandscape() && abs(dx) <= abs(dy) && abs(dy) > 24) {
+                        return@setOnTouchListener true
+                    }
                     if (mode == 0) {
                         val half = videoContainer.width / 2f
-                        if (abs(dx) > 12 && abs(dx) > abs(dy)) {
+                        if (abs(dx) > 12 && abs(dx) >= abs(dy)) {
                             mode = 3
                         } else if (abs(dy) > 24 && abs(dy) > abs(dx)) {
                             mode = if (downX < half) 2 else 1 // 左半亮度,右半音量
@@ -941,13 +1039,19 @@ class PlayerActivity : AppCompatActivity() {
                             val total = p.duration.coerceAtLeast(1)
                             val deltaMs = (dx / videoContainer.width * total).toLong()
                             val target = (p.currentPosition + deltaMs).coerceIn(0, total)
-                            showHint("→ ${fmtTime(target)}")
+                            val deltaSec = deltaMs / 1000
+                            // v1.8.1:提示同时给出目标时间与偏移量,滑动时一目了然
+                            showHint("→ ${fmtTime(target)}  (${if (deltaSec >= 0) "+" else ""}$deltaSec 秒)")
                             lastSeekPreview = target
                         }
                     }
                     true
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (longPressing) {
+                        longPressing = false
+                        player?.setPlaybackSpeed(longPressSpeed)
+                    }
                     if (mode == 3 && lastSeekPreview != null) {
                         player?.seekTo(lastSeekPreview!!)
                         updateProgress()

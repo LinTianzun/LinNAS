@@ -26,6 +26,8 @@ import okhttp3.Callback
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+import com.linnas.app.SpeedMeter
+import com.linnas.app.UiPrefs
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -182,6 +184,9 @@ class OfflineDownloadWorker(
         .readTimeout(60, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
         .build()
+
+    /** v1.8.1 每个任务的速度计量器。 */
+    private val speedMeters = java.util.concurrent.ConcurrentHashMap<String, SpeedMeter>()
 
     override suspend fun doWork(): Result {
         val vpath = inputData.getString(KEY_VPATH)?.takeIf { it.isNotBlank() }
@@ -341,6 +346,8 @@ class OfflineDownloadWorker(
                 } catch (e: android.system.ErrnoException) {
                     throw IOException("无法安全完成离线缓存: ${e.message}", e)
                 }
+                // v1.8.1:缓存等同下载 —— 若用户选了下载目录,把成品同步一份过去(可在「文件」里找到)
+                val savedUri = copyToDownloadTree(target, name)
                 val saved = OfflineStore.updateIfStatus(
                     applicationContext,
                     OfflineStore.Item(
@@ -349,6 +356,8 @@ class OfflineDownloadWorker(
                         size = finalSize,
                         bytes = finalSize,
                         status = OfflineStore.ST_DONE,
+                        speedBps = 0,
+                        savedUri = savedUri,
                     ),
                     OfflineStore.ST_DOWNLOADING,
                     taskId,
@@ -361,12 +370,41 @@ class OfflineDownloadWorker(
         }
     }
 
+    /**
+     * 把缓存成品复制到用户设置的下载目录(SAF),返回 content:// 地址;失败返回空串。
+     * 仍保留应用内副本用于离线播放。
+     */
+    private fun copyToDownloadTree(src: File, name: String): String {
+        val tree = UiPrefs.downloadTreeUri(applicationContext)
+        if (tree.isBlank()) return ""
+        return try {
+            val treeUri = android.net.Uri.parse(tree)
+            val parent = android.provider.DocumentsContract.buildDocumentUriUsingTree(
+                treeUri, android.provider.DocumentsContract.getTreeDocumentId(treeUri),
+            )
+            val mime = android.webkit.MimeTypeMap.getSingleton()
+                .getMimeTypeFromExtension(name.substringAfterLast('.', "").lowercase())
+                ?: "application/octet-stream"
+            val doc = android.provider.DocumentsContract.createDocument(
+                applicationContext.contentResolver, parent, mime, name,
+            ) ?: return ""
+            applicationContext.contentResolver.openOutputStream(doc)?.use { out ->
+                src.inputStream().use { it.copyTo(out) }
+            } ?: return ""
+            doc.toString()
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
     private fun publishProgress(vpath: String, name: String, bytes: Long, total: Long, taskId: String) {
         val current = OfflineStore.get(applicationContext, vpath) ?: return
         if (current.status != OfflineStore.ST_DOWNLOADING) return
+        val now = System.currentTimeMillis()
+        val bps = speedMeters.getOrPut(vpath) { SpeedMeter() }.update(now, bytes)
         OfflineStore.updateIfStatus(
             applicationContext,
-            current.copy(size = total, bytes = bytes, msg = ""),
+            current.copy(size = total, bytes = bytes, msg = "", speedBps = bps),
             OfflineStore.ST_DOWNLOADING,
             taskId,
         )

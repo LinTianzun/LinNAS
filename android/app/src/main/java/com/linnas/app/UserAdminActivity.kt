@@ -21,24 +21,51 @@ class UserAdminActivity : ScreenScaffold() {
 
     private fun load() {
         clearContent()
-        addText("加载中…")
+        addLoading()
         lifecycleScope.launch {
             val list = try {
                 withContext(Dispatchers.IO) { client.users() }
             } catch (e: Exception) {
-                clearContent(); addText("读取失败: ${e.message}"); return@launch
+                clearContent()
+                addEmptyState("读取失败", e.message ?: "无法获取用户列表")
+                return@launch
             }
             clearContent()
-            addText("共 ${list.size} 个用户 · 点按编辑,长按删除")
-            for (u in list) {
-                addRow(
-                    title = "${u.username} · ${roleLabel(u.role)}" + if (u.disabled) " · 已停用" else "",
-                    subtitle = "ID ${u.id}",
-                    onClick = { showEdit(u) },
-                    onLongClick = { confirmDelete(u) },
-                )
+            if (list.isEmpty()) {
+                addEmptyState("还没有用户", "点右上角「新建」创建第一个账号")
+                return@launch
             }
+
+            val admins = list.filter { it.role == "admin" }
+            val normal = list.filter { it.role != "admin" }
+
+            if (admins.isNotEmpty()) {
+                addSectionHeader("管理员")
+                for (u in admins) addUserRow(u)
+            }
+            if (normal.isNotEmpty()) {
+                addSectionHeader("普通用户")
+                for (u in normal) addUserRow(u)
+            }
+            addText("共 ${list.size} 个用户 · 点按编辑,长按删除")
         }
+    }
+
+    /** 一条用户卡片行。 */
+    private fun addUserRow(u: ServerUser) {
+        val status = when {
+            u.disabled -> "已停用"
+            else -> roleLabel(u.role)
+        }
+        addIconRow(
+            iconRes = if (u.role == "admin") R.drawable.ic_lock else R.drawable.ic_user,
+            title = u.username,
+            subtitle = "ID ${u.id}  ·  ${roleLabel(u.role)}",
+            value = status,
+            tintAttr = if (u.disabled) R.attr.lTextDim else R.attr.lPrimary,
+            onClick = { showEdit(u) },
+            onLongClick = { confirmDelete(u) },
+        )
     }
 
     private fun form(vararg pairs: Pair<String, String>): LinearLayout {

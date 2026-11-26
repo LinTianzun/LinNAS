@@ -46,24 +46,51 @@ class SessionsActivity : ScreenScaffold() {
 
     private fun load() {
         clearContent()
-        addText("加载中…")
+        addLoading()
         lifecycleScope.launch {
             val list = try {
                 withContext(Dispatchers.IO) { client.sessions() }
             } catch (e: Exception) {
-                clearContent(); addText("读取失败: ${e.message}"); return@launch
+                clearContent()
+                addEmptyState("读取失败", e.message ?: "无法获取会话列表")
+                return@launch
             }
             clearContent()
-            if (list.isEmpty()) { addText("无活跃会话"); return@launch }
-            addText("共 ${list.size} 个会话 · 点按可吊销")
-            for (s in list) {
-                addRow(
-                    title = "${s.username} · ${roleLabel(s.role)}" + if (s.current) " · 当前" else "",
-                    subtitle = "ID ${s.id} · IP ${s.ip} · 最近 ${formatTs(s.lastSeen)}",
-                    onClick = { confirmRevoke(s) },
-                )
+            if (list.isEmpty()) {
+                addEmptyState("没有活跃会话", "当前没有设备登录到服务器")
+                return@launch
             }
+
+            val current = list.filter { it.current }
+            val others = list.filter { !it.current }
+
+            if (current.isNotEmpty()) {
+                addSectionHeader("当前会话")
+                for (s in current) addSessionRow(s)
+            }
+            if (others.isNotEmpty()) {
+                addSectionHeader("其他会话")
+                for (s in others) addSessionRow(s)
+            }
+            addText("共 ${list.size} 个会话 · 点按可吊销")
         }
+    }
+
+    /** 一条会话卡片行。 */
+    private fun addSessionRow(s: SessionInfo) {
+        val subtitle = buildString {
+            append("IP ").append(s.ip.ifBlank { "—" })
+            append("  ·  最近 ").append(formatTs(s.lastSeen))
+            append("  ·  ID ").append(s.id)
+        }
+        addIconRow(
+            iconRes = if (s.current) R.drawable.ic_user else R.drawable.ic_devices,
+            title = "${s.username} · ${roleLabel(s.role)}",
+            subtitle = subtitle,
+            value = if (s.current) "本机" else "",
+            tintAttr = if (s.current) R.attr.lPrimary else R.attr.lTextDim,
+            onClick = { confirmRevoke(s) },
+        )
     }
 
     private fun confirmRevoke(s: SessionInfo) {

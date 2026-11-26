@@ -1,31 +1,41 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 选集列表行:序号 + 名称 + 当前集徽标 -->
+<!-- 选集行:缩略图 + 序号 + 名称 + 播放中标记 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:minHeight="48dp"
+    android:minHeight="56dp"
     android:orientation="horizontal"
     android:gravity="center_vertical"
-    android:paddingStart="16dp"
-    android:paddingTop="10dp"
-    android:paddingEnd="16dp"
-    android:paddingBottom="10dp"
+    android:paddingStart="12dp"
+    android:paddingTop="8dp"
+    android:paddingEnd="12dp"
+    android:paddingBottom="8dp"
     android:background="?attr/selectableItemBackground">
 
     <TextView
         android:id="@+id/ep_index"
-        android:layout_width="34dp"
+        android:layout_width="28dp"
         android:layout_height="wrap_content"
-        android:gravity="start"
+        android:gravity="center"
         android:textColor="?attr/lTextDim"
         android:textSize="13sp" />
+
+    <ImageView
+        android:id="@+id/ep_thumb"
+        android:layout_width="72dp"
+        android:layout_height="42dp"
+        android:layout_marginStart="8dp"
+        android:background="@drawable/bg_player_action"
+        android:contentDescription="封面"
+        android:scaleType="centerCrop" />
 
     <TextView
         android:id="@+id/ep_name"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:maxLines="1"
+        android:layout_marginStart="10dp"
+        android:maxLines="2"
         android:ellipsize="end"
         android:textColor="?attr/lText"
         android:textSize="14sp" />

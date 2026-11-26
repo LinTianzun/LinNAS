@@ -26,6 +26,10 @@ object OfflineStore {
         val status: String,
         val msg: String = "",
         val taskId: String = "",
+        /** v1.8.1 瞬时速度(B/s)。 */
+        val speedBps: Long = 0,
+        /** v1.8.1 缓存文件另存到用户下载目录后的 content:// 地址(空 = 只在应用内)。 */
+        val savedUri: String = "",
     ) {
         val percent: Int
             get() = if (size > 0) ((bytes.toDouble() / size) * 100).toInt().coerceIn(0, 100) else 0
@@ -89,6 +93,8 @@ object OfflineStore {
             .put("status", item.status)
             .put("msg", item.msg)
             .put("taskId", item.taskId)
+            .put("speedBps", item.speedBps)
+            .put("savedUri", item.savedUri)
         return o.toString()
     }
 
@@ -127,6 +133,8 @@ object OfflineStore {
                 status = o.optString("status", ST_FAILED),
                 msg = o.optString("msg", ""),
                 taskId = o.optString("taskId", ""),
+                speedBps = o.optLong("speedBps"),
+                savedUri = o.optString("savedUri", ""),
             )
         } catch (_: Exception) {
             null
@@ -145,6 +153,8 @@ object OfflineStore {
                     status = o.optString("status", ST_FAILED),
                     msg = o.optString("msg", ""),
                     taskId = o.optString("taskId", ""),
+                    speedBps = o.optLong("speedBps"),
+                    savedUri = o.optString("savedUri", ""),
                 )
             } catch (_: Exception) {
                 null

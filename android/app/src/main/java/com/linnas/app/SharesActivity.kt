@@ -18,6 +18,8 @@ import kotlinx.coroutines.withContext
 /**
  * M7 分享管理:列出 /api/shares 的分享链接,可新建(填写路径/有效期/密码/下载权限)、
  * 复制链接、看二维码、取消。
+ *
+ * v1.8:列表行改用统一的圆角卡片行(ScreenUi.row),空态用 bg_empty 插图。
  */
 class SharesActivity : AppCompatActivity() {
 
@@ -57,43 +59,59 @@ class SharesActivity : AppCompatActivity() {
             val items = try {
                 withContext(Dispatchers.IO) { client.shares() }
             } catch (e: Exception) {
-                toast("读取失败: ${e.message}"); return@launch
+                toast("读取失败: ${e.message}")
+                list.removeAllViews()
+                list.addView(
+                    ScreenUi.emptyState(this@SharesActivity, "读取失败", e.message ?: "无法获取分享列表"),
+                )
+                return@launch
             }
             list.removeAllViews()
             if (items.isEmpty()) {
                 hint.text = "还没有分享链接,点右上角「新建」"
+                list.addView(
+                    ScreenUi.emptyState(this@SharesActivity, "还没有分享链接", "点右上角「新建」创建一个分享链接"),
+                )
                 return@launch
             }
             hint.text = "共 ${items.size} 个分享链接"
             for (s in items) {
                 val url = shareUrl(s.id)
-                val row = layoutInflater.inflate(R.layout.item_file, list, false)
-                row.findViewById<ImageView>(R.id.ficon).setImageResource(R.drawable.ic_link)
-                row.findViewById<ImageView>(R.id.ficon).imageTintList =
-                    ThemeColors.csl(this@SharesActivity, R.attr.lPrimary)
-                row.findViewById<TextView>(R.id.fname).text = s.name.ifBlank { s.vpath }
-                row.findViewById<TextView>(R.id.fmeta).text = buildString {
+                val meta = buildString {
+                    append(s.vpath)
+                    append("  ·  ")
                     append(if (s.expiresAt > 0) "${formatDate(s.expiresAt)} 过期" else "永久")
                     if (s.hasPassword) append("  ·  密码保护")
                     if (s.allowDownload) append("  ·  可下载")
                 }
-                row.setOnClickListener { showShareDialog(s, url) }
-                row.findViewById<View>(R.id.fmore).setOnClickListener { anchor ->
-                    android.widget.PopupMenu(this@SharesActivity, anchor).apply {
-                        menu.add(0, 1, 0, "复制链接")
-                        menu.add(0, 2, 1, "取消分享")
-                        setOnMenuItemClickListener { mi ->
-                            when (mi.itemId) {
-                                1 -> { copyUrl(url); toast("链接已复制") }
-                                2 -> confirmDelete(s)
-                            }
-                            true
-                        }
-                        show()
-                    }
-                }
-                list.addView(row)
+                list.addView(
+                    ScreenUi.row(
+                        this@SharesActivity,
+                        R.drawable.ic_link,
+                        s.name.ifBlank { s.vpath },
+                        meta,
+                        value = if (s.expiresAt > 0) formatDate(s.expiresAt) else "永久",
+                        onClick = { showShareDialog(s, url) },
+                        more = { anchor -> showMoreMenu(anchor, s, url) },
+                    ),
+                )
             }
+        }
+    }
+
+    /** 行尾「更多」按钮菜单:复制链接 / 取消分享。 */
+    private fun showMoreMenu(anchor: View, s: Share, url: String) {
+        android.widget.PopupMenu(this, anchor).apply {
+            menu.add(0, 1, 0, "复制链接")
+            menu.add(0, 2, 1, "取消分享")
+            setOnMenuItemClickListener { mi ->
+                when (mi.itemId) {
+                    1 -> { copyUrl(url); toast("链接已复制") }
+                    2 -> confirmDelete(s)
+                }
+                true
+            }
+            show()
         }
     }
 

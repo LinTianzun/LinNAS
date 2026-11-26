@@ -35,6 +35,10 @@ object TransferStore {
         val localUri: String = "",
         val mime: String = "",
         val createdAt: Long = System.currentTimeMillis(),
+        /** v1.8.1 瞬时速度(B/s),0 = 无数据。 */
+        val speedBps: Long = 0,
+        /** v1.8.1 最近一次进度更新时间戳(毫秒)。 */
+        val updatedAt: Long = 0,
     ) {
         val percent: Int
             get() = when {
@@ -81,7 +85,8 @@ object TransferStore {
         .put("id", i.id).put("title", i.title).put("url", i.url).put("fileName", i.fileName)
         .put("kind", i.kind).put("treeUri", i.treeUri).put("total", i.total).put("done", i.done)
         .put("state", i.state).put("error", i.error).put("localUri", i.localUri)
-        .put("mime", i.mime).put("createdAt", i.createdAt).toString()
+        .put("mime", i.mime).put("createdAt", i.createdAt)
+        .put("speedBps", i.speedBps).put("updatedAt", i.updatedAt).toString()
 
     private fun decode(s: String): Item? = try {
         val o = JSONObject(s)
@@ -92,6 +97,7 @@ object TransferStore {
             state = o.optString("state", ST_FAILED), error = o.optString("error"),
             localUri = o.optString("localUri"), mime = o.optString("mime"),
             createdAt = o.optLong("createdAt"),
+            speedBps = o.optLong("speedBps"), updatedAt = o.optLong("updatedAt"),
         )
     } catch (_: Exception) {
         null

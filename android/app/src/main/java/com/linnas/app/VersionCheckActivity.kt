@@ -3,6 +3,8 @@ package com.linnas.app
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.widget.TextView
+import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -10,15 +12,17 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 /**
- * 版本检查页:显示本机 App 版本与服务端版本,并可在线检查更新。
+ * 版本检查页:显示本机 App 版本与服务端版本,支持**应用内直接下载并安装更新包**。
  *
- * 服务端新接口 GET /api/app/version?token=... 返回
- * {versionName, versionCode, url, notes};若 versionCode 大于本机则提供「下载」。
- * 接口不存在(404)、网络失败、已是最新都有友好中文提示。
+ * 服务端接口 GET /api/app/version?token=... 返回
+ * {versionName, versionCode, url, notes};若 versionCode 大于本机则可下载。
+ * 下载在应用内完成(带进度与速度),完成后用系统安装器打开 APK —— 不用跳浏览器。
  */
 class VersionCheckActivity : ScreenScaffold() {
 
@@ -79,7 +83,7 @@ class VersionCheckActivity : ScreenScaffold() {
                     addRow("发现新版本", "v${ver.name} (版本码 ${ver.code})")
                     if (ver.notes.isNotBlank()) addText("更新说明:${ver.notes}")
                     if (ver.url.isNotBlank()) {
-                        addButton("下载更新") { openUrl(ver.url) }
+                        addButton("下载并安装") { downloadUpdate(ver) }
                     } else {
                         addText("该版本暂未提供下载地址")
                     }
@@ -94,6 +98,92 @@ class VersionCheckActivity : ScreenScaffold() {
                 addText(e.message ?: "检查更新失败,请稍后重试")
                 addButton("重新检查") { checkUpdate(localCode) }
             }
+        }
+    }
+
+    /**
+     * v1.8.1:应用内下载更新包 —— 不跳浏览器。
+     * 进度与速度实时显示,下载完直接调起系统安装器。
+     */
+    private fun downloadUpdate(ver: ServerVer) {
+        clearContent()
+        addRow("正在下载", "v${ver.name} (版本码 ${ver.code})")
+        val status = addLiveText("准备下载…")
+        lifecycleScope.launch {
+            val speed = SpeedMeter()
+            try {
+                val file = withContext(Dispatchers.IO) { downloadApk(ver.url, speed) { p, total ->
+                    status.text = if (total > 0)
+                        "已下载 $p% · ${SpeedMeter.format(speed.latest())}"
+                    else "已下载 ${SpeedMeter.format(speed.latest())}"
+                } }
+                status.text = "下载完成:${file.name}(${file.length() / 1024 / 1024} MB),正在打开安装器…"
+                installApk(file)
+            } catch (e: Exception) {
+                status.text = "下载失败:${e.message ?: "未知错误"}"
+                addButton("重试") { downloadUpdate(ver) }
+            }
+        }
+    }
+
+    /** 加一行可实时更新的文本。 */
+    private fun addLiveText(initial: String): TextView {
+        val tv = TextView(this).apply {
+            text = initial
+            textSize = 13f
+            setTextColor(ThemeColors.textDim(this@VersionCheckActivity))
+            setPadding(0, dp(6), 0, dp(6))
+        }
+        content.addView(
+            tv,
+            android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+        return tv
+    }
+
+    private fun downloadApk(url: String, speed: SpeedMeter, onProgress: (Int, Long) -> Unit): File {
+        val req = Request.Builder().url(url).get().build()
+        http.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}")
+            val body = resp.body ?: throw IllegalStateException("服务器返回空响应")
+            val total = body.contentLength()
+            val out = File(cacheDir, "linnas-update.apk")
+            if (out.exists()) out.delete()
+            var received = 0L
+            var lastPct = -1
+            val buf = ByteArray(128 * 1024)
+            body.byteStream().use { input ->
+                FileOutputStream(out).use { output ->
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        output.write(buf, 0, n)
+                        received += n
+                        val pct = if (total > 0) ((received * 100) / total).toInt() else 0
+                        if (pct != lastPct) {
+                            lastPct = pct
+                            onProgress(pct, total)
+                        }
+                    }
+                }
+            }
+            if (total > 0 && received != total) throw IllegalStateException("下载不完整")
+            return out
+        }
+    }
+
+    private fun installApk(file: File) {
+        try {
+            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+            startActivity(Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            })
+        } catch (e: Exception) {
+            toast("无法打开安装器:${e.message}")
         }
     }
 
@@ -119,14 +209,6 @@ class VersionCheckActivity : ScreenScaffold() {
                 url = o.optString("url", ""),
                 notes = o.optString("notes", ""),
             )
-        }
-    }
-
-    private fun openUrl(url: String) {
-        try {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-        } catch (e: Exception) {
-            toast("无法打开下载链接:${e.message}")
         }
     }
 }

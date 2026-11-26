@@ -21,24 +21,33 @@ class WolActivity : ScreenScaffold() {
 
     private fun load() {
         clearContent()
-        addText("加载中…")
+        addLoading()
         lifecycleScope.launch {
             val list = try {
                 withContext(Dispatchers.IO) { client.wolList() }
             } catch (e: Exception) {
-                clearContent(); addText("读取失败: ${e.message}"); return@launch
+                clearContent()
+                addEmptyState("读取失败", e.message ?: "无法获取唤醒主机列表")
+                return@launch
             }
             clearContent()
-            if (list.isEmpty()) { addText("还没有保存的唤醒主机,点右上角「添加」。"); return@launch }
-            addText("共 ${list.size} 台 · 点按发送唤醒包,长按删除")
+            if (list.isEmpty()) {
+                addEmptyState("还没有保存的唤醒主机", "点右上角「添加」,保存名称与 MAC 地址")
+                return@launch
+            }
+
+            addSectionHeader("唤醒主机")
             for (h in list) {
-                addRow(
-                    title = h.name,
-                    subtitle = h.mac,
+                addIconRow(
+                    iconRes = R.drawable.ic_wifi,
+                    title = h.name.ifBlank { h.mac },
+                    subtitle = "MAC 地址",
+                    value = h.mac,
                     onClick = { send(h) },
                     onLongClick = { confirmDelete(h) },
                 )
             }
+            addText("共 ${list.size} 台 · 点按发送唤醒包,长按删除")
         }
     }
 

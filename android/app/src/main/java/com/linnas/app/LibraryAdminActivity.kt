@@ -21,24 +21,41 @@ class LibraryAdminActivity : ScreenScaffold() {
 
     private fun load() {
         clearContent()
-        addText("加载中…")
+        addLoading()
         lifecycleScope.launch {
             val libs = try {
                 withContext(Dispatchers.IO) { client.libs() }
             } catch (e: Exception) {
-                clearContent(); addText("读取失败: ${e.message}"); return@launch
+                clearContent()
+                addEmptyState("读取失败", e.message ?: "无法获取存储库列表")
+                return@launch
             }
             clearContent()
-            if (libs.isEmpty()) { addText("还没有存储库,请先在「添加存储库」里添加。"); return@launch }
-            addText("共 ${libs.size} 个 · 点按编辑,长按删除")
+            if (libs.isEmpty()) {
+                addEmptyState("还没有存储库", "请先在「添加存储库」里添加一个目录")
+                return@launch
+            }
+
+            addSectionHeader("存储库")
             for (lib in libs) {
-                addRow(
-                    title = lib.name + (if (lib.readOnly) " · 只读" else "") + (if (!lib.enabled) " · 停用" else ""),
+                val flags = buildString {
+                    if (lib.readOnly) append("只读")
+                    if (!lib.enabled) {
+                        if (isNotEmpty()) append(" · ")
+                        append("已停用")
+                    }
+                }
+                addIconRow(
+                    iconRes = R.drawable.ic_server,
+                    title = lib.name,
                     subtitle = lib.path,
+                    value = flags.ifBlank { "可读写" },
+                    tintAttr = if (lib.enabled) R.attr.lPrimary else R.attr.lTextDim,
                     onClick = { showEdit(lib) },
                     onLongClick = { confirmDelete(lib) },
                 )
             }
+            addText("共 ${libs.size} 个 · 点按编辑,长按删除")
         }
     }
 

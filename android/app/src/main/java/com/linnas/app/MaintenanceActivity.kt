@@ -23,12 +23,14 @@ class MaintenanceActivity : ScreenScaffold() {
 
     private fun load() {
         clearContent()
-        addText("加载中…")
+        addLoading()
         lifecycleScope.launch {
             val info = try {
                 withContext(Dispatchers.IO) { client.settingsInfo() }
             } catch (e: Exception) {
-                clearContent(); addText("读取失败: ${e.message}"); return@launch
+                clearContent()
+                addEmptyState("读取失败", e.message ?: "无法获取维护设置")
+                return@launch
             }
             settings = info
             val idx = try {
@@ -37,30 +39,115 @@ class MaintenanceActivity : ScreenScaffold() {
                 null
             }
             clearContent()
-            addText(
-                "回收站保留: ${info.optInt("trashRetentionDays")} 天\n" +
-                    "转码缓存上限: ${info.optInt("transcodeCacheMB")} MB",
-            )
-            addText(
+
+            // ---- 索引状态 ----
+            addSectionHeader("索引状态")
+            addCard { card ->
+                card.addView(
+                    ScreenUi.cardHeader(
+                        this@MaintenanceActivity,
+                        R.drawable.ic_index,
+                        "媒体索引",
+                        if (idx == null) "未启用或不可用" else "扫描与统计",
+                    ),
+                )
                 if (idx == null) {
-                    "索引: 未启用或不可用"
+                    card.addView(
+                        ScreenUi.text(this@MaintenanceActivity, "索引未启用或不可用", R.dimen.text_sm, R.attr.lTextDim).apply {
+                            layoutParams = LinearLayout.LayoutParams(
+                                LinearLayout.LayoutParams.MATCH_PARENT,
+                                LinearLayout.LayoutParams.WRAP_CONTENT,
+                            )
+                        },
+                    )
                 } else {
                     val stats = idx.optJSONObject("stats") ?: idx
-                    buildString {
-                        append("索引状态: ").append(if (idx.optBoolean("scanning")) "扫描中…" else "空闲").append('\n')
-                        append("已索引文件: ").append(idx.optInt("fileCount")).append('\n')
-                        val last = idx.optLong("lastScan")
-                        append("上次扫描: ").append(if (last > 0) formatTs(last) else "无").append('\n')
-                        append("视频 ").append(stats.optInt("video")).append(" · 图片 ")
-                            .append(stats.optInt("image")).append(" · 音乐 ").append(stats.optInt("audio"))
-                        val note = idx.optString("note")
-                        if (note.isNotBlank()) append('\n').append(note)
+                    val scanning = idx.optBoolean("scanning")
+                    addKeyValue(card, "状态", if (scanning) "扫描中…" else "空闲")
+                    addKeyValue(card, "已索引文件", idx.optInt("fileCount").toString())
+                    val last = idx.optLong("lastScan")
+                    addKeyValue(card, "上次扫描", if (last > 0) formatTs(last) else "无")
+                    addKeyValue(
+                        card,
+                        "媒体分类",
+                        "视频 ${stats.optInt("video")}  ·  图片 ${stats.optInt("image")}  ·  音乐 ${stats.optInt("audio")}",
+                    )
+                    val note = idx.optString("note")
+                    if (note.isNotBlank()) {
+                        card.addView(
+                            ScreenUi.text(this@MaintenanceActivity, note, R.dimen.text_caption, R.attr.lTextDim).apply {
+                                setPadding(0, dp(8), 0, 0)
+                                layoutParams = LinearLayout.LayoutParams(
+                                    LinearLayout.LayoutParams.MATCH_PARENT,
+                                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                                )
+                            },
+                        )
                     }
-                },
-            )
-            addButton("修改保留期 / 缓存设置") { showSettingsDialog() }
-            addButton("立即清理(回收站 + 转码缓存)") { doCleanup() }
-            addButton("重建媒体索引") { doReindex() }
+                }
+            }
+
+            // ---- 清理 ----
+            addSectionHeader("清理")
+            addCard { card ->
+                card.addView(
+                    ScreenUi.cardHeader(
+                        this@MaintenanceActivity,
+                        R.drawable.ic_sweep,
+                        "回收站与转码缓存",
+                        "回收站 ${info.optInt("trashRetentionDays")} 天 · 转码缓存上限 ${info.optInt("transcodeCacheMB")} MB",
+                    ),
+                )
+                card.addView(
+                    ScreenUi.tonalButton(this@MaintenanceActivity, "立即清理(回收站 + 转码缓存)") { doCleanup() }.apply {
+                        layoutParams = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            dp(44),
+                        ).apply { topMargin = dp(12) }
+                    },
+                )
+            }
+
+            // ---- 设置 ----
+            addSectionHeader("设置")
+            addCard { card ->
+                card.addView(
+                    ScreenUi.cardHeader(
+                        this@MaintenanceActivity,
+                        R.drawable.ic_gear,
+                        "保留期与缓存上限",
+                        "修改后立即生效",
+                    ),
+                )
+                card.addView(
+                    ScreenUi.tonalButton(this@MaintenanceActivity, "修改保留期 / 缓存设置") { showSettingsDialog() }.apply {
+                        layoutParams = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            dp(44),
+                        ).apply { topMargin = dp(12) }
+                    },
+                )
+            }
+
+            addSectionHeader("索引")
+            addCard { card ->
+                card.addView(
+                    ScreenUi.cardHeader(
+                        this@MaintenanceActivity,
+                        R.drawable.ic_index,
+                        "媒体索引",
+                        "扫描全部媒体库并重建索引",
+                    ),
+                )
+                card.addView(
+                    ScreenUi.primaryButton(this@MaintenanceActivity, "重建媒体索引") { doReindex() }.apply {
+                        layoutParams = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            dp(44),
+                        ).apply { topMargin = dp(12) }
+                    },
+                )
+            }
         }
     }
 
@@ -90,7 +177,9 @@ class MaintenanceActivity : ScreenScaffold() {
                 lifecycleScope.launch {
                     try {
                         withContext(Dispatchers.IO) {
-                            client.settingsUpdate(mapOf("trashRetentionDays" to days, "transcodeCacheMB" to cache))
+                            client.settingsUpdate(
+                                mapOf("trashRetentionDays" to days, "transcodeCacheMB" to cache),
+                            )
                         }
                         toast("已保存")
                         load()
