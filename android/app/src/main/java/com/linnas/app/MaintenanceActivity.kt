@@ -2,7 +2,6 @@ package com.linnas.app
 
 import android.widget.EditText
 import android.widget.LinearLayout
-import androidx.appcompat.app.AlertDialog
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -153,40 +152,32 @@ class MaintenanceActivity : ScreenScaffold() {
 
     private fun showSettingsDialog() {
         val base = settings ?: run { toast("尚未加载"); return }
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(8), dp(20), 0)
-        }
-        val etDays = EditText(this).apply {
-            hint = "回收站保留天数(0-3650)"
-            setText(base.optInt("trashRetentionDays").toString())
-            setSingleLine()
-        }
-        val etCache = EditText(this).apply {
-            hint = "转码缓存上限 MB(0-1048576)"
-            setText(base.optInt("transcodeCacheMB").toString())
-            setSingleLine()
-        }
-        box.addView(etDays)
-        box.addView(etCache)
-        AlertDialog.Builder(this).setTitle("维护设置").setView(box)
-            .setPositiveButton("保存") { _, _ ->
-                val days = etDays.text.toString().trim().toIntOrNull()
-                val cache = etCache.text.toString().trim().toIntOrNull()
-                if (days == null || cache == null) { toast("请输入数字"); return@setPositiveButton }
-                lifecycleScope.launch {
-                    try {
-                        withContext(Dispatchers.IO) {
-                            client.settingsUpdate(
-                                mapOf("trashRetentionDays" to days, "transcodeCacheMB" to cache),
-                            )
-                        }
-                        toast("已保存")
-                        load()
-                    } catch (e: Exception) { toast("保存失败: ${e.message}") }
-                }
+        val sheet = Sheet(this, "维护设置")
+        sheet.input("回收站保留天数(0-3650)", base.optInt("trashRetentionDays").toString())
+        sheet.input("转码缓存上限 MB(0-1048576)", base.optInt("transcodeCacheMB").toString())
+        sheet.primary("保存") {
+            val days = sheet.value(0).toIntOrNull()
+            val cache = sheet.value(1).toIntOrNull()
+            if (days == null || cache == null) {
+                sheet.inputView(0)?.error = "请输入数字"
+                toast("请输入数字")
+                return@primary
             }
-            .setNegativeButton("取消", null).show()
+            lifecycleScope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        client.settingsUpdate(
+                            mapOf("trashRetentionDays" to days, "transcodeCacheMB" to cache),
+                        )
+                    }
+                    sheet.dismiss()
+                    toast("已保存")
+                    load()
+                } catch (e: Exception) { toast("保存失败: ${e.message}") }
+            }
+        }
+        sheet.tonal("取消") { sheet.dismiss() }
+        sheet.show()
     }
 
     private fun doCleanup() {

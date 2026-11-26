@@ -11,8 +11,8 @@ android {
         applicationId = "com.linnas.app"
         minSdk = 24
         targetSdk = 34
-        versionCode = 12
-        versionName = "1.8.3"
+        versionCode = 13
+        versionName = "1.8.4"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

@@ -31,7 +31,7 @@
 | `?attr/lSuccess` | 成功态 | 深色=`mint`，浅色=`mint_light` |
 | `@color/mint` / `@color/amber` | 品牌点缀色（如服务器图标） | `colors.xml` |
 
-主题由 `ThemeStore` 切换，共 6 套：墨蓝 / 墨绿 / 琥珀（深色）、月白 / 云白 / 暖沙（浅色）。
+主题由 `ThemeStore` 切换，共 6 套：墨蓝 / 墨绿 / 琥珀（深色）、青瓷 / 云白 / 暖沙（浅色）。
 `attrs.xml` 的 11 个属性（`lInk/lSurface/lSurfaceHigh/lOutline/lText/lTextDim/lPrimary/lOnPrimary/lDanger/lSuccess/lIsLight`）是 Kotlin 侧 `ThemeColors.color()` 读取的依据，**名称不可改动**。
 
 > 对比度要求：深色主题 `lText`/`lTextDim` 相对 `lInk` 必须满足正文/辅助文本的可读对比；

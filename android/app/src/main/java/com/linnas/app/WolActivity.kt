@@ -2,7 +2,6 @@ package com.linnas.app
 
 import android.widget.EditText
 import android.widget.LinearLayout
-import androidx.appcompat.app.AlertDialog
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -52,28 +51,28 @@ class WolActivity : ScreenScaffold() {
     }
 
     private fun showAdd() {
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(8), dp(20), 0)
-        }
-        val etName = EditText(this).apply { hint = "名称(如 客厅电脑)"; setSingleLine() }
-        val etMac = EditText(this).apply { hint = "MAC(如 AA:BB:CC:DD:EE:FF)"; setSingleLine() }
-        box.addView(etName)
-        box.addView(etMac)
-        AlertDialog.Builder(this).setTitle("添加唤醒主机").setView(box)
-            .setPositiveButton("保存") { _, _ ->
-                val name = etName.text.toString().trim()
-                val mac = etMac.text.toString().trim()
-                if (mac.isBlank()) { toast("请填写 MAC"); return@setPositiveButton }
-                lifecycleScope.launch {
-                    try {
-                        withContext(Dispatchers.IO) { client.wolAdd(name, mac) }
-                        toast("已保存")
-                        load()
-                    } catch (e: Exception) { toast("保存失败: ${e.message}") }
-                }
+        val sheet = Sheet(this, "添加唤醒主机")
+        sheet.input("名称(如 客厅电脑)")
+        sheet.input("MAC(如 AA:BB:CC:DD:EE:FF)")
+        sheet.primary("保存") {
+            val name = sheet.value(0)
+            val mac = sheet.value(1)
+            if (mac.isBlank()) {
+                sheet.inputView(1)?.error = "请填写 MAC"
+                toast("请填写 MAC")
+                return@primary
             }
-            .setNegativeButton("取消", null).show()
+            lifecycleScope.launch {
+                try {
+                    withContext(Dispatchers.IO) { client.wolAdd(name, mac) }
+                    sheet.dismiss()
+                    toast("已保存")
+                    load()
+                } catch (e: Exception) { toast("保存失败: ${e.message}") }
+            }
+        }
+        sheet.tonal("取消") { sheet.dismiss() }
+        sheet.show()
     }
 
     private fun send(h: WolHost) {
@@ -88,16 +87,18 @@ class WolActivity : ScreenScaffold() {
     }
 
     private fun confirmDelete(h: WolHost) {
-        AlertDialog.Builder(this).setTitle("删除主机").setMessage("删除「${h.name}」?")
-            .setPositiveButton("删除") { _, _ ->
-                lifecycleScope.launch {
-                    try {
-                        withContext(Dispatchers.IO) { client.wolDelete(h.id) }
-                        toast("已删除")
-                        load()
-                    } catch (e: Exception) { toast("删除失败: ${e.message}") }
-                }
+        val sheet = Sheet(this, "删除主机", "删除「${h.name}」?")
+        sheet.danger("删除") {
+            sheet.dismiss()
+            lifecycleScope.launch {
+                try {
+                    withContext(Dispatchers.IO) { client.wolDelete(h.id) }
+                    toast("已删除")
+                    load()
+                } catch (e: Exception) { toast("删除失败: ${e.message}") }
             }
-            .setNegativeButton("取消", null).show()
+        }
+        sheet.tonal("取消") { sheet.dismiss() }
+        sheet.show()
     }
 }

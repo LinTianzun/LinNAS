@@ -46,14 +46,14 @@
     <color name="t_amber_primary">#E7B368</color>
     <color name="t_amber_on_primary">#1A1206</color>
 
-    <!-- 主题 4:月白(浅色,v1.8.3 由「纯黑」改版) -->
-    <color name="t_mono_ink">#F1F3F7</color>
+    <!-- 主题 4:青瓷(浅绿灰,v1.8.4 由「月白」改版——月白与云白过近,换成明显偏青的浅色) -->
+    <color name="t_mono_ink">#E8F1ED</color>
     <color name="t_mono_surface">#FFFFFF</color>
-    <color name="t_mono_surface_high">#E7EBF2</color>
-    <color name="t_mono_outline">#D3DAE4</color>
-    <color name="t_mono_text">#10141A</color>
-    <color name="t_mono_text_dim">#57606D</color>
-    <color name="t_mono_primary">#3D6BA6</color>
+    <color name="t_mono_surface_high">#D9E8E1</color>
+    <color name="t_mono_outline">#C6D9D1</color>
+    <color name="t_mono_text">#0E1A16</color>
+    <color name="t_mono_text_dim">#4C615A</color>
+    <color name="t_mono_primary">#2E7D6B</color>
     <color name="t_mono_on_primary">#FFFFFF</color>
 
     <!-- 主题 5:云白(浅色) -->
@@ -80,7 +80,7 @@
     <color name="sw_blue">#0B0D11</color>
     <color name="sw_green">#06100C</color>
     <color name="sw_amber">#100D08</color>
-    <color name="sw_mono">#F1F3F7</color>
+    <color name="sw_mono">#E8F1ED</color>
     <color name="sw_light">#FFFFFF</color>
     <color name="sw_warm">#FAF6F1</color>
 

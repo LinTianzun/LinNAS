@@ -20,7 +20,7 @@ object ThemeStore {
         T("blue", "墨蓝", true, R.style.Theme_LinNas, R.color.sw_blue, R.color.t_blue_primary),
         T("green", "墨绿", true, R.style.Theme_LinNas_Green, R.color.sw_green, R.color.t_green_primary),
         T("amber", "琥珀", true, R.style.Theme_LinNas_Amber, R.color.sw_amber, R.color.t_amber_primary),
-        T("mono", "月白", false, R.style.Theme_LinNas_Mono, R.color.sw_mono, R.color.t_mono_primary),
+        T("mono", "青瓷", false, R.style.Theme_LinNas_Mono, R.color.sw_mono, R.color.t_mono_primary),
         T("light", "云白", false, R.style.Theme_LinNas_Light, R.color.sw_light, R.color.t_light_primary),
         T("warm", "暖沙", false, R.style.Theme_LinNas_Warm, R.color.sw_warm, R.color.t_warm_primary),
     )

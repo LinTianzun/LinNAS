@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 播放页「更多」面板背景:比选集面板更透(顶部约 62% 不透明、底部约 78%),
+     配合纵向渐变形成玻璃悬浮感,能明显透出底下的视频画面。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:angle="270"
+        android:startColor="#9E171A20"
+        android:centerColor="#BE171A20"
+        android:endColor="#C7171A20" />
+    <corners android:radius="18dp" />
+    <stroke
+        android:width="1dp"
+        android:color="#2EFFFFFF" />
+</shape>

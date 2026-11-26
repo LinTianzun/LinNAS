@@ -5,7 +5,6 @@ import android.view.View
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
@@ -66,20 +65,13 @@ class TrashActivity : AppCompatActivity() {
                     if (it.trashedAt > 0) append("  ·  " + FileListAdapter.fmtDate(it.trashedAt))
                     if (lib != null) append("  ·  " + lib.name)
                 }
-                row.findViewById<View>(R.id.fmore).setOnClickListener { anchor ->
+                row.findViewById<View>(R.id.fmore).setOnClickListener { _ ->
                     if (!canWrite()) { toast("只读用户无法操作回收站"); return@setOnClickListener }
-                    android.widget.PopupMenu(this@TrashActivity, anchor).apply {
-                        menu.add(0, 1, 0, "恢复")
-                        menu.add(0, 2, 1, "彻底删除")
-                        setOnMenuItemClickListener { mi ->
-                            when (mi.itemId) {
-                                1 -> restoreEntry(it)
-                                2 -> confirmDeleteEntry(it)
-                            }
-                            true
-                        }
-                        show()
-                    }
+                    // 用底部 Sheet 替代系统弹出菜单,与其余二级页统一主题化观感
+                    val sheet = Sheet(this@TrashActivity, it.name)
+                    sheet.row(R.drawable.ic_refresh, "恢复") { restoreEntry(it) }
+                    sheet.row(R.drawable.ic_trash_bin, "彻底删除", destructive = true) { confirmDeleteEntry(it) }
+                    sheet.show()
                 }
                 list.addView(row)
             }
@@ -97,34 +89,35 @@ class TrashActivity : AppCompatActivity() {
     }
 
     private fun confirmDeleteEntry(it: TrashItem) {
-        AlertDialog.Builder(this).setTitle("彻底删除")
-            .setMessage("彻底删除「${it.name}」?此操作不可恢复。")
-            .setPositiveButton("删除") { _, _ ->
-                lifecycleScope.launch {
-                    try {
-                        withContext(Dispatchers.IO) { client.trashDelete(it.id, it.libId) }
-                        toast("已删除 ${it.name}")
-                        loadList()
-                    } catch (e: Exception) { toast("删除失败: ${e.message}") }
-                }
+        val sheet = Sheet(this, "彻底删除", "彻底删除「${it.name}」?此操作不可恢复。")
+        sheet.danger("删除") {
+            sheet.dismiss()
+            lifecycleScope.launch {
+                try {
+                    withContext(Dispatchers.IO) { client.trashDelete(it.id, it.libId) }
+                    toast("已删除 ${it.name}")
+                    loadList()
+                } catch (e: Exception) { toast("删除失败: ${e.message}") }
             }
-            .setNegativeButton("取消", null).show()
+        }
+        sheet.tonal("取消") { sheet.dismiss() }
+        sheet.show()
     }
 
     private fun confirmEmpty(lib: Library?) {
         val scope = lib ?: run {
             val names = libs.joinToString("、") { it.name }
             if (libs.isEmpty()) return@confirmEmpty
-            AlertDialog.Builder(this).setTitle("清空回收站")
-                .setMessage("将清空 $names 下的回收站内容,此操作不可恢复。")
-                .setPositiveButton("清空") { _, _ -> doEmpty("") }
-                .setNegativeButton("取消", null).show()
+            val allSheet = Sheet(this, "清空回收站", "将清空 $names 下的回收站内容,此操作不可恢复。")
+            allSheet.danger("清空") { allSheet.dismiss(); doEmpty("") }
+            allSheet.tonal("取消") { allSheet.dismiss() }
+            allSheet.show()
             return@confirmEmpty
         }
-        AlertDialog.Builder(this).setTitle("清空回收站")
-            .setMessage("将清空「${lib.name}」的回收站内容,此操作不可恢复。")
-            .setPositiveButton("清空") { _, _ -> doEmpty(lib.id) }
-            .setNegativeButton("取消", null).show()
+        val sheet = Sheet(this, "清空回收站", "将清空「${lib.name}」的回收站内容,此操作不可恢复。")
+        sheet.danger("清空") { sheet.dismiss(); doEmpty(lib.id) }
+        sheet.tonal("取消") { sheet.dismiss() }
+        sheet.show()
     }
 
     private fun doEmpty(lib: String) {

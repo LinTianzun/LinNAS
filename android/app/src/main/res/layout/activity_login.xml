@@ -1,84 +1,258 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!--
+    登录页：品牌区 + 圆角卡片（服务器地址 / 指纹主按钮 / 账号密码表单 / 登录）
+    全部使用主题语义色，深色与浅色主题都能正常显示。保留 LoginActivity 使用的所有 id。
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:gravity="center_horizontal"
-    android:padding="24dp"
-    android:background="?attr/lInk">
+    android:background="?attr/lInk"
+    android:fillViewport="true">
 
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="64dp"
-        android:text="linNas"
-        android:textColor="?attr/lText"
-        android:textSize="28sp"
-        android:textStyle="bold" />
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:text="登录服务器账号"
-        android:textColor="?attr/lTextDim"
-        android:textSize="13sp" />
-
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/btnBioLogin"
-        style="@style/Widget.Material3.Button.OutlinedButton"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="20dp"
-        android:text="指纹/面容登录"
-        android:visibility="gone" />
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:paddingStart="24dp"
+        android:paddingTop="48dp"
+        android:paddingEnd="24dp"
+        android:paddingBottom="32dp">
 
-    <com.google.android.material.textfield.TextInputEditText
-        android:id="@+id/etUser"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="32dp"
-        android:hint="用户名"
-        android:inputType="text"
-        android:maxLines="1" />
+        <!-- 品牌区 -->
+        <ImageView
+            android:layout_width="72dp"
+            android:layout_height="72dp"
+            android:background="@drawable/bg_login_brand"
+            android:contentDescription="LinNAS 图标"
+            android:padding="18dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_login_logo"
+            android:tint="?attr/lPrimary" />
 
-    <com.google.android.material.textfield.TextInputEditText
-        android:id="@+id/etPassword"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:hint="密码"
-        android:inputType="textPassword"
-        android:maxLines="1" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:letterSpacing="-0.01"
+            android:text="LinNAS"
+            android:textColor="?attr/lText"
+            android:textSize="22sp"
+            android:textStyle="bold" />
 
-    <com.google.android.material.checkbox.MaterialCheckBox
-        android:id="@+id/cbBioLogin"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:text="记住并用指纹/面容登录" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="局域网私有云盘"
+            android:textColor="?attr/lTextDim"
+            android:textSize="13sp" />
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/btnLogin"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:text="登录" />
+        <!-- 登录卡片 -->
+        <com.google.android.material.card.MaterialCardView
+            style="@style/CardGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="28dp"
+            app:cardCornerRadius="20dp">
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/btnSkip"
-        style="@style/Widget.Material3.Button.OutlinedButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="跳过,用口令访问" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="24dp">
 
-    <TextView
-        android:id="@+id/loginError"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:textColor="@color/danger"
-        android:textSize="12sp"
-        android:visibility="gone" />
-</LinearLayout>
+                <!-- 服务器地址（只读展示 + 切换） -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:layout_width="18dp"
+                        android:layout_height="18dp"
+                        android:contentDescription="服务器"
+                        android:src="@drawable/ic_server"
+                        android:tint="?attr/lTextDim" />
+
+                    <TextView
+                        android:id="@+id/tvServer"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:layout_weight="1"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:text="未设置服务器地址"
+                        android:textColor="?attr/lText"
+                        android:textSize="13sp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnSwitchServer"
+                        style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="40dp"
+                        android:minWidth="0dp"
+                        android:text="切换"
+                        android:textColor="?attr/lPrimary"
+                        android:textSize="13sp" />
+                </LinearLayout>
+
+                <!-- 指纹主按钮（有生物识别且存在已保存会话时显示） -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnBioLogin"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="16dp"
+                    android:text="指纹登录"
+                    android:textColor="?attr/lPrimary"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    android:visibility="gone"
+                    app:backgroundTint="?attr/lSurfaceHigh"
+                    app:cornerRadius="14dp"
+                    app:icon="@drawable/ic_login_fingerprint"
+                    app:iconGravity="textStart"
+                    app:iconPadding="8dp"
+                    app:iconTint="?attr/lPrimary"
+                    app:strokeColor="?attr/lOutline"
+                    app:strokeWidth="1dp" />
+
+                <!-- 「或使用账号密码登录」分隔 -->
+                <LinearLayout
+                    android:id="@+id/tvBioDivider"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:visibility="gone">
+
+                    <View
+                        android:layout_width="0dp"
+                        android:layout_height="1dp"
+                        android:layout_weight="1"
+                        android:background="?attr/lOutline" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:paddingStart="10dp"
+                        android:paddingEnd="10dp"
+                        android:text="或使用账号密码登录"
+                        android:textColor="?attr/lTextDim"
+                        android:textSize="12sp" />
+
+                    <View
+                        android:layout_width="0dp"
+                        android:layout_height="1dp"
+                        android:layout_weight="1"
+                        android:background="?attr/lOutline" />
+                </LinearLayout>
+
+                <!-- 用户名 -->
+                <com.google.android.material.textfield.TextInputLayout
+                    android:id="@+id/layoutUser"
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:hint="用户名"
+                    app:boxBackgroundMode="outline"
+                    app:boxCornerRadiusBottomEnd="14dp"
+                    app:boxCornerRadiusBottomStart="14dp"
+                    app:boxCornerRadiusTopEnd="14dp"
+                    app:boxCornerRadiusTopStart="14dp"
+                    app:boxStrokeColor="?attr/lOutline"
+                    app:startIconDrawable="@drawable/ic_user"
+                    app:startIconTint="?attr/lTextDim">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etUser"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="text"
+                        android:maxLines="1"
+                        android:textColor="?attr/lText"
+                        android:textColorHint="?attr/lTextDim" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <!-- 密码 -->
+                <com.google.android.material.textfield.TextInputLayout
+                    android:id="@+id/layoutPassword"
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:hint="密码"
+                    app:boxBackgroundMode="outline"
+                    app:boxCornerRadiusBottomEnd="14dp"
+                    app:boxCornerRadiusBottomStart="14dp"
+                    app:boxCornerRadiusTopEnd="14dp"
+                    app:boxCornerRadiusTopStart="14dp"
+                    app:boxStrokeColor="?attr/lOutline"
+                    app:endIconMode="password_toggle"
+                    app:endIconTint="?attr/lTextDim"
+                    app:startIconDrawable="@drawable/ic_lock"
+                    app:startIconTint="?attr/lTextDim">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etPassword"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="textPassword"
+                        android:maxLines="1"
+                        android:textColor="?attr/lText"
+                        android:textColorHint="?attr/lTextDim" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <!-- 下次自动登录（不再询问指纹） -->
+                <com.google.android.material.checkbox.MaterialCheckBox
+                    android:id="@+id/cbBioLogin"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="下次自动登录（不再询问指纹）"
+                    android:textColor="?attr/lText"
+                    android:textSize="13sp" />
+
+                <!-- 登录主按钮 -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnLogin"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="16dp"
+                    android:text="登录"
+                    android:textColor="?attr/lOnPrimary"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    app:backgroundTint="?attr/lPrimary"
+                    app:cornerRadius="14dp" />
+
+                <TextView
+                    android:id="@+id/loginError"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:textColor="?attr/lDanger"
+                    android:textSize="12sp"
+                    android:visibility="gone" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- 跳过登录 -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnSkip"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:minHeight="0dp"
+            android:text="跳过登录，只用访问口令进入"
+            android:textColor="?attr/lTextDim"
+            android:textSize="13sp" />
+    </LinearLayout>
+</ScrollView>

@@ -7,7 +7,6 @@ import android.widget.CheckBox
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.textfield.TextInputEditText
@@ -92,7 +91,7 @@ class SharesActivity : AppCompatActivity() {
                         meta,
                         value = if (s.expiresAt > 0) formatDate(s.expiresAt) else "永久",
                         onClick = { showShareDialog(s, url) },
-                        more = { anchor -> showMoreMenu(anchor, s, url) },
+                        more = { _ -> showMoreMenu(s, url) },
                     ),
                 )
             }
@@ -100,110 +99,86 @@ class SharesActivity : AppCompatActivity() {
     }
 
     /** 行尾「更多」按钮菜单:复制链接 / 取消分享。 */
-    private fun showMoreMenu(anchor: View, s: Share, url: String) {
-        android.widget.PopupMenu(this, anchor).apply {
-            menu.add(0, 1, 0, "复制链接")
-            menu.add(0, 2, 1, "取消分享")
-            setOnMenuItemClickListener { mi ->
-                when (mi.itemId) {
-                    1 -> { copyUrl(url); toast("链接已复制") }
-                    2 -> confirmDelete(s)
-                }
-                true
-            }
-            show()
-        }
+    private fun showMoreMenu(s: Share, url: String) {
+        // 用底部 Sheet 替代系统弹出菜单,与其他二级页统一主题化观感
+        val sheet = Sheet(this, s.name.ifBlank { s.vpath })
+        sheet.row(R.drawable.ic_link, "复制链接") { copyUrl(url); toast("链接已复制") }
+        sheet.row(R.drawable.ic_close, "取消分享", destructive = true) { confirmDelete(s) }
+        sheet.show()
     }
 
     private fun shareUrl(id: String): String =
         ServerConfig.baseUrl.trimEnd('/') + "/s/" + id
 
     private fun showShareDialog(s: Share, url: String) {
-        val scroll = android.widget.ScrollView(this)
-        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(4), dp(20), 0) }
-        box.addView(TextView(this).apply {
-            text = url
-            setTextColor(ThemeColors.textDim(this@SharesActivity)); textSize = 12f
-            maxLines = 3
-        })
-        box.addView(TextView(this).apply {
-            text = "密码:${if (s.hasPassword) "已设置" else "无"}  下载:${if (s.allowDownload) "允许" else "禁止"}"
-            setTextColor(ThemeColors.textDim(this@SharesActivity)); textSize = 12f
-        })
-        val qrView = ImageView(this).apply { layoutParams = LinearLayout.LayoutParams(260, 260) }
+        val sheet = Sheet(this, "分享链接")
+        sheet.text(url)
+        sheet.keyValue("密码", if (s.hasPassword) "已设置" else "无")
+        sheet.keyValue("下载", if (s.allowDownload) "允许" else "禁止")
         val bmp = QrCode.make(url, 520)
-        if (bmp != null) qrView.setImageBitmap(bmp) else box.addView(
-            TextView(this).apply {
-                text = "(二维码生成失败,可用「复制链接」)"; setTextColor(ThemeColors.textDim(this@SharesActivity))
-            }
-        )
-        box.addView(qrView)
-        scroll.addView(box)
-        val wrap = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; addView(scroll) }
-
-        val dlg = AlertDialog.Builder(this).setTitle("分享链接")
-            .setPositiveButton("复制链接") { _, _ -> copyUrl(url); toast("链接已复制") }
-            .setNegativeButton("关闭", null).setView(wrap).show()
-        dlg.setOnShowListener {
-            dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener { copyUrl(url); toast("链接已复制") }
+        if (bmp != null) {
+            val area = sheet.customArea().apply { gravity = android.view.Gravity.CENTER_HORIZONTAL }
+            area.addView(
+                ImageView(this).apply {
+                    setImageBitmap(bmp)
+                    contentDescription = "分享二维码"
+                },
+                LinearLayout.LayoutParams(dp(200), dp(200)).apply { topMargin = dp(8) },
+            )
+        } else {
+            sheet.text("(二维码生成失败,可用「复制链接」)")
         }
+        // 「复制链接」不关闭弹层,便于同时扫码;与旧版行为一致
+        sheet.primary("复制链接") { copyUrl(url); toast("链接已复制") }
+        sheet.tonal("关闭") { sheet.dismiss() }
+        sheet.show()
     }
 
     private fun promptCreate(initialVpath: String = "") {
-        val vp = TextInputEditText(this).apply {
-            hint = "虚拟路径(如 /movie/intro.mkv)"
-            setText(initialVpath)
-        }
-        val hours = TextInputEditText(this).apply {
-            hint = "有效期(小时,留空=永久)"; inputType = InputType.TYPE_CLASS_NUMBER
-        }
-        val pw = TextInputEditText(this).apply {
-            hint = "访问密码(留空=无)"; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-        }
-        val dl = CheckBox(this).apply { text = "允许下载" }
-        val wrap = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(4), dp(20), 0)
-            addView(vp); addView(hours); addView(pw); addView(dl)
-        }
-        AlertDialog.Builder(this).setTitle("新建分享链接")
-            .setView(wrap)
-            .setPositiveButton("创建", null)
-            .setNegativeButton("取消", null)
-            .setCancelable(false)
-            .create().apply {
-                setOnShowListener {
-                    getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                        val vpath = vp.text.toString().trim()
-                        if (vpath.isEmpty()) { toast("请填写路径"); return@setOnClickListener }
-                        lifecycleScope.launch {
-                            try {
-                                val hoursVal = hours.text.toString().trim().toIntOrNull()?.takeIf { it > 0 } ?: 0
-                                val s = withContext(Dispatchers.IO) {
-                                    client.createShare(vpath, hoursVal, pw.text.toString(), dl.isChecked)
-                                }
-                                toast("已创建分享:${s.name}")
-                                loadList()
-                            } catch (e: Exception) { toast("创建失败: ${e.message}") }
-                        }
-                    }
-                }
-                show()
+        val sheet = Sheet(this, "新建分享链接")
+        sheet.input("虚拟路径(如 /movie/intro.mkv)", initialVpath)
+        sheet.input("有效期(小时,留空=永久)", "", InputType.TYPE_CLASS_NUMBER)
+        sheet.input("访问密码(留空=无)", "", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
+        // 用分段选择器替代「允许下载」复选框,默认禁止下载
+        var allowDownload = false
+        sheet.segmented(listOf("禁止下载", "允许下载"), 0) { i -> allowDownload = i == 1 }
+        sheet.primary("创建") {
+            val vpath = sheet.value(0)
+            if (vpath.isEmpty()) {
+                sheet.inputView(0)?.error = "请填写路径"
+                toast("请填写路径")
+                return@primary
             }
+            lifecycleScope.launch {
+                try {
+                    val hoursVal = sheet.value(1).toIntOrNull()?.takeIf { it > 0 } ?: 0
+                    val s = withContext(Dispatchers.IO) {
+                        client.createShare(vpath, hoursVal, sheet.inputView(2)?.text?.toString().orEmpty(), allowDownload)
+                    }
+                    sheet.dismiss()
+                    toast("已创建分享:${s.name}")
+                    loadList()
+                } catch (e: Exception) { toast("创建失败: ${e.message}") }
+            }
+        }
+        sheet.tonal("取消") { sheet.dismiss() }
+        sheet.show()
     }
 
     private fun confirmDelete(s: Share) {
-        AlertDialog.Builder(this).setTitle("取消分享")
-            .setMessage("取消「${s.name}」的分享链接?链接将立即失效。")
-            .setPositiveButton("取消分享") { _, _ ->
-                lifecycleScope.launch {
-                    try {
-                        withContext(Dispatchers.IO) { client.deleteShare(s.id) }
-                        toast("已取消分享")
-                        loadList()
-                    } catch (e: Exception) { toast("操作失败: ${e.message}") }
-                }
+        val sheet = Sheet(this, "取消分享", "取消「${s.name}」的分享链接?链接将立即失效。")
+        sheet.danger("取消分享") {
+            sheet.dismiss()
+            lifecycleScope.launch {
+                try {
+                    withContext(Dispatchers.IO) { client.deleteShare(s.id) }
+                    toast("已取消分享")
+                    loadList()
+                } catch (e: Exception) { toast("操作失败: ${e.message}") }
             }
-            .setNegativeButton("保留", null).show()
+        }
+        sheet.tonal("保留") { sheet.dismiss() }
+        sheet.show()
     }
 
     private fun copyUrl(url: String) {

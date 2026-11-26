@@ -5,7 +5,6 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
@@ -89,19 +88,17 @@ class AuditActivity : AppCompatActivity() {
     }
 
     private fun showDetail(e: AuditEntry) {
-        val sb = StringBuilder()
-        sb.append("时间:").append(if (e.time > 0) FileListAdapter.fmtDate(e.time) else "—").append('\n')
-        sb.append("用户:").append(e.user.ifBlank { "—" }).append('\n')
-        sb.append("IP:").append(e.ip.ifBlank { "—" }).append('\n')
-        sb.append("动作:").append(e.action.ifBlank { "—" }).append('\n')
-        sb.append("请求:").append(e.method).append(' ').append(e.path)
-        if (e.target.isNotBlank()) sb.append('\n').append("对象:").append(e.target)
-        sb.append('\n').append("状态:").append(e.status)
-        AlertDialog.Builder(this)
-            .setTitle(e.action.ifBlank { e.method })
-            .setMessage(sb.toString())
-            .setPositiveButton("关闭", null)
-            .show()
+        // 多行详情改为逐条 keyValue,避免拼一长串字符串
+        val sheet = Sheet(this, e.action.ifBlank { e.method })
+        sheet.keyValue("时间", if (e.time > 0) FileListAdapter.fmtDate(e.time) else "—")
+        sheet.keyValue("用户", e.user.ifBlank { "—" })
+        sheet.keyValue("IP", e.ip.ifBlank { "—" })
+        sheet.keyValue("动作", e.action.ifBlank { "—" })
+        sheet.keyValue("请求", "${e.method} ${e.path}")
+        if (e.target.isNotBlank()) sheet.keyValue("对象", e.target)
+        sheet.keyValue("状态", e.status.toString())
+        sheet.primary("关闭") { sheet.dismiss() }
+        sheet.show()
     }
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()

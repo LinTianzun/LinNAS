@@ -990,6 +990,8 @@ class PlayerActivity : AppCompatActivity() {
             // 去掉 BottomSheet 默认白色圆角背板,改用内容自带的深色半透明圆角
             findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
                 ?.setBackgroundColor(Color.TRANSPARENT)
+            // 压暗程度调低:面板本身已半透明,再叠默认 0.32 遮罩会显得像不透明的实心灰块
+            window?.setDimAmount(0.12f)
             setOnDismissListener { if (player?.isPlaying == true) scheduleHide() }
         }
         sheet.show()

@@ -15,16 +15,133 @@ import java.util.concurrent.TimeUnit
 // ---------- 简易 SharedPreferences 包装 ----------
 
 object Prefs {
+    // 会话持久化键：token 仅进加密存储；user/role/baseUrl 为非敏感元数据，可明文。
+    private const val KEY_SESS_TOKEN = "sess_token"
+    private const val KEY_SESS_USER = "sess_user"
+    private const val KEY_SESS_ROLE = "sess_role"
+    private const val KEY_SESS_BASE = "sess_base_url"
+    private const val KEY_AUTO_LOGIN = "auto_login"
+
     private lateinit var sp: android.content.SharedPreferences
+    private var appCtx: Context? = null
+
+    /**
+     * 本进程内「已激活」的会话 token：进程重启后为空，
+     * 直到 SessionRestore（auto_login）或本次登录把它激活。
+     * 这样 MainActivity 才能依据 auto_login 决定是直接进入还是回登录页（询问指纹）。
+     */
+    private var activeSessionToken: String? = null
+    private var initialized = false
+
     fun init(ctx: Context) {
         sp = ctx.getSharedPreferences("linnas", Context.MODE_PRIVATE)
+        if (appCtx == null) appCtx = ctx.applicationContext
+        if (initialized) return
+        initialized = true
+        // 进程首次初始化时先迁移旧版本会话，再尝试恢复。
+        // 多个 Activity 都会调用 init，用 initialized 兜住，保证只做一次。
+        appCtx?.let { migrateLegacySession(it) }
+        appCtx?.let { SessionRestore.tryRestore(it) }
     }
-    fun get(key: String, def: String): String = sp.getString(key, def) ?: def
-    fun set(key: String, value: String) = sp.edit().putString(key, value).apply()
+
+    /**
+     * 升级迁移：把旧版本的会话搬到新存储，避免用户升级后还要重新输密码。
+     * - 旧版把 token 明文存在 "session_token"；
+     * - 旧版勾选「记住」时把会话加密存在 "bio_session_token" 等键。
+     * 迁移后统一存 sess_*，并清掉旧键。
+     */
+    private fun migrateLegacySession(ctx: Context) {
+        val plain = sp.getString("session_token", null)
+        if (!plain.isNullOrBlank()) {
+            if (BiometricGate.loadSecret(ctx, KEY_SESS_TOKEN).isNullOrBlank()) {
+                BiometricGate.saveSecret(ctx, KEY_SESS_TOKEN, plain)
+                sp.edit()
+                    .putString(KEY_SESS_USER, sp.getString("session_user", "") ?: "")
+                    .putString(KEY_SESS_ROLE, sp.getString("session_role", "") ?: "")
+                    .putString(KEY_SESS_BASE, sp.getString("base_url", "") ?: "")
+                    .apply()
+            }
+            sp.edit().remove("session_token").apply()
+        }
+        val legacyBio = BiometricGate.loadSecret(ctx, "bio_session_token")
+        if (!legacyBio.isNullOrBlank() && BiometricGate.loadSecret(ctx, KEY_SESS_TOKEN).isNullOrBlank()) {
+            BiometricGate.saveSecret(ctx, KEY_SESS_TOKEN, legacyBio)
+            sp.edit()
+                .putString(KEY_SESS_USER, BiometricGate.loadSecret(ctx, "bio_session_user") ?: "")
+                .putString(KEY_SESS_ROLE, BiometricGate.loadSecret(ctx, "bio_session_role") ?: "")
+                .putString(KEY_SESS_BASE, BiometricGate.loadSecret(ctx, "bio_base_url") ?: "")
+                .apply()
+        }
+        BiometricGate.clearSecret(ctx, "bio_session_token")
+        BiometricGate.clearSecret(ctx, "bio_session_user")
+        BiometricGate.clearSecret(ctx, "bio_session_role")
+        BiometricGate.clearSecret(ctx, "bio_base_url")
+    }
+
+    fun get(key: String, def: String): String =
+        if (key == "session_token") activeSessionToken ?: def
+        else sp.getString(key, def) ?: def
+
+    fun set(key: String, value: String) {
+        if (key == "session_token") {
+            activeSessionToken = value
+            val ctx = appCtx
+            if (ctx != null && value.isNotBlank()) BiometricGate.saveSecret(ctx, KEY_SESS_TOKEN, value)
+            return
+        }
+        sp.edit().putString(key, value).apply()
+    }
+
     fun getBool(key: String, def: Boolean): Boolean = sp.getBoolean(key, def)
     fun setBool(key: String, value: Boolean) = sp.edit().putBoolean(key, value).apply()
+
+    /** 保存会话元数据：token 加密，其余明文。登录成功时无条件调用。 */
+    fun saveSessionMeta(token: String, user: String, role: String, baseUrl: String) {
+        val ctx = appCtx ?: return
+        if (token.isNotBlank()) BiometricGate.saveSecret(ctx, KEY_SESS_TOKEN, token)
+        activeSessionToken = token
+        sp.edit()
+            .putString(KEY_SESS_USER, user)
+            .putString(KEY_SESS_ROLE, role)
+            .putString(KEY_SESS_BASE, baseUrl)
+            .apply()
+    }
+
+    /** 读取已保存会话 [token,user,role,baseUrl]；没有加密 token 时返回 null。 */
+    fun sessionMeta(): Array<String>? {
+        val ctx = appCtx ?: return null
+        val token = BiometricGate.loadSecret(ctx, KEY_SESS_TOKEN)
+        if (token.isNullOrBlank()) return null
+        return arrayOf(
+            token,
+            sp.getString(KEY_SESS_USER, "") ?: "",
+            sp.getString(KEY_SESS_ROLE, "") ?: "",
+            sp.getString(KEY_SESS_BASE, "") ?: "",
+        )
+    }
+
+    /** 仅清除已保存会话（保留 base_url 等设备设置）。 */
+    fun clearSessionMeta() {
+        appCtx?.let { BiometricGate.clearSecret(it, KEY_SESS_TOKEN) }
+        sp.edit().remove(KEY_SESS_USER).remove(KEY_SESS_ROLE).remove(KEY_SESS_BASE).apply()
+    }
+
+    /**
+     * 退出登录 / 会话失效：清空内存会话、明文会话与自动登录开关。
+     *
+     * 注意：这里不清除「加密保存的会话」——因为 MainActivity 在会话校验失败（可能只是
+     * 网络/服务端临时不可达）时也会调用 clearSession()，若一并删掉加密会话，用户就会
+     * 在服务器临时离线时永久丢失指纹登录。真正退出登录由 [LinNasClient.logout] 额外调用
+     * clearSessionMeta() 清除加密会话。
+     */
     fun clearSession() {
-        sp.edit().remove("session_token").remove("session_user").remove("session_role").apply()
+        activeSessionToken = null
+        sp.edit()
+            .remove("session_token")
+            .remove("session_user")
+            .remove("session_role")
+            .remove(KEY_AUTO_LOGIN)
+            .apply()
     }
 }
 
@@ -392,7 +509,7 @@ class LinNasClient {
         )
     }
 
-    /** POST /api/auth/logout;成功后清空本地会话。 */
+    /** POST /api/auth/logout;成功后清空本地会话（含加密保存的指纹会话）。 */
     fun logout() {
         val st = ServerConfig.sessionToken
         if (st.isNotBlank()) {
@@ -400,9 +517,11 @@ class LinNasClient {
                 post("/api/auth/logout", "{}")
             } finally {
                 Prefs.clearSession()
+                Prefs.clearSessionMeta()
             }
         } else {
             Prefs.clearSession()
+            Prefs.clearSessionMeta()
         }
     }
 

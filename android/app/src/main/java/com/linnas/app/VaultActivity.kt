@@ -12,7 +12,6 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
@@ -129,59 +128,62 @@ class VaultActivity : AppCompatActivity() {
     }
 
     private fun promptSetup() {
-        val dlgView = layoutInflater.inflate(R.layout.dialog_password, null)
-        dlgView.findViewById<TextView>(R.id.dlgHint).text =
-            "设置一个至少 4 位的密码。忘记密码将无法恢复保险箱里的文件。"
-        dlgView.findViewById<View>(R.id.pwWrap2).visibility = View.VISIBLE
-        val pw = dlgView.findViewById<EditText>(R.id.etPassword)
-        val pw2 = dlgView.findViewById<EditText>(R.id.etPassword2)
-        val wrap = dlgView
-        AlertDialog.Builder(this).setTitle("创建保险箱").setView(wrap)
-            .setPositiveButton("创建") { _, _ ->
-                val a = pw.text.toString(); val b = pw2.text.toString()
-                if (a.length < 4 || a != b) { toast("两次密码不一致或太短"); promptSetup(); return@setPositiveButton }
-                lifecycleScope.launch {
-                    try {
-                        withContext(Dispatchers.IO) { client.vaultSetup(a) }
-                        toast("保险箱已创建,请解锁")
-                        promptUnlock()
-                    } catch (e: Exception) { toast("创建失败: ${e.message}") }
-                }
+        val sheet = Sheet(this, "创建保险箱", "设置一个至少 4 位的密码。忘记密码将无法恢复保险箱里的文件。")
+        sheet.input("密码", inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD)
+        sheet.input("再次输入密码", inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD)
+        sheet.primary("创建") {
+            val a = sheet.inputView(0)?.text?.toString().orEmpty()
+            val b = sheet.inputView(1)?.text?.toString().orEmpty()
+            if (a.length < 4 || a != b) {
+                sheet.inputView(1)?.error = "两次密码不一致或太短"
+                toast("两次密码不一致或太短")
+                return@primary
             }
-            .setNegativeButton("取消") { _, _ -> finish() }
-            .setCancelable(false)
-            .show()
+            lifecycleScope.launch {
+                try {
+                    withContext(Dispatchers.IO) { client.vaultSetup(a) }
+                    sheet.dismiss()
+                    toast("保险箱已创建,请解锁")
+                    promptUnlock()
+                } catch (e: Exception) { toast("创建失败: ${e.message}") }
+            }
+        }
+        sheet.tonal("取消") { sheet.dismiss(); finish() }
+        sheet.show()
     }
 
     private fun promptUnlock() {
         showLocked()
-        val dlgView = layoutInflater.inflate(R.layout.dialog_password, null)
-        dlgView.findViewById<TextView>(R.id.dlgHint).text = "输入保险箱密码后,文件在手机上即可浏览与播放。"
-        val pw = dlgView.findViewById<EditText>(R.id.etPassword)
-        AlertDialog.Builder(this).setTitle("解锁保险箱").setView(dlgView)
-            .setPositiveButton("解锁") { _, _ ->
-                lifecycleScope.launch {
-                    try {
-                        val tok = withContext(Dispatchers.IO) { client.vaultUnlock(pw.text.toString()) }
-                        if (tok.isBlank()) { toast("密码错误"); promptUnlock(); return@launch }
-                        vt = tok
-                        // 勾选后把保险箱密码加密保存,供指纹快速解锁。
-                        if (cbVaultBio.isChecked && BiometricGate.canUse(this@VaultActivity)) {
-                            if (BiometricGate.saveSecret(this@VaultActivity, KEY_VAULT_PW, pw.text.toString())) {
-                                toast("已启用指纹快速解锁")
-                            } else {
-                                toast("指纹保存失败,可稍后重试")
-                            }
+        val sheet = Sheet(this, "解锁保险箱", "输入保险箱密码后,文件在手机上即可浏览与播放。")
+        sheet.input("保险箱密码", inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD)
+        sheet.primary("解锁") {
+            val pwText = sheet.inputView(0)?.text?.toString().orEmpty()
+            lifecycleScope.launch {
+                try {
+                    val tok = withContext(Dispatchers.IO) { client.vaultUnlock(pwText) }
+                    if (tok.isBlank()) {
+                        sheet.inputView(0)?.error = "密码错误"
+                        toast("密码错误")
+                        return@launch
+                    }
+                    vt = tok
+                    // 勾选后把保险箱密码加密保存,供指纹快速解锁。
+                    if (cbVaultBio.isChecked && BiometricGate.canUse(this@VaultActivity)) {
+                        if (BiometricGate.saveSecret(this@VaultActivity, KEY_VAULT_PW, pwText)) {
+                            toast("已启用指纹快速解锁")
+                        } else {
+                            toast("指纹保存失败,可稍后重试")
                         }
-                        hint.text = "已解锁 · 文件在服务端加密存储"
-                        showUnlocked()
-                        loadList()
-                    } catch (e: Exception) { toast("解锁失败: ${e.message}") }
-                }
+                    }
+                    hint.text = "已解锁 · 文件在服务端加密存储"
+                    sheet.dismiss()
+                    showUnlocked()
+                    loadList()
+                } catch (e: Exception) { toast("解锁失败: ${e.message}") }
             }
-            .setNegativeButton("取消") { _, _ -> finish() }
-            .setCancelable(false)
-            .show()
+        }
+        sheet.tonal("取消") { sheet.dismiss(); finish() }
+        sheet.show()
     }
 
     private fun lockNow() {
@@ -230,18 +232,12 @@ class VaultActivity : AppCompatActivity() {
                 row.findViewById<TextView>(R.id.fmeta).text =
                     if (e.isDir) ""
                     else FileListAdapter.fmtSize(e.size) + if (e.modTime > 0) "  ·  " + FileListAdapter.fmtDate(e.modTime) else ""
-                row.findViewById<View>(R.id.fmore).setOnClickListener { anchor ->
-                    val popup = android.widget.PopupMenu(this@VaultActivity, anchor)
-                    if (!e.isDir) popup.menu.add(0, 1, 0, "导出到存储库…")
-                    popup.menu.add(0, 2, 1, "删除")
-                    popup.setOnMenuItemClickListener { mi ->
-                        when (mi.itemId) {
-                            1 -> exportEntry(e, rel)
-                            2 -> confirmDelete(e, rel)
-                        }
-                        true
-                    }
-                    popup.show()
+                row.findViewById<View>(R.id.fmore).setOnClickListener { _ ->
+                    // 用底部 Sheet 替代系统弹出菜单,统一操作菜单观感
+                    val sheet = Sheet(this@VaultActivity, e.name)
+                    if (!e.isDir) sheet.row(R.drawable.ic_upload, "导出到存储库…") { exportEntry(e, rel) }
+                    sheet.row(R.drawable.ic_trash_bin, "删除", destructive = true) { confirmDelete(e, rel) }
+                    sheet.show()
                 }
                 row.setOnClickListener {
                     if (e.isDir) { vaultPath = rel; loadList() } else openEntry(e, rel)
@@ -257,51 +253,58 @@ class VaultActivity : AppCompatActivity() {
     /** 在保险箱内新建文件夹(当前目录下)。 */
     private fun showMkdir() {
         val token = vt ?: return
-        val et = EditText(this).apply { hint = "文件夹名称"; setSingleLine() }
-        AlertDialog.Builder(this).setTitle("新建文件夹").setView(et)
-            .setPositiveButton("创建") { _, _ ->
-                val nm = et.text.toString().trim()
-                if (nm.isBlank()) { toast("请输入名称"); return@setPositiveButton }
-                lifecycleScope.launch {
-                    try {
-                        withContext(Dispatchers.IO) { client.vaultMkdir(token, vaultJoin(vaultPath, nm)) }
-                        toast("已创建 $nm")
-                        loadList()
-                    } catch (e: Exception) { toast("创建失败: ${e.message}") }
-                }
+        val sheet = Sheet(this, "新建文件夹")
+        sheet.input("文件夹名称")
+        sheet.primary("创建") {
+            val nm = sheet.value(0)
+            if (nm.isBlank()) {
+                sheet.inputView(0)?.error = "请输入名称"
+                toast("请输入名称")
+                return@primary
             }
-            .setNegativeButton("取消", null).show()
+            lifecycleScope.launch {
+                try {
+                    withContext(Dispatchers.IO) { client.vaultMkdir(token, vaultJoin(vaultPath, nm)) }
+                    sheet.dismiss()
+                    toast("已创建 $nm")
+                    loadList()
+                } catch (e: Exception) { toast("创建失败: ${e.message}") }
+            }
+        }
+        sheet.tonal("取消") { sheet.dismiss() }
+        sheet.show()
     }
 
     /** 修改保险箱密码(成功后所有保险箱会话失效,需重新解锁)。 */
     private fun showChangePassword() {
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(8), dp(20), 0)
-        }
-        val etOld = EditText(this).apply { hint = "当前密码"; setSingleLine() }
-        val etNew = EditText(this).apply { hint = "新密码(至少 4 位)"; setSingleLine() }
-        box.addView(etOld); box.addView(etNew)
-        AlertDialog.Builder(this).setTitle("修改保险箱密码").setView(box)
-            .setPositiveButton("修改") { _, _ ->
-                val old = etOld.text.toString()
-                val nw = etNew.text.toString()
-                if (old.isBlank() || nw.length < 4) { toast("请填写当前密码,新密码至少 4 位"); return@setPositiveButton }
-                lifecycleScope.launch {
-                    try {
-                        withContext(Dispatchers.IO) { client.vaultChangePassword(old, nw) }
-                        toast("密码已修改,请重新解锁")
-                        vt = null
-                        vaultPath = ""
-                        list.removeAllViews()
-                        emptyView.visibility = View.GONE
-                        BiometricGate.clearSecret(this@VaultActivity, KEY_VAULT_PW)
-                        showLocked()
-                        promptUnlock()
-                    } catch (e: Exception) { toast("修改失败: ${e.message}") }
-                }
+        val sheet = Sheet(this, "修改保险箱密码")
+        sheet.input("当前密码", inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD)
+        sheet.input("新密码(至少 4 位)", inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD)
+        sheet.primary("修改") {
+            val old = sheet.inputView(0)?.text?.toString().orEmpty()
+            val nw = sheet.inputView(1)?.text?.toString().orEmpty()
+            if (old.isBlank() || nw.length < 4) {
+                sheet.inputView(1)?.error = "请填写当前密码,新密码至少 4 位"
+                toast("请填写当前密码,新密码至少 4 位")
+                return@primary
             }
-            .setNegativeButton("取消", null).show()
+            lifecycleScope.launch {
+                try {
+                    withContext(Dispatchers.IO) { client.vaultChangePassword(old, nw) }
+                    toast("密码已修改,请重新解锁")
+                    vt = null
+                    vaultPath = ""
+                    list.removeAllViews()
+                    emptyView.visibility = View.GONE
+                    BiometricGate.clearSecret(this@VaultActivity, KEY_VAULT_PW)
+                    sheet.dismiss()
+                    showLocked()
+                    promptUnlock()
+                } catch (e: Exception) { toast("修改失败: ${e.message}") }
+            }
+        }
+        sheet.tonal("取消") { sheet.dismiss() }
+        sheet.show()
     }
 
     private fun openEntry(e: VaultEntry, rel: String) {
@@ -321,16 +324,18 @@ class VaultActivity : AppCompatActivity() {
 
     private fun confirmDelete(e: VaultEntry, rel: String) {
         val token = vt ?: return
-        AlertDialog.Builder(this).setTitle("删除").setMessage("从保险箱删除「${e.name}」?")
-            .setPositiveButton("删除") { _, _ ->
-                lifecycleScope.launch {
-                    try {
-                        withContext(Dispatchers.IO) { client.vaultDelete(token, listOf(rel)) }
-                        loadList()
-                    } catch (ex: Exception) { toast("失败: ${ex.message}") }
-                }
+        val sheet = Sheet(this, "删除", "从保险箱删除「${e.name}」?")
+        sheet.danger("删除") {
+            sheet.dismiss()
+            lifecycleScope.launch {
+                try {
+                    withContext(Dispatchers.IO) { client.vaultDelete(token, listOf(rel)) }
+                    loadList()
+                } catch (ex: Exception) { toast("失败: ${ex.message}") }
             }
-            .setNegativeButton("取消", null).show()
+        }
+        sheet.tonal("取消") { sheet.dismiss() }
+        sheet.show()
     }
 
     // ---------- 导入 / 导出 ----------
@@ -366,24 +371,25 @@ class VaultActivity : AppCompatActivity() {
     private fun pickLibraryDir(onPick: (String) -> Unit) = pickLibrary(selectDirs = true, onDir = onPick, onFile = null)
 
     private fun pickLibrary(selectDirs: Boolean, onDir: ((String) -> Unit)?, onFile: ((String) -> Unit)?) {
-        val wrap = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(4), dp(20), 0)
-        }
+        // 目录浏览需要原地刷新 + 自定义内容,用 Sheet 的持久容器承载
+        val sheet = Sheet(this, if (selectDirs) "选择导出目录" else "选择要导入的文件")
+        val area = sheet.customArea()
         val crumb = TextView(this).apply { setTextColor(ThemeColors.textDim(this@VaultActivity)); textSize = 12f }
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val scroll = android.widget.ScrollView(this).apply { addView(box) }
-        wrap.addView(crumb); wrap.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(340)))
+        area.addView(crumb)
+        area.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(340)))
 
-        val dlg = AlertDialog.Builder(this).setTitle(if (selectDirs) "选择导出目录" else "选择要导入的文件").setView(wrap)
-            .setPositiveButton(if (selectDirs) "选这里" else "关闭", null).setNegativeButton("取消", null).create()
-        dlg.setOnShowListener {
-            dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                if (selectDirs && currentPath.isNotEmpty()) { dlg.dismiss(); onDir?.invoke(currentPath) }
-                else if (selectDirs) toast("先进入一个目录") else dlg.dismiss()
+        // 目录选择用「选这里」;文件选择用「关闭」(点文件本身即选中并关闭)
+        if (selectDirs) {
+            sheet.primary("选这里") {
+                if (currentPath.isNotEmpty()) { sheet.dismiss(); onDir?.invoke(currentPath) }
+                else toast("先进入一个目录")
             }
+        } else {
+            sheet.primary("关闭") { sheet.dismiss() }
         }
-        dlg.show()
+        sheet.tonal("取消") { sheet.dismiss() }
 
         fun row(label: String, isDir: Boolean, onClick: () -> Unit) {
             val item = LinearLayout(this).apply {
@@ -431,11 +437,12 @@ class VaultActivity : AppCompatActivity() {
                 resp?.entries?.forEach { e ->
                     val child = vp.trimEnd('/') + "/" + e.name
                     if (e.isDir) row(e.name, true) { load(child) }
-                    else if (!selectDirs) row(e.name, false) { dlg.dismiss(); onFile?.invoke(child) }
+                    else if (!selectDirs) row(e.name, false) { sheet.dismiss(); onFile?.invoke(child) }
                 }
             }
         }
         load("")
+        sheet.show()
     }
 
     private var currentPath: String = ""

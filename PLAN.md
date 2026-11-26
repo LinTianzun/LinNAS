@@ -1,6 +1,6 @@
-﻿# LinNAS — 本地云盘/NAS 方案与版本路线图
+# LinNAS — 本地云盘/NAS 方案与版本路线图
 
-> 当前组件版本（2026-11-26）：Windows 服务端 **1.7.0**；Android 客户端 **1.8.3**（`versionCode` 12）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
+> 当前组件版本（2026-11-26）：Windows 服务端 **1.7.0**；Android 客户端 **1.8.4**（`versionCode` 13）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
 
 > 下文保留早期技术决策与里程碑记录；历史版本号描述当时状态，不代表当前版本。
 
@@ -328,6 +328,17 @@
 - **传输效率**：新增全局共享 `TransferHttp` 客户端（连接池 8 / 5 分钟），`Dispatcher` 并发上限 4/域、统一连接 10s·读写 60s 超时、开启失败重连；读缓冲统一 256KB，写盘改 `BufferedOutputStream`（保留 `fd.sync()`）；私有目录下载保留 Range 断点续传。
 - **版本**：Android `versionCode` 12 / `versionName` 1.8.3；产物 `release/linNas-1.8.3-debug.apk`（附 SHA-256）。
 - **验证**：`:app:compileDebugKotlin`、`:app:testDebugUnitTest`（15 个单测）、`:app:assembleDebug` 均 BUILD SUCCESSFUL。
+
+### M13.4 Android v1.8.4 更新安装修复、登录持久化与弹窗收尾（2026-11-26，Android v1.8.4）
+- **应用内更新修复（Android 16）**：补 `REQUEST_INSTALL_PACKAGES` 权限；安装前用 `PackageManager.canRequestPackageInstalls()` 校验，未授权时弹 Sheet 引导到「安装未知应用」设置页，返回后经 `ActivityResultLauncher` 只自动重试一次；安装 Intent 一次性 `setDataAndType` + `FLAG_GRANT_READ_URI_PERMISSION`（去掉 `FLAG_ACTIVITY_NEW_TASK`）；安装前校验文件存在、大小 > 1MB、头 2 字节为 `PK`，坏包直接删除并提示重下。
+- **网页更新入口**：版本检查页新增「在浏览器中打开更新页」（`ServerConfig.baseUrl`）、更新包下载直链展示（`<baseUrl>/api/app/apk`）与「复制下载直链」。
+- **登录页美化**：品牌区（72dp 圆底图标 + LinNAS + 副标题）+ 圆角卡片（服务器地址行 + 指纹主按钮 + 描边用户名/密码输入框 + 自动登录复选框 + 全宽登录按钮 + 错误提示）+ 底部「跳过登录，只用访问口令进入」，全部用主题语义色。
+- **指纹登录不再重复登录**：会话持久化到加密存储（`sess_token` 用 Android Keystore AES/GCM，`sess_user/role/base_url` 明文元数据），`Prefs.init` 时执行 `SessionRestore.tryRestore`，进程重启/App 更新后自动恢复；旧版明文 `session_token` 与旧 `bio_session_*` 键自动迁移；登录成功即保存（复选框语义改为「下次自动登录，不再询问指纹」）；有会话但未开自动登录时，进登录页会自动弹一次指纹。
+- **播放器「更多」面板更透明**：新增 `bg_player_more` 纵向渐变半透明（顶部约 62% → 底部约 78%）+ 18dp 圆角，BottomSheet 遮罩由默认 0.32 降到 0.12，面板不再显成实心灰块。
+- **主题**：「月白」与「云白」过近，第 4 套改为浅绿灰「青瓷」（ink `#E8F1ED` / 主色 `#2E7D6B`），内部 key 仍为 `mono` 以免破坏已存偏好。
+- **剩余二级页弹窗收尾**：`TrashActivity` / `VaultActivity` / `SharesActivity` / `UserAdminActivity` / `SessionsActivity` / `WolActivity` / `LibraryAdminActivity` / `AuditActivity` / `MaintenanceActivity` 共 26 处裸 `AlertDialog` / `PopupMenu` 全部改为 `Sheet`（确认类用危险色按钮、表单类用 `input` + 内联校验、动作菜单用 `row` 列表、多行详情用 `keyValue`）；全仓 `setMessage(` 仅剩 `PlayerActivity.showErrorDialog` 的播放错误提示。
+- **版本**：Android `versionCode` 13 / `versionName` 1.8.4；产物 `release/linNas-1.8.4-debug.apk`（附 SHA-256）。
+- **验证**：`:app:compileDebugKotlin`（强制全量重编）、`:app:testDebugUnitTest`（15 个单测）、`:app:assembleDebug` 均 BUILD SUCCESSFUL。
 
 ### M14 Web UI 总览页与侧栏分组重构（2026-11-26，服务端 1.7.0）
 - **问题**：主区 `.app` 限制 `max-width:1180px` 并居中，宽屏（1586px）左侧约 200px 死区；侧栏入口全塞在「更多」里，层级混乱。

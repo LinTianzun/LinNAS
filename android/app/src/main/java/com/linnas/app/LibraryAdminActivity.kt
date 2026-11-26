@@ -3,7 +3,6 @@ package com.linnas.app
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
-import androidx.appcompat.app.AlertDialog
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -60,48 +59,54 @@ class LibraryAdminActivity : ScreenScaffold() {
     }
 
     private fun showEdit(lib: Library) {
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(8), dp(20), 0)
-        }
-        val etName = EditText(this).apply { hint = "显示名称"; setText(lib.name); setSingleLine() }
-        val etPath = EditText(this).apply { hint = "服务端目录路径"; setText(lib.path); setSingleLine() }
-        val cbReadOnly = CheckBox(this).apply { text = "只读"; isChecked = lib.readOnly }
-        val cbEnabled = CheckBox(this).apply { text = "启用"; isChecked = lib.enabled }
-        box.addView(etName)
-        box.addView(etPath)
-        box.addView(cbReadOnly)
-        box.addView(cbEnabled)
-        AlertDialog.Builder(this).setTitle("编辑「${lib.name}」").setView(box)
-            .setPositiveButton("保存") { _, _ ->
-                val name = etName.text.toString().trim()
-                val path = etPath.text.toString().trim()
-                if (name.isBlank() || path.isBlank()) { toast("名称和路径不能为空"); return@setPositiveButton }
-                lifecycleScope.launch {
-                    try {
-                        withContext(Dispatchers.IO) {
-                            client.libUpdate(lib.id, name, path, cbReadOnly.isChecked, cbEnabled.isChecked)
-                        }
-                        toast("已保存")
-                        load()
-                    } catch (e: Exception) { toast("保存失败: ${e.message}") }
-                }
+        val sheet = Sheet(this, "编辑「${lib.name}」")
+        sheet.input("显示名称", lib.name)
+        sheet.input("服务端目录路径", lib.path)
+        // 两个布尔开关改用分段选择器:原地选中,不必再拼 CheckBox
+        var readOnly = lib.readOnly
+        var enabled = lib.enabled
+        sheet.segmented(listOf("可读写", "只读"), if (lib.readOnly) 1 else 0) { i -> readOnly = i == 1 }
+        sheet.segmented(listOf("已停用", "启用"), if (lib.enabled) 1 else 0) { i -> enabled = i == 1 }
+        sheet.primary("保存") {
+            val name = sheet.value(0)
+            val path = sheet.value(1)
+            if (name.isBlank() || path.isBlank()) {
+                sheet.inputView(0)?.error = "名称和路径不能为空"
+                toast("名称和路径不能为空")
+                return@primary
             }
-            .setNegativeButton("取消", null).show()
+            lifecycleScope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        client.libUpdate(lib.id, name, path, readOnly, enabled)
+                    }
+                    sheet.dismiss()
+                    toast("已保存")
+                    load()
+                } catch (e: Exception) { toast("保存失败: ${e.message}") }
+            }
+        }
+        sheet.tonal("取消") { sheet.dismiss() }
+        sheet.show()
     }
 
     private fun confirmDelete(lib: Library) {
-        AlertDialog.Builder(this).setTitle("删除存储库")
-            .setMessage("删除存储库「${lib.name}」?\n注意:只是从 App 里移除该存储库,不会删除电脑上的文件。")
-            .setPositiveButton("删除") { _, _ ->
-                lifecycleScope.launch {
-                    try {
-                        withContext(Dispatchers.IO) { client.deleteLib(lib.id) }
-                        toast("已删除")
-                        load()
-                    } catch (e: Exception) { toast("删除失败: ${e.message}") }
-                }
+        val sheet = Sheet(
+            this,
+            "删除存储库",
+            "删除存储库「${lib.name}」?\n注意:只是从 App 里移除该存储库,不会删除电脑上的文件。",
+        )
+        sheet.danger("删除") {
+            sheet.dismiss()
+            lifecycleScope.launch {
+                try {
+                    withContext(Dispatchers.IO) { client.deleteLib(lib.id) }
+                    toast("已删除")
+                    load()
+                } catch (e: Exception) { toast("删除失败: ${e.message}") }
             }
-            .setNegativeButton("取消", null).show()
+        }
+        sheet.tonal("取消") { sheet.dismiss() }
+        sheet.show()
     }
 }

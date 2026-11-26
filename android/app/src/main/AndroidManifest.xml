@@ -20,6 +20,8 @@
     <!-- v1.8.0 生物识别(保险箱解锁 / 生物识别登录) -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <uses-permission android:name="android.permission.USE_FINGERPRINT" />
+    <!-- 应用内下载更新包后拉起系统安装器(Android 8.0+ 必须声明,否则安装器不响应) -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:name=".LinNasApp"

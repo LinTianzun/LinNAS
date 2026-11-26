@@ -2,7 +2,6 @@ package com.linnas.app
 
 import android.widget.EditText
 import android.widget.LinearLayout
-import androidx.appcompat.app.AlertDialog
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -21,27 +20,27 @@ class SessionsActivity : ScreenScaffold() {
 
     /** 修改当前登录用户的密码(/api/users/password,任何登录用户可用)。 */
     private fun showChangePassword() {
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(8), dp(20), 0)
-        }
-        val etOld = EditText(this).apply { hint = "当前密码"; setSingleLine() }
-        val etNew = EditText(this).apply { hint = "新密码"; setSingleLine() }
-        box.addView(etOld)
-        box.addView(etNew)
-        AlertDialog.Builder(this).setTitle("修改我的密码").setView(box)
-            .setPositiveButton("保存") { _, _ ->
-                val old = etOld.text.toString()
-                val new = etNew.text.toString()
-                if (old.isBlank() || new.length < 4) { toast("请填写当前密码,新密码至少 4 位"); return@setPositiveButton }
-                lifecycleScope.launch {
-                    try {
-                        withContext(Dispatchers.IO) { client.changeMyPassword(old, new) }
-                        toast("密码已修改")
-                    } catch (e: Exception) { toast("修改失败: ${e.message}") }
-                }
+        val sheet = Sheet(this, "修改我的密码")
+        sheet.input("当前密码", inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD)
+        sheet.input("新密码", inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD)
+        sheet.primary("保存") {
+            val old = sheet.inputView(0)?.text?.toString().orEmpty()
+            val new = sheet.inputView(1)?.text?.toString().orEmpty()
+            if (old.isBlank() || new.length < 4) {
+                sheet.inputView(1)?.error = "请填写当前密码,新密码至少 4 位"
+                toast("请填写当前密码,新密码至少 4 位")
+                return@primary
             }
-            .setNegativeButton("取消", null).show()
+            lifecycleScope.launch {
+                try {
+                    withContext(Dispatchers.IO) { client.changeMyPassword(old, new) }
+                    sheet.dismiss()
+                    toast("密码已修改")
+                } catch (e: Exception) { toast("修改失败: ${e.message}") }
+            }
+        }
+        sheet.tonal("取消") { sheet.dismiss() }
+        sheet.show()
     }
 
     private fun load() {
@@ -94,19 +93,22 @@ class SessionsActivity : ScreenScaffold() {
     }
 
     private fun confirmRevoke(s: SessionInfo) {
-        AlertDialog.Builder(this)
-            .setTitle("吊销会话")
-            .setMessage("吊销「${s.username}」在 ${s.ip} 上的会话?" + if (s.current) "\n\n注意:这是当前设备的会话,吊销后需要重新登录。" else "")
-            .setPositiveButton("吊销") { _, _ ->
-                lifecycleScope.launch {
-                    try {
-                        withContext(Dispatchers.IO) { client.revokeSession(s.id) }
-                        toast("已吊销")
-                        load()
-                    } catch (e: Exception) { toast("失败: ${e.message}") }
-                }
+        val sheet = Sheet(
+            this,
+            "吊销会话",
+            "吊销「${s.username}」在 ${s.ip} 上的会话?" + if (s.current) "\n\n注意:这是当前设备的会话,吊销后需要重新登录。" else "",
+        )
+        sheet.danger("吊销") {
+            sheet.dismiss()
+            lifecycleScope.launch {
+                try {
+                    withContext(Dispatchers.IO) { client.revokeSession(s.id) }
+                    toast("已吊销")
+                    load()
+                } catch (e: Exception) { toast("失败: ${e.message}") }
             }
-            .setNegativeButton("取消", null)
-            .show()
+        }
+        sheet.tonal("取消") { sheet.dismiss() }
+        sheet.show()
     }
 }

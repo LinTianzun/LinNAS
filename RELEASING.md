@@ -7,7 +7,7 @@
 | 组件 | 当前版本 | 版本号维护位置 |
 |---|---:|---|
 | Windows 服务端 | 1.7.0 | `server/config.go`（`Version`） |
-| Android 客户端 | 1.8.3，`versionCode` 为 12 | `android/app/build.gradle.kts` |
+| Android 客户端 | 1.8.4，`versionCode` 为 13 | `android/app/build.gradle.kts` |
 
 发布前先更新对应组件的版本号。每次发布新的 Android APK 时，`versionCode` 必须递增。请同步更新对应组件的 README 和 `PLAN.md`；两个组件的版本号互不关联，不要根据其中一个推算另一个。
 
