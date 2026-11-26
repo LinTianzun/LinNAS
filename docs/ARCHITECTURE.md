@@ -52,6 +52,7 @@
 | `fsops.go` / `size.go` / `disks.go` | 目录选择器 / 盘符枚举、移动 / 复制 / 改名 / 删除、目录递归大小、磁盘剩余 |
 | `analysis.go` | 存储空间分析：概览、大文件 Top N、重复文件候选（后台抽样哈希，人工确认后删除） |
 | `media_hide.go` | 「不在媒体库展示」路径的增删查（仍索引、仍可访问） |
+| `overview.go` | 总览仪表盘数据：`GET /api/overview`（库容量、全库与类型统计、索引 / 回收站 / 分享 / 设备、近期活动、空间与索引告警） |
 | `webdav.go` | WebDAV 服务（`/dav/<库ID>/`，继承账号 / 只读，敏感目录不可访问） |
 | `zip.go` | 文件夹 / 多选服务端流式 Zip 打包 |
 | `wol.go` | 网络唤醒主机管理与 magic packet |
@@ -70,7 +71,7 @@
 - 安全 / 账号：`auth/{login,logout,me,status,sessions,revoke}`、`users`（+password / update）、`audit`、`devices`、`shares`、`share/{id}`、`share/{id}/raw`
 - 保险箱：`vault/{status,setup,unlock,lock,ls,raw,upload,delete,mkdir,import,export,改密}`
 - 回收站：`trash`、`trash/{restore,delete,empty,thumb}`
-- 其它：`health`、`settings`、`pair`、`pair/qr`、`qr`、`remote`、`remote/serve`、`hotspot`、`autostart`、`app/version`、`app/apk`、`wol`、`wol/send`、`maintenance/cleanup`、`system/open`、`storage/{summary,large,duplicates,duplicates/scan}`
+- 其它：`health`、`settings`、`pair`、`pair/qr`、`qr`、`remote`、`remote/serve`、`hotspot`、`autostart`、`app/version`、`app/apk`、`wol`、`wol/send`、`maintenance/cleanup`、`system/open`、`overview`、`storage/{summary,large,duplicates,duplicates/scan}`
 - 非 `/api`：`/pair`（配对页）、`/s/{id}`（分享页）、`/dav/<lib>/`（WebDAV）、`/ui/`（管理端）
 
 ### 3.3 鉴权与权限
@@ -104,7 +105,8 @@
 ## 5. Web 管理端
 
 - 原生 JavaScript + CSS（无框架），源码在 `server/ui/`，构建产物 `server/ui/dist/`（`index.html`、`app.js`、`style.css`）经 `//go:embed` 内嵌进 exe。
-- 视图：文件浏览、媒体库、音乐播放器、回收站、保险箱、分享、用户、审计、会话、维护、网络唤醒、存储分析等；主题深 / 浅 / 跟随系统。
+- 布局：全宽主区（`.app` 不再限制 1180px）+ 236px 固定侧栏；侧栏按「总览 / 存储库 / 媒体 / 存储 / 设备与网络 / 分享与管理」分组，低频入口按角色隐藏。
+- 视图：总览仪表盘、文件浏览、媒体库、音乐播放器、回收站、保险箱、分享、用户、审计、会话、维护、网络唤醒、存储分析等；主题深 / 浅 / 跟随系统。
 
 ## 6. 数据与存储
 

@@ -113,9 +113,10 @@ body {
 /* ---------- 骨架 ---------- */
 .app {
   display: flex;
+  width: 100%;
+  max-width: none;
+  margin: 0;
   min-height: calc(100vh - 56px);
-  max-width: 1180px;
-  margin: 0 auto;
 }
 
 .sidebar {
@@ -126,6 +127,8 @@ body {
   border-right: 1px solid var(--line);
   position: sticky; top: 56px;
   height: calc(100vh - 56px);
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
 .side-head {
   padding: 0 10px 10px;
@@ -1147,6 +1150,144 @@ dialog.wide { width: min(94vw, 600px); }
   color: var(--faint); background: var(--panel-2); border: 1px solid var(--line);
   border-radius: 999px; padding: 0 6px; vertical-align: middle; white-space: nowrap;
 }
+
+/* ============================================================ 侧边栏分组导航 */
+.side-group {
+  padding: 14px 10px 6px;
+  font-size: 10.5px; font-weight: 600; letter-spacing: .1em;
+  color: var(--faint); text-transform: uppercase;
+}
+.side-head-btn { cursor: pointer; border-radius: var(--radius-sm); }
+.side-head-btn:hover { color: var(--muted); background: var(--panel); }
+.side-head-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.side-top { margin-bottom: 4px; }
+.side-lead { font-weight: 600; }
+.side-lead .ic { width: 17px; height: 17px; }
+
+/* ============================================================ 总览仪表盘 */
+.ov-kpis {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  gap: 10px; margin: 4px 0 14px;
+}
+.ov-kpi {
+  background: linear-gradient(180deg, var(--surface-2), var(--panel));
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: 13px 15px; box-shadow: var(--shadow-1);
+}
+.ov-kpi-v { font-size: 22px; font-weight: 650; letter-spacing: .01em; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.ov-kpi-l { margin-top: 4px; font-size: 11.5px; color: var(--faint); letter-spacing: .02em; }
+
+.ov-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 14px; }
+.ov-card {
+  grid-column: span 12; display: flex; flex-direction: column; min-width: 0;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 16px 18px; box-shadow: var(--shadow-1);
+}
+.ov-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.ov-card-head h3 { margin: 0; font-size: 13.5px; font-weight: 600; letter-spacing: .02em; }
+.ov-c-ic { display: inline-flex; color: var(--accent); }
+.ov-c-ic .ic { width: 16px; height: 16px; }
+.ov-card-body { min-width: 0; }
+
+/* 总览：桌面分栏 */
+@media (min-width: 980px) {
+  #ov-capacity { grid-column: span 7; }
+  #ov-content  { grid-column: span 5; }
+  #ov-actions  { grid-column: span 4; }
+  #ov-activity { grid-column: span 8; }
+}
+@media (min-width: 1500px) {
+  #ov-actions  { grid-column: span 5; }
+  #ov-activity { grid-column: span 7; }
+}
+@media (max-width: 899px) {
+  .ov-grid { grid-template-columns: 1fr; }
+  .ov-card { grid-column: span 1; }
+}
+
+/* 容量 */
+.ov-lib { padding: 9px 0 11px; border-bottom: 1px solid var(--line-soft); }
+.ov-lib:first-child { padding-top: 0; }
+.ov-lib-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.ov-lib-name { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-lib-pct { font-family: var(--font-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ov-lib-path { margin-top: 2px; font-family: var(--font-mono); font-size: 11px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-bar { margin-top: 8px; height: 7px; border-radius: 99px; background: var(--line); overflow: hidden; }
+.ov-bar > i { display: block; height: 100%; width: 0; border-radius: 99px; background: linear-gradient(90deg, var(--accent), var(--accent-hi)); transition: width .45s var(--ease-out); }
+.ov-lib-meta { display: flex; justify-content: space-between; gap: 10px; margin-top: 6px; font-size: 11.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.ov-lib-total { border-bottom: 0; padding-bottom: 0; }
+
+/* 内容统计 */
+.ov-kinds { display: grid; grid-template-columns: repeat(auto-fit, minmax(68px, 1fr)); gap: 8px; }
+.ov-kind { background: var(--panel-2); border: 1px solid var(--line-soft); border-radius: var(--radius-sm); padding: 10px 8px; text-align: center; }
+.ov-kind-v { font-size: 19px; font-weight: 650; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.ov-kind-l { margin-top: 2px; font-size: 11px; color: var(--faint); }
+
+/* 系统状态 */
+.ov-sys { margin-top: 14px; border-top: 1px solid var(--line-soft); padding-top: 6px; }
+.ov-sys-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 5px 0; font-size: 12.5px; }
+.ov-sys-row .k { color: var(--muted); }
+.ov-sys-row .v { color: var(--text); text-align: right; font-variant-numeric: tabular-nums; }
+
+/* 快捷入口 */
+.ov-act-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; }
+.ov-act {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  padding: 15px 10px; background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); color: var(--text); font: inherit; font-size: 12.5px;
+  cursor: pointer; transition: border-color .15s ease, background .15s ease, transform .15s var(--ease-out);
+}
+.ov-act:hover { border-color: var(--accent); background: var(--accent-soft); transform: translateY(-2px); }
+.ov-act-ic { display: inline-flex; color: var(--accent); }
+.ov-act-ic .ic { width: 20px; height: 20px; }
+.ov-act-t { text-align: center; }
+
+/* 近期活动 */
+.ov-log { display: flex; flex-direction: column; }
+.ov-log-row {
+  display: grid; grid-template-columns: 116px 80px minmax(0, 1fr); gap: 10px; align-items: baseline;
+  padding: 7px 0; border-bottom: 1px solid var(--line-soft); font-size: 12.5px;
+}
+.ov-log-row:last-child { border-bottom: 0; }
+.ov-log-time { font-family: var(--font-mono); font-size: 11px; color: var(--faint); }
+.ov-log-user { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-log-what { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 640px) { .ov-log-row { grid-template-columns: 1fr; gap: 2px; } }
+
+.ov-empty { padding: 22px 8px; text-align: center; color: var(--faint); font-size: 13px; }
+
+/* 告警条 */
+.ov-alert {
+  display: flex; align-items: center; gap: 10px; padding: 9px 12px; margin-bottom: 8px;
+  border-radius: var(--radius-sm); border: 1px solid var(--line);
+  background: var(--panel); font-size: 13px;
+}
+.ov-alert.warn { border-color: rgba(226, 96, 77, .38); background: rgba(226, 96, 77, .10); color: var(--err); }
+.ov-alert.info { color: var(--muted); }
+.ov-alert-ic {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 50%; border: 1px solid currentColor;
+  font-size: 11px; font-weight: 700; flex: 0 0 auto; opacity: .9;
+}
+.ov-alert-txt { flex: 1; min-width: 0; }
+.ov-alert .btn { margin-left: auto; }
+
+/* 规划中卡片 */
+.ov-roadmap .ov-card-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.ov-plan {
+  border: 1px dashed var(--line-2); border-radius: var(--radius-sm); padding: 14px 16px;
+  background: linear-gradient(180deg, var(--surface-2), transparent);
+}
+.ov-plan-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ov-plan-title { font-size: 14px; font-weight: 600; }
+.ov-plan-tag {
+  font-size: 10.5px; padding: 1px 7px; border-radius: 999px;
+  color: var(--accent); background: var(--accent-soft); border: 1px solid rgba(232, 163, 61, .28);
+}
+.ov-plan-badge { margin-left: auto; font-size: 10.5px; padding: 1px 7px; border-radius: 999px; color: var(--faint); border: 1px solid var(--line); }
+.ov-plan-row { display: grid; grid-template-columns: 38px minmax(0, 1fr); gap: 8px; margin-top: 8px; font-size: 12.5px; line-height: 1.5; }
+.ov-plan-row .k { color: var(--faint); }
+.ov-plan-row .v { color: var(--muted); }
 
 
 

@@ -284,6 +284,7 @@ func (s *Server) overviewKindCounts() overviewKinds {
 //   - 单库可用比例 < 10% → warn「<库名> 可用空间不足 10%」
 //   - 索引未启用 → info「媒体索引未启用」
 //   - 索引久未更新 → info「索引已 X 分钟未更新」
+//
 // 最多返回 overviewMaxAlerts 条,没有告警时返回空数组(不是 null)。
 func buildOverviewAlerts(libs []overviewLib, index *overviewIndexState, now time.Time, refreshSeconds int) []overviewAlert {
 	alerts := []overviewAlert{}
@@ -301,7 +302,10 @@ func buildOverviewAlerts(libs []overviewLib, index *overviewIndexState, now time
 	}
 	if index == nil {
 		alerts = append(alerts, overviewAlert{Level: "info", Text: "媒体索引未启用"})
-	} else if refreshSeconds > 0 && index.LastScan > 0 {
+	} else if index.LastScan == 0 {
+		// 索引已启用但从未完成首次扫描。
+		alerts = append(alerts, overviewAlert{Level: "info", Text: "索引尚未完成首次扫描"})
+	} else if refreshSeconds > 0 {
 		stale := time.Duration(refreshSeconds*3) * time.Second
 		if minStale := overviewIndexStaleMinutes * time.Minute; stale < minStale {
 			stale = minStale

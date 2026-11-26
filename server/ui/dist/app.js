@@ -52,6 +52,7 @@ const state = {
   users: [],
   audit: [],
   shares: [],
+  overview: null,          // GET /api/overview 的总览数据
 };
 
 const $ = (s) => document.querySelector(s);
@@ -348,6 +349,7 @@ function renderSidebar() {
     wrap.appendChild(btn);
   }
   $("#btn-vault").classList.toggle("active", state.view === "vault");
+  $("#btn-overview").classList.toggle("active", state.view === "overview");
   $("#btn-media").classList.toggle("active", state.view === "media");
   $("#btn-music").classList.toggle("active", state.view === "music");
   $("#btn-search").classList.toggle("active", state.view === "search");
@@ -440,7 +442,7 @@ function emptyState(icon, title, hint, withAdd) {
 }
 
 /* ============================================================ 视图切换 */
-const VIEWS = ["view-home", "view-browse", "view-vault", "view-media", "view-music", "view-search", "view-devices", "view-trash", "view-storage", "view-audit", "view-shares", "view-remote", "view-pair"];
+const VIEWS = ["view-overview", "view-home", "view-browse", "view-vault", "view-media", "view-music", "view-search", "view-devices", "view-trash", "view-storage", "view-audit", "view-shares", "view-remote", "view-pair"];
 function showView(target) {
   VIEWS.forEach((v) => { const el = document.getElementById(v); if (el) el.hidden = v !== target; });
   if (typeof updateMiniPlayer === "function") updateMiniPlayer();
@@ -453,6 +455,284 @@ function showMusic() { state.view = "music"; showView("view-music"); renderSideb
 function showSearch() { state.view = "search"; showView("view-search"); renderSidebar(); setTimeout(() => $("#in-global-search").focus(), 60); }
 function showDevices() { state.view = "devices"; showView("view-devices"); renderSidebar(); }
 function showTrash() { state.view = "trash"; showView("view-trash"); renderSidebar(); }
+
+/* ============================================================ 总览(overview) */
+const OV_ROADMAP = [
+  {
+    title: "内容搜索 / 自动整理",
+    tag: "中大",
+    value: "文件多后查找/归档效率",
+    scope: "少量文档类型正文索引；规则先预览+执行记录+可撤销",
+  },
+  {
+    title: "存储空间分析增强",
+    tag: "增强",
+    value: "基础版（概览/大文件/重复候选）已随 v1.7.0 上线",
+    scope: "增长趋势、校验巡检、磁盘健康/空间告警",
+  },
+];
+
+function ovEl(tag, cls, text) {
+  const el = document.createElement(tag);
+  if (cls) el.className = cls;
+  if (text !== undefined && text !== null) el.textContent = text;
+  return el;
+}
+
+function showOverview() {
+  state.view = "overview";
+  showView("view-overview");
+  renderSidebar();
+  loadOverview();
+}
+
+async function loadOverview() {
+  const sub = $("#ov-sub");
+  const alerts = $("#ov-alerts");
+  if (sub) sub.textContent = "正在读取总览数据…";
+  if (alerts) alerts.innerHTML = "";
+  try {
+    const ov = await api("/api/overview");
+    state.overview = ov || {};
+    renderOverview(state.overview);
+  } catch (e) {
+    state.overview = null;
+    if (sub) sub.textContent = "无法读取总览数据";
+    if (alerts) {
+      const el = ovEl("div", "ov-alert warn");
+      el.appendChild(ovEl("span", "ov-alert-ic", "!"));
+      el.appendChild(ovEl("span", "ov-alert-txt", "总览数据加载失败:" + (e && e.message ? e.message : "未知错误")));
+      const retry = document.createElement("button");
+      retry.className = "btn small";
+      retry.textContent = "重试";
+      retry.onclick = () => loadOverview();
+      el.appendChild(retry);
+      alerts.appendChild(el);
+    }
+  }
+}
+
+function renderOverview(ov) {
+  ov = ov || {};
+  const totals = ov.totals || {};
+  const libs = Array.isArray(ov.libs) ? ov.libs : [];
+  const kinds = ov.kinds || {};
+  const idx = ov.index || null;
+  const trash = ov.trash || {};
+  const shares = ov.shares || {};
+  const devices = ov.devices || {};
+  const recent = Array.isArray(ov.recent) ? ov.recent : [];
+  const alerts = Array.isArray(ov.alerts) ? ov.alerts : [];
+
+  const totalB = (totals.totalMB || 0) * 1e6;
+  const freeB = (totals.freeMB || 0) * 1e6;
+  const usedB = Math.max(0, totalB - freeB);
+  let usedPct = Number(totals.usedPct);
+  if (!isFinite(usedPct)) usedPct = totalB ? Math.round((usedB / totalB) * 100) : 0;
+  usedPct = Math.max(0, Math.min(100, Math.round(usedPct)));
+
+  // 副标题
+  const sub = $("#ov-sub");
+  if (sub) sub.textContent = `${libs.length} 个存储库 · ${totals.files || 0} 个文件 · 已用 ${usedPct}%`;
+
+  // 告警条(逐条)
+  const alertBox = $("#ov-alerts");
+  if (alertBox) {
+    alertBox.innerHTML = "";
+    for (const a of alerts) {
+      const el = ovEl("div", "ov-alert " + (a && a.level === "warn" ? "warn" : "info"));
+      el.appendChild(ovEl("span", "ov-alert-ic", a && a.level === "warn" ? "!" : "i"));
+      el.appendChild(ovEl("span", "ov-alert-txt", (a && a.text) || ""));
+      alertBox.appendChild(el);
+    }
+  }
+
+  // KPI 磁贴
+  const kpis = $("#ov-kpis");
+  if (kpis) {
+    kpis.innerHTML = "";
+    const items = [
+      { v: fmtSize(totalB), l: "总容量" },
+      { v: fmtSize(usedB), l: "已用" },
+      { v: fmtSize(freeB), l: "可用" },
+      { v: String(totals.files || 0), l: "文件总数" },
+      { v: idx ? String(idx.fileCount || 0) : "—", l: "索引文件" },
+      { v: String(libs.length), l: "存储库" },
+    ];
+    for (const it of items) {
+      const k = ovEl("div", "ov-kpi");
+      k.appendChild(ovEl("div", "ov-kpi-v", it.v));
+      k.appendChild(ovEl("div", "ov-kpi-l", it.l));
+      kpis.appendChild(k);
+    }
+  }
+
+  // 存储容量概览
+  const cap = $("#ov-capacity-body");
+  if (cap) {
+    cap.innerHTML = "";
+    if (!libs.length) {
+      cap.appendChild(ovEl("div", "ov-empty", "还没有存储库"));
+    }
+    for (const lib of libs) {
+      const lt = lib.totalMB || 0;
+      const lf = lib.freeMB || 0;
+      const pct = lt ? Math.max(0, Math.min(100, Math.round(((lt - lf) / lt) * 100))) : 0;
+      const row = ovEl("div", "ov-lib");
+      const head = ovEl("div", "ov-lib-head");
+      head.appendChild(ovEl("span", "ov-lib-name", lib.name || lib.id || "存储库"));
+      head.appendChild(ovEl("span", "ov-lib-pct", pct + "%"));
+      row.appendChild(head);
+      if (lib.path) row.appendChild(ovEl("div", "ov-lib-path", lib.path));
+      const bar = ovEl("div", "ov-bar");
+      const fill = document.createElement("i");
+      fill.style.width = pct + "%";
+      bar.appendChild(fill);
+      row.appendChild(bar);
+      const meta = ovEl("div", "ov-lib-meta");
+      meta.appendChild(ovEl("span", null, "可用 " + fmtSize(lf * 1e6)));
+      meta.appendChild(ovEl("span", null, "共 " + fmtSize(lt * 1e6)));
+      row.appendChild(meta);
+      cap.appendChild(row);
+    }
+    const tot = ovEl("div", "ov-lib ov-lib-total");
+    const thead = ovEl("div", "ov-lib-head");
+    thead.appendChild(ovEl("span", "ov-lib-name", "合计"));
+    thead.appendChild(ovEl("span", "ov-lib-pct", usedPct + "%"));
+    tot.appendChild(thead);
+    const tbar = ovEl("div", "ov-bar");
+    const tfill = document.createElement("i");
+    tfill.style.width = usedPct + "%";
+    tbar.appendChild(tfill);
+    tot.appendChild(tbar);
+    const tmeta = ovEl("div", "ov-lib-meta");
+    tmeta.appendChild(ovEl("span", null, "可用 " + fmtSize(freeB)));
+    tmeta.appendChild(ovEl("span", null, "共 " + fmtSize(totalB)));
+    tot.appendChild(tmeta);
+    cap.appendChild(tot);
+  }
+
+  // 媒体与内容统计 + 系统状态
+  const content = $("#ov-content-body");
+  if (content) {
+    content.innerHTML = "";
+    const kindBox = ovEl("div", "ov-kinds");
+    const kindItems = [
+      { l: "视频", v: kinds.video || 0 },
+      { l: "图片", v: kinds.image || 0 },
+      { l: "音乐", v: kinds.audio || 0 },
+      { l: "其他", v: kinds.other || 0 },
+      { l: "文件夹", v: kinds.dir || 0 },
+    ];
+    for (const k of kindItems) {
+      const cell = ovEl("div", "ov-kind");
+      cell.appendChild(ovEl("div", "ov-kind-v", String(k.v)));
+      cell.appendChild(ovEl("div", "ov-kind-l", k.l));
+      kindBox.appendChild(cell);
+    }
+    content.appendChild(kindBox);
+
+    const idxState = idx ? (idx.scanning ? "扫描中" : (idx.lastScan ? "已就绪" : "未扫描")) : "未启用";
+    const refreshTxt = idx && idx.refreshSeconds ? idx.refreshSeconds + " 秒" : "已关闭";
+    const sys = ovEl("div", "ov-sys");
+    const rows = [
+      ["服务版本", ov.version || state.version || "—"],
+      ["索引状态", idxState],
+      ["上次索引", idx && idx.lastScan ? fmtTime(idx.lastScan) : "—"],
+      ["自动对账间隔", refreshTxt],
+      ["活跃设备", String(devices.count || 0) + " 台"],
+      ["分享链接", String(shares.count || 0) + " 个"],
+      ["回收站", String(trash.count || 0) + " 项 · " + fmtSize(trash.bytes || 0)],
+    ];
+    for (const r of rows) {
+      const line = ovEl("div", "ov-sys-row");
+      line.appendChild(ovEl("span", "k", r[0]));
+      line.appendChild(ovEl("span", "v", r[1]));
+      sys.appendChild(line);
+    }
+    content.appendChild(sys);
+  }
+
+  // 快捷入口
+  const actGrid = $("#ov-act-grid");
+  if (actGrid) {
+    actGrid.innerHTML = "";
+    const acts = [
+      { icon: "upload", label: "上传文件", run: () => {
+          if (!state.curLib) { toast("请先打开一个存储库"); return; }
+          showBrowse();
+          $("#file-input").click();
+        } },
+      { icon: "search", label: "扫描重复文件", run: () => { showStorage(); setStorageTab("dups"); } },
+      { icon: "trash", label: "查看回收站", run: () => { $("#btn-trash").click(); } },
+      { icon: "link", label: "分享链接管理", run: () => { $("#btn-shares").click(); }, needShare: true },
+      { icon: "lock", label: "隐私保险箱", run: () => { $("#btn-vault").click(); } },
+    ];
+    for (const a of acts) {
+      if (a.needShare && !isAdmin() && !(state.auth.username && canWrite())) continue;
+      const b = document.createElement("button");
+      b.className = "ov-act";
+      b.appendChild(ovEl("span", "ov-act-ic", ""));
+      b.querySelector(".ov-act-ic").innerHTML = svgIcon(a.icon);
+      b.appendChild(ovEl("span", "ov-act-t", a.label));
+      b.onclick = a.run;
+      actGrid.appendChild(b);
+    }
+  }
+
+  // 近期活动
+  const actBox = $("#ov-activity-body");
+  if (actBox) {
+    actBox.innerHTML = "";
+    if (!recent.length) {
+      actBox.appendChild(ovEl("div", "ov-empty", "暂无记录"));
+    } else {
+      const list = ovEl("div", "ov-log");
+      for (const r of recent) {
+        const row = ovEl("div", "ov-log-row");
+        row.appendChild(ovEl("span", "ov-log-time", r.time ? fmtTime(r.time) : "—"));
+        row.appendChild(ovEl("span", "ov-log-user", r.user || "未登录"));
+        row.appendChild(ovEl("span", "ov-log-what", (r.action || "访问") + (r.target ? " · " + r.target : "")));
+        list.appendChild(row);
+      }
+      actBox.appendChild(list);
+    }
+  }
+
+  // 规划中(不跳转,仅展示)
+  const road = $("#ov-roadmap-body");
+  if (road) {
+    road.innerHTML = "";
+    for (const p of OV_ROADMAP) {
+      const card = ovEl("div", "ov-plan");
+      const top = ovEl("div", "ov-plan-top");
+      top.appendChild(ovEl("span", "ov-plan-title", p.title));
+      top.appendChild(ovEl("span", "ov-plan-tag", p.tag));
+      top.appendChild(ovEl("span", "ov-plan-badge", "规划中"));
+      card.appendChild(top);
+      const row = ovEl("div", "ov-plan-row");
+      row.appendChild(ovEl("span", "k", "价值"));
+      row.appendChild(ovEl("span", "v", p.value));
+      card.appendChild(row);
+      const row2 = ovEl("div", "ov-plan-row");
+      row2.appendChild(ovEl("span", "k", "范围"));
+      row2.appendChild(ovEl("span", "v", p.scope));
+      card.appendChild(row2);
+      road.appendChild(card);
+    }
+  }
+}
+
+$("#btn-overview").onclick = () => showOverview();
+$("#btn-overview-refresh").onclick = () => loadOverview();
+const sideLibsHead = document.querySelector('.side-head-btn[data-nav="libs"]');
+if (sideLibsHead) {
+  const goLibs = () => showHome();
+  sideLibsHead.addEventListener("click", goLibs);
+  sideLibsHead.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); goLibs(); }
+  });
+}
 function openLib(id) {
   const lib = state.libs.find((l) => l.id === id);
   if (!lib) return;
@@ -1318,7 +1598,7 @@ $("#btn-back").onclick = () => {
   const i = state.curPath.lastIndexOf("/");
   openPath(state.curPath.slice(0, i) || root);
 };
-$("#btn-brand").onclick = showHome;
+$("#btn-brand").onclick = showOverview;
 $("#btn-mkdir").onclick = async () => {
   if (!state.curLib) { toast("先打开一个存储库"); return; }
   const name = await askInput("新建文件夹", "", "文件夹名称");
@@ -2871,15 +3151,20 @@ function renderTrash() {
 $("#btn-storage").onclick = () => showStorage();
 $("#btn-storage-refresh").onclick = () => { loadStorageSummary(); loadStorageTab(); };
 $$("#storage-tabs button").forEach((b) => {
-  b.onclick = () => {
-    $$("#storage-tabs button").forEach((x) => x.classList.remove("on"));
-    b.classList.add("on");
-    state.storageTab = b.dataset.tab === "dups" ? "dups" : "large";
-    $("#storage-large").hidden = state.storageTab !== "large";
-    $("#storage-dups").hidden = state.storageTab !== "dups";
-    loadStorageTab();
-  };
+  b.onclick = () => setStorageTab(b.dataset.tab);
 });
+
+// 供总览「快捷入口」等外部调用：切换存储页签并加载对应数据
+function setStorageTab(tab) {
+  state.storageTab = tab === "dups" ? "dups" : "large";
+  $$("#storage-tabs button").forEach((x) => {
+    const t = x.dataset.tab === "dups" ? "dups" : "large";
+    x.classList.toggle("on", t === state.storageTab);
+  });
+  $("#storage-large").hidden = state.storageTab !== "large";
+  $("#storage-dups").hidden = state.storageTab !== "dups";
+  loadStorageTab();
+}
 
 function showStorage() {
   state.view = "storage";

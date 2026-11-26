@@ -25,7 +25,8 @@
 
 ## 最近改动
 
-- 2026-11-26 服务端 1.7.0 修补（工作区，未提交）：媒体库自动分页加载（每页 500，自动拉完剩余页，去掉必须手动「加载更多」）；回收站新增 `GET /api/trash/thumb`，网格/列表显示图片与视频缩略图；「不在媒体库展示」改用睁眼/闭眼图标并即时显示「已隐藏」徽标。新增 `server/trash_thumb_test.go`；`go build/vet/test` 与 `node --check` 通过。已重新构建并部署到本机 52700。
+- 2026-11-26 Web UI 总览页与侧栏分组重构（工作区）：主区改全宽消除宽屏左侧死区，侧栏拆为总览 / 媒体 / 存储 / 设备与网络 / 分享与管理；新增总览仪表盘（六项 KPI + 容量 / 内容 / 快捷入口 / 近期活动 / 规划中五张卡片）；后端新增 `server/overview.go` 与 `GET /api/overview`（子查询失败只降级字段），新增 `server/overview_test.go`。`go build/vet/test`、`node --check` 通过；Playwright 1586px 与 800px 两档验证通过；已重新构建并部署到本机 52700。
+- 2026-11-26 服务端 1.7.0 修补：媒体库自动分页加载（每页 500，自动拉完剩余页，去掉必须手动「加载更多」）；回收站新增 `GET /api/trash/thumb`，网格/列表显示图片与视频缩略图；「不在媒体库展示」改用睁眼/闭眼图标并即时显示「已隐藏」徽标。新增 `server/trash_thumb_test.go`；`go build/vet/test` 与 `node --check` 通过。已重新构建并部署到本机 52700（提交 `d9590bf`）。
 - 已完成文档补全并对齐，提交并推送到 GitHub `origin/main`：
   - `f72a517` 新增 `AGENTS.md`、`CHANGELOG.md`、`docs/{ARCHITECTURE,DEVELOPMENT_STATUS,TASK_HISTORY,CURRENT_TASK}.md`，README 补充存储空间分析 / 媒体库排除 / 自动对账（并删除拼写错误的 `RELEGSING.md`）。
   - `faefea0` 对齐 `README.md`、`android/README.md`、`server/README.md`、`docs/FEATURE_ROADMAP.md` 的版本与功能描述。
@@ -41,5 +42,5 @@
 ## 下一步（候选，未排期）
 
 1. 完成 M10 真机端到端验收并记录结果。
-2. 提交本次 README 与文档改动。
-3. 后续功能方向见 [FEATURE_ROADMAP.md](FEATURE_ROADMAP.md)（优先候选：对话空间 / ZIP 预览与安全解压 / 上传收集箱）。
+2. 提交本次总览 / 侧栏与文档改动。
+3. 后续功能方向见 [FEATURE_ROADMAP.md](FEATURE_ROADMAP.md)（优先候选：内容搜索 / 自动整理、存储空间分析增强、对话空间 / ZIP 预览与安全解压 / 上传收集箱）。

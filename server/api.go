@@ -48,6 +48,8 @@ func NewServer(cfg *Config) *Server {
 	api.HandleFunc("POST /api/libs", s.handleAddLib)
 	api.HandleFunc("DELETE /api/libs", s.handleRemoveLib)
 	api.HandleFunc("GET /api/disks", s.handleDisks)
+	// 总览仪表盘(所有登录角色可访问)
+	api.HandleFunc("GET /api/overview", s.handleOverview)
 	// 存储空间分析:汇总 / 大文件 / 重复文件候选
 	api.HandleFunc("GET /api/storage/summary", s.handleStorageSummary)
 	api.HandleFunc("GET /api/storage/large", s.handleStorageLarge)

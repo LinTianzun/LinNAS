@@ -39,26 +39,88 @@
 <div class="app">
 
   <aside class="sidebar" id="sidebar">
-    <div class="side-head">存储库</div>
+    <nav class="lib-list side-top">
+      <button class="lib-item side-lead" id="btn-overview"><span data-icon="home"></span><span class="nm">总览</span></button>
+    </nav>
+
+    <div class="side-head side-head-btn" data-nav="libs" role="button" tabindex="0" title="查看全部存储库">存储库</div>
     <nav class="lib-list" id="lib-list"></nav>
     <button class="side-add" id="btn-add-lib"><span data-icon="plus"></span>添加目录</button>
-    <div class="side-head side-head2">更多</div>
+
+    <div class="side-group">媒体</div>
     <nav class="lib-list">
       <button class="lib-item" id="btn-media"><span data-icon="film"></span><span class="nm">媒体库</span></button>
       <button class="lib-item" id="btn-music"><span data-icon="music"></span><span class="nm">音乐</span></button>
-      <button class="lib-item" id="btn-devices"><span data-icon="monitor"></span><span class="nm">设备</span></button>
+    </nav>
+
+    <div class="side-group">存储</div>
+    <nav class="lib-list">
       <button class="lib-item" id="btn-storage"><span data-icon="drive"></span><span class="nm">存储空间</span></button>
       <button class="lib-item" id="btn-trash"><span data-icon="trash"></span><span class="nm">回收站</span></button>
       <button class="lib-item" id="btn-vault"><span data-icon="lock"></span><span class="nm">隐私保险箱</span></button>
+    </nav>
+
+    <div class="side-group">设备与网络</div>
+    <nav class="lib-list">
       <button class="lib-item" id="btn-pair"><span data-icon="smartphone"></span><span class="nm">手机连接</span></button>
       <button class="lib-item" id="btn-remote"><span data-icon="globe"></span><span class="nm">远程访问</span></button>
+      <button class="lib-item" id="btn-devices"><span data-icon="monitor"></span><span class="nm">设备</span></button>
+    </nav>
+
+    <div class="side-group">分享与管理</div>
+    <nav class="lib-list">
       <button class="lib-item" id="btn-shares" hidden><span data-icon="link"></span><span class="nm">分享链接</span></button>
       <button class="lib-item" id="btn-audit" hidden><span data-icon="list"></span><span class="nm">操作日志</span></button>
     </nav>
+
     <div class="side-foot"><span id="ver-text">linNas</span></div>
   </aside>
 
   <main class="main">
+
+    <!-- 总览 -->
+    <section class="view" id="view-overview" hidden>
+      <div class="page-head">
+        <h1><span data-icon="home" class="title-ic"></span>总览</h1>
+        <div class="ph-tools">
+          <button class="btn" id="btn-overview-refresh"><span data-icon="refresh"></span>刷新</button>
+        </div>
+      </div>
+      <p class="page-sub" id="ov-sub">正在读取总览数据…</p>
+
+      <div id="ov-alerts"></div>
+
+      <div class="ov-kpis" id="ov-kpis"></div>
+
+      <div class="ov-grid">
+        <section class="ov-card" id="ov-capacity">
+          <div class="ov-card-head"><span data-icon="drive" class="ov-c-ic"></span><h3>存储容量概览</h3></div>
+          <div class="ov-card-body" id="ov-capacity-body"></div>
+        </section>
+
+        <section class="ov-card" id="ov-content">
+          <div class="ov-card-head"><span data-icon="film" class="ov-c-ic"></span><h3>媒体与内容统计</h3></div>
+          <div class="ov-card-body" id="ov-content-body"></div>
+        </section>
+
+        <section class="ov-card" id="ov-actions">
+          <div class="ov-card-head"><span data-icon="grid" class="ov-c-ic"></span><h3>快捷入口</h3></div>
+          <div class="ov-card-body">
+            <div class="ov-act-grid" id="ov-act-grid"></div>
+          </div>
+        </section>
+
+        <section class="ov-card" id="ov-activity">
+          <div class="ov-card-head"><span data-icon="list" class="ov-c-ic"></span><h3>近期活动</h3></div>
+          <div class="ov-card-body" id="ov-activity-body"></div>
+        </section>
+
+        <section class="ov-card ov-roadmap" id="ov-roadmap">
+          <div class="ov-card-head"><span data-icon="check-square" class="ov-c-ic"></span><h3>规划中</h3></div>
+          <div class="ov-card-body" id="ov-roadmap-body"></div>
+        </section>
+      </div>
+    </section>
 
     <!-- 主页 -->
     <section class="view" id="view-home">
