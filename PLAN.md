@@ -326,3 +326,45 @@
 - **告警**：可用空间 <10% / <3% 为 warn，索引未启用 / 尚未首次扫描 / 超过 `max(10min, refreshSeconds×3)` 未更新为 info，最多 5 条。
 - **兼容**：`GET /api/overview` 对所有已登录角色放行；Android 客户端不受影响；版本仍为 1.7.0。
 - **验证**：`go build` / `go vet` / `go test -count=1` 全绿；`node --check app.js` 通过；Playwright 1586×1102 实测无左侧死区、六项 KPI、五张卡片、两张规划卡、侧栏四组与「总览」高亮；800px 宽单列且无横向溢出。
+
+### M15 存储空间分析增强（规划，分两批实现）
+总览页「规划中」第二张卡片的落地计划。目标：在已有概览 / 大文件 / 重复候选之上补齐**增长趋势、校验巡检、磁盘健康与空间告警**，全部复用现有 `files` 索引与 `analysis.go` 模式（后台异步 + 状态轮询），不引入第三方依赖，删除动作一律只进回收站且需人工确认。
+
+**批次 1：趋势快照 + 磁盘健康 + 空间告警**
+- 快照表：`storage_snapshots(ts INTEGER, lib_id TEXT, bytes INTEGER, files INTEGER)`，`PRIMARY KEY(lib_id, ts)` + `CREATE INDEX idx_snap_lib ON storage_snapshots(lib_id, ts)`；在 `ScanAll` / `ReconcileAll` 完成后调用 `Index.Snapshot()`，同一小时最多一条（按 `ts/3600` 去重），保留 400 天，超出由 housekeeping 清理。
+- `GET /api/storage/trend?days=30&lib=` → `{days, libs:[{libId,name,points:[{t,bytes,files,delta}]}], total:{points:[...], weekDeltaBytes}}`；无快照时返回空数组而非 500。
+- `GET /api/disks/health`：Windows 侧执行 `Get-PhysicalDisk` + `Get-Volume`（`exec.Command("powershell", "-NoProfile", "-Command", ...)`），把结果缓存 5 分钟，返回 `[{drive, model, mediaType, healthStatus, operationalStatus, sizeGB, temperature?}]`；非 Windows 或命令失败返回 `{supported:false, reason}`，不影响其它接口。
+- 空间告警：`Config` 新增 `spaceWarnPercent`（默认 10）、`spaceCriticalPercent`（默认 3），settings 可改（clamp 1–50 / 1–20）；`overview.go` 的 `buildOverviewAlerts` 改读这两个配置；新增 `alerts.json` 记录触发/恢复时间与已读状态，`GET /api/alerts`、`POST /api/alerts/ack`（按 id 集合标记已读）。总览告警条显示未读数并提供「全部已读」。
+- UI：存储空间页新增「趋势」tab（7 / 30 / 90 天切换，SVG 面积图 + 每库合计与本周变化）；总览「存储容量概览」卡片底部加迷你 sparkline 与「较上周 +X GB」；设置页「存储与维护」增加两个阈值输入；告警条加「已读」。
+
+**批次 2：校验巡检（integrity patrol）**
+- 新表：`file_sig(lib_id TEXT, path TEXT, size INTEGER, mod_time INTEGER, sig TEXT, sig_at INTEGER, PRIMARY KEY(lib_id, path))`。
+- `server/patrol.go`：`patrolState{running, mode, startedAt, done, total, changed[], missing[], failed[], cancel}`；quick 模式 = 抽样哈希（大小 + 首尾各 64KB 的 SHA-256，与 `file_sig` 中上次签名比对），deep 模式 = 全文件 SHA-256 并限速（约 20MB/s，令牌桶）；两者都单飞、可取消、进度可轮询。
+- API：`POST /api/storage/patrol/start?mode=quick|deep&lib=`、`GET /api/storage/patrol/status`、`POST /api/storage/patrol/cancel`、`GET /api/storage/patrol/last`（最近 20 次摘要，落 `patrol.json`）。
+- 语义边界：巡检**只报告不修改**——「内容变更」提示可能是外部编辑，「文件缺失」仅提示可用「重新扫描索引」刷新，绝不自动删除。
+- UI：存储空间页新增「巡检」tab：开始（快/深）、进度、取消、结果三组（内容变更 / 文件缺失 / 读取失败）每条可跳转到所在目录；「上次巡检」时间与耗时。
+- 验收：≥1GB 目录 quick 模式在分钟级完成且可取消；人为改动一个文件内容后 quick 巡检能报出该文件；deep 模式 CPU/IO 不占满（限速生效）。
+
+### M16 内容搜索与自动整理（规划，分两批实现）
+总览页「规划中」第一张卡片的落地计划。两项能力共用「后台抽取/执行 + 预览 + 记录 + 可撤销」的骨架，故合并为一个大里程碑、分两批交付。
+
+**批次 3：正文索引与内容搜索**
+- 支持类型（v1，仅标准库）：`.txt .md .log .csv .json .xml .html .htm .srt .ass .vtt` 直读；`.docx .xlsx .pptx` 用 `archive/zip` + `encoding/xml` 抽取 `word/document.xml`、`xl/sharedStrings.xml`、`ppt/slides/*.xml` 的文本；PDF 暂不支持（标准库无解析器，需引依赖 → 留作 v2 选项，UI 明确标注「PDF 未索引」）。
+- 限制：单文件 ≤ 2MB、抽取文本截断至 1MB 入库；跳过保险箱、回收站、`MediaHide` 无关（照常索引）与二进制内容；编码按 UTF-8 优先、失败按 GB18030 兜底。
+- 表：`content(lib_id TEXT, path TEXT, mtime INTEGER, size INTEGER, text TEXT, indexed_at INTEGER, PRIMARY KEY(lib_id, path))`；`content_meta(k,v)` 存最近一次抽取批次信息。
+- 抽取 worker：索引扫描/对账完成后按 (mtime,size) 差异增量入队；并发 2、单文件 300ms 软超时、可取消；`GET /api/content/status`（queued/running/done/skipped/failed、最近完成时间）。
+- 检索：`GET /api/search/content?q=&lib=&limit=50` → `{hits:[{libId,path,name,size,modTime,snippets:[{text,start,len}]}], total, truncated}`；SQL 用 `LIKE '%q%'`（少量文档足够），命中片段取前后 40 字并在前端高亮。
+- UI：顶部搜索框加范围切换「文件名 / 内容 / 全部」；内容命中按文件聚合展示片段，点击定位到文件浏览并高亮该文件；无结果时提示「仅索引文本类文档，PDF 未支持」。
+- 验收：放 20 个 txt/md/docx/xlsx 后索引完成，搜词能命中 docx 段落；对 5 万文件库不出现长时间卡顿（抽取可暂停/取消）。
+
+**批次 4：自动整理规则（预览 → 执行 → 记录 → 撤销）**
+- 规则模型：`organizeRule{id, name, enabled, libId, match{matchPathPrefix, exts[], nameContains, kind, minSizeMB, maxSizeMB, olderThanDays}, action{moveTo, groupBy:"ext|kind|year-month|none"}}`，存 `organize.json`；`GET/POST/PUT/DELETE /api/organize/rules`（admin only）。
+- 预览：`POST /api/organize/preview` 只读计算计划 → `{items:[{from,to,reason}], skipped:[{from,reason}], conflicts, totalBytes}`，绝不落盘。
+- 执行：`POST /api/organize/run` 逐条移动，目标同名自动加 ` (1)`、跨库/只读库/保险箱/回收站/排除目录一律跳过，单次上限 5000 个文件；每步写 `organize/journal-<jobID>.jsonl`（from/to/ts/ok/err），完成后调 `Index.UpdatePaths` 增量刷新索引。
+- 撤销：`POST /api/organize/undo`（按 jobID 倒序回搬；目标被占用则跳过并逐条报告）；`GET /api/organize/jobs` 列最近 50 个作业（时间、规则名、移动数、失败数、是否可撤销）。
+- 调度：v1 仅手动触发（避免夜间批量搬动数据），规则里预留 `intervalHours` 字段但默认 0、UI 置灰标注「v2 支持定时」。
+- UI：新增「自动整理」页（侧栏「存储」组）：规则列表 + 编辑抽屉（匹配条件 / 目标目录 / 分组方式 + 「预览前 50 条」）、执行前确认弹窗（影响文件数、预计移动字节、跳过原因统计）、作业记录表（含「撤销」按钮与结果明细）。
+- 安全：全部接口 admin only；执行不删除任何文件；撤销失败项逐条列出而不是静默忽略。
+- 验收：造 200 个散落文件 + 一条「按扩展名归类」规则，预览与实际执行数量一致；执行后索引即时可见新路径；撤销后文件与索引完全回到原位；中途取消不产生半移动文件（每条移动本身原子）。
+
+**依赖与顺序**：批次 1 → 批次 2（复用 housekeeping 与后台任务骨架）→ 批次 3（抽取 worker 与批次 2 的限速/进度骨架同构）→ 批次 4（复用 `UpdatePaths` 与回收站/保险箱边界判断）。每批独立可发布、独立补测试与文档，全部完成后版本升 1.8.0。
