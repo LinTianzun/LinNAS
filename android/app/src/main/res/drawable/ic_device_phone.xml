@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Android 设备:手机轮廓 -->
+<!-- Android 设备:手机(实心机身 + evenOdd 镂空屏幕)
+     为什么用实心+镂空而不是纯描边:2dp 以下的描边在 20~24dp 小尺寸下会缩到 1px 多一点、
+     发虚甚至几乎看不见;实心形状被 tint 成单色后依然轮廓清晰,任何主题都能辨认。 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp" android:height="24dp"
     android:viewportWidth="24" android:viewportHeight="24">
     <path
-        android:pathData="M7,4 C7,2.9 7.9,2 9,2 L15,2 C16.1,2 17,2.9 17,4 L17,20 C17,21.1 16.1,22 15,22 L9,22 C7.9,22 7,21.1 7,20 Z M10.5,19 L13.5,19"
-        android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="1.7"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round" />
+        android:fillColor="#FF000000"
+        android:fillType="evenOdd"
+        android:pathData="M9,2 L15,2 C16.1,2 17,2.9 17,4 L17,20 C17,21.1 16.1,22 15,22 L9,22 C7.9,22 7,21.1 7,20 L7,4 C7,2.9 7.9,2 9,2 Z M9.8,5 L14.2,5 C14.6,5 15,5.4 15,5.8 L15,17.2 C15,17.6 14.6,18 14.2,18 L9.8,18 C9.4,18 9,17.6 9,17.2 L9,5.8 C9,5.4 9.4,5 9.8,5 Z" />
 </vector>

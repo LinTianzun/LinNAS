@@ -1,6 +1,6 @@
 # LinNAS — 本地云盘/NAS 方案与版本路线图
 
-> 当前组件版本（2026-11-26）：Windows 服务端 **1.7.0**；Android 客户端 **1.8.5**（`versionCode` 14）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
+> 当前组件版本（2026-11-27）：Windows 服务端 **1.7.0**；Android 客户端 **1.8.6**（`versionCode` 15）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
 
 > 下文保留早期技术决策与里程碑记录；历史版本号描述当时状态，不代表当前版本。
 
@@ -354,6 +354,17 @@
 - **选中态修复**：`Sheet.segmented` 改为「主色实底 + 白色加粗文字」的分段控件（槽底 `lSurfaceHigh`），勾选行加 1dp 主色描边；六套主题对比度均 ≥4.5:1。
 - **版本**：Android `versionCode` 14 / `versionName` 1.8.5；产物 `release/linNas-1.8.5-debug.apk`（附 SHA-256）。
 - **验证**：`:app:compileDebugKotlin`、`:app:testDebugUnitTest`（15 个单测）、`:app:assembleDebug` 均 BUILD SUCCESSFUL。
+
+### M13.6 Android v1.8.6 指纹登录修复、保险箱免勾选与设备图标修复（2026-11-27，Android v1.8.6）
+用户反馈（m01530）：保险箱指纹解锁还要自己勾选；登录界面没有指纹解锁、指纹通过后也没直接登录进去；登录页「切换服务器」二级页未改造；设备管理里已连接设备图标依旧不可见。
+- **指纹入口始终可见**：`setupBioEntry` 改为「设置里开启 + 硬件可用」就无条件显示指纹按钮，不再要求 `Prefs.sessionMeta() != null`。根因：加密会话是 v1.8.4 才引入的，之前登录过的老用户升级后没有加密会话，旧逻辑把按钮 `GONE` 掉，看起来像指纹功能丢了。无会话时按钮为引导态并显示提示「首次使用请先用账号密码登录一次」。
+- **修复「验证通过却进不去」**：新增 `enterWithSession()` 作为指纹/会话进入的唯一出口——先写回 `ServerConfig`，再 `client.authMe()` 向服务端校验，通过才 `setResult(RESULT_OK)+finish()`。旧版把可能已过期的 token 直接带回主界面，主界面第一发请求 401 又弹回登录页。过期（`ApiException` / `username` 为空）→ `Prefs.clearSessionMeta()+clearSession()` 并提示「登录已过期,请重新输入密码」；纯网络异常**不清会话**（只提示重试），避免临时离线让用户永久丢失指纹登录。
+- **切换服务器改为 Sheet**：新增 `showSwitchServerSheet()` 替换裸 `AlertDialog`——URI 键盘输入框（缺协议自动补 `http://`，`ServerConfig.baseUrl` setter 即持久化）、回车提交、`ic_scan`「扫描局域网」行动态列出 `Discovery.discover`（UDP 广播 + mDNS + 网段扫描）发现的服务器（点击回填不关弹层）、`scanning` 防重入与 `sheet.isShowing()` 守卫迟到回调。布局新增 `tvBioHint` 引导副标题，原有 12 个 id 全保留。
+- **保险箱去掉指纹勾选**：删除 `activity_vault.xml` 的 `cbVaultBio`/`btnVaultBio` 与 `VaultActivity` 的 `cbVaultBioListener/refreshBio/doBioUnlock`；`promptUnlock()` 改为 `if (bioAvailable()) bioUnlockThenFallBack() else showPasswordSheet()`；密码解锁成功后只要 `bioAvailable()` 就无条件 `BiometricGate.saveSecret(KEY_VAULT_PW, pw)`（保存失败只影响下次指纹入口，不影响本次解锁）。`lockNow()` 不再清密钥；仅「修改保险箱密码」与 `onResume` 检测到设置里关闭生物识别时才 `clearSecret`。
+- **设备图标不可见的真因**：`bg_sheet_tile.xml` 的 layer-list `<item android:alpha="0.12">` 在真机上不生效，圆底被渲染成**不透明 `lPrimary` 实心圆**，行图标又被 tint 成同一 `lPrimary` → 同色隐形（真机像素采样：圆盘中心 `#2E7D6B` = `t_mono_primary`）。修复：`ScreenUi.iconTile` 改用 `GradientDrawable` 把 12% alpha 直接乘进 ARGB 生成圆底（`tileTintBackground`），图标加 `imageTintList` + `setColorFilter(SRC_IN)` 双保险（`tintGlyph`），图标尺寸限制为 `min(icon_lg, tileSize-8dp)`；`Sheet.iconTile` 图标 20→24dp、`tileSizeDp=34`。该修复同时覆盖所有用 `Sheet.row` 的弹窗。
+- **设备图标重做**：`ic_device_phone` / `ic_device_desktop` 改为实心形状 + `fillType="evenOdd"` 镂空（纯描边在 24dp 下会发虚），新建 `ic_device_unknown`（加粗问号 + 实心圆点）。`devicePlatform()`：空 UA → 未知设备；`python|curl|wget|go-http|libwww|java/` → 「命令行/脚本」；去掉易误判的 `pc` 子串；`okhttp` 保留在 Android 侧（本 App 自身 UA 就是 okhttp，归脚本会把本机标错）。
+- **版本**：Android `versionCode` 15 / `versionName` 1.8.6；产物 `release/linNas-1.8.6-debug.apk`（附 SHA-256）。
+- **验证**：`:app:compileDebugKotlin --rerun-tasks`（全量重编，仅既有 deprecation 警告）、`:app:testDebugUnitTest`（15 个单测）、`:app:assembleDebug` 均 BUILD SUCCESSFUL。
 
 ### M14 Web UI 总览页与侧栏分组重构（2026-11-26，服务端 1.7.0）
 - **问题**：主区 `.app` 限制 `max-width:1180px` 并居中，宽屏（1586px）左侧约 200px 死区；侧栏入口全塞在「更多」里，层级混乱。

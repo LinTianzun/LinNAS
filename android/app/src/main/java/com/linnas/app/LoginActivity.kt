@@ -1,12 +1,12 @@
 package com.linnas.app
 
+import android.animation.ObjectAnimator
 import android.content.Context
 import android.os.Bundle
+import android.text.InputType
 import android.view.View
 import android.view.WindowManager
-import android.widget.EditText
 import android.widget.TextView
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
@@ -24,6 +24,11 @@ import kotlinx.coroutines.withContext
  * - 只要登录成功就无条件把会话加密保存，复选框「下次自动登录」只决定下次是否直接进入；
  * - 开启「下次自动登录」时，进程启动由 Prefs.init → SessionRestore 直接恢复，不再进本页；
  * - 未开启时进本页，若存在已保存会话则自动弹出一次指纹验证。
+ *
+ * 指纹入口可见性（本次修正）：只要「设置里开启 + 硬件可用」就无条件显示指纹按钮，
+ * 不再依赖「是否存过加密会话」——v1.8.4 之前登录过的老用户升级后没有加密会话，
+ * 旧逻辑直接把按钮藏掉，用户以为指纹功能丢了；此时按钮退化为引导态，
+ * 验证通过后会提示先走一次账号密码登录。
  */
 class LoginActivity : AppCompatActivity() {
 
@@ -32,27 +37,42 @@ class LoginActivity : AppCompatActivity() {
     /** 防止进入页面后重复自动弹指纹。 */
     private var bioPrompted = false
 
+    /** 当前指纹按钮是否处于「有会话可恢复」模式（决定指纹验证成功后的去向）。 */
+    private var bioHasSaved = false
+
+    /** 扫描发现进行中标记，防止重复点击「扫描局域网」叠加任务。 */
+    private var scanning = false
+
+    // 失败路径要把焦点交回输入框 / 重绑按钮，存成字段避免层层传参。
+    private var etUserView: TextInputEditText? = null
+    private var btnSwitchServerView: MaterialButton? = null
+    private var cbBioView: MaterialCheckBox? = null
+    private var bioDividerView: View? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         setTheme(ThemeStore.styleRes(this))
         super.onCreate(savedInstanceState)
         Prefs.init(applicationContext)
         setContentView(R.layout.activity_login)
         // manifest 未设 softInputMode：这里用 adjustResize，保证输入框获焦时不被软键盘遮挡。
+        // （SOFT_INPUT_ADJUST_RESIZE 虽然在 API 30+ 标记废弃，但 targetSdk 34 下仍生效，
+        //  且比 adjustNothing/adjustPan 更符合「表单页」的需求，故显式设置。）
+        @Suppress("DEPRECATION")
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 
-        val etUser = findViewById<TextInputEditText>(R.id.etUser)
+        val etUser = findViewById<TextInputEditText>(R.id.etUser).also { etUserView = it }
         val etPassword = findViewById<TextInputEditText>(R.id.etPassword)
         val btnLogin = findViewById<MaterialButton>(R.id.btnLogin)
         val btnSkip = findViewById<MaterialButton>(R.id.btnSkip)
         val btnBio = findViewById<MaterialButton>(R.id.btnBioLogin)
-        val cbBio = findViewById<MaterialCheckBox>(R.id.cbBioLogin)
+        val cbBio = findViewById<MaterialCheckBox>(R.id.cbBioLogin).also { cbBioView = it }
         val error = findViewById<TextView>(R.id.loginError)
         val tvServer = findViewById<TextView>(R.id.tvServer)
-        val btnSwitchServer = findViewById<MaterialButton>(R.id.btnSwitchServer)
-        val bioDivider = findViewById<View>(R.id.tvBioDivider)
+        val btnSwitchServer = findViewById<MaterialButton>(R.id.btnSwitchServer).also { btnSwitchServerView = it }
+        val bioDivider = findViewById<View>(R.id.tvBioDivider).also { bioDividerView = it }
 
         tvServer.text = ServerConfig.baseUrl.ifBlank { "未设置服务器地址" }
-        btnSwitchServer.setOnClickListener { showSwitchServerDialog(tvServer) }
+        btnSwitchServer.setOnClickListener { showSwitchServerSheet(tvServer) }
 
         // 复选框默认反映上次选择
         cbBio.isChecked = Prefs.getBool(KEY_AUTO_LOGIN, false)
@@ -111,50 +131,67 @@ class LoginActivity : AppCompatActivity() {
 
     /**
      * 配置指纹入口：
-     * - 设置里开启 + 设备可用 + 有已保存会话：显示指纹主按钮，并自动弹一次验证；
+     * - 设置里开启 + 设备可用：无条件显示指纹主按钮（不再依赖有没有已保存会话）；
+     *   有会话时自动弹一次验证；没会话时按钮是引导态，验证通过后提示先登录一次。
      * - 设置里关掉或设备不支持：隐藏指纹按钮，有已保存会话时退化为「使用已保存的登录信息进入」。
-     * 用户明确要求指纹可以在设置里开关，所以这里必须先看 isEnabled；只看硬件会让
-     *「已经关掉的指纹」照样出现在登录页。
      */
     private fun setupBioEntry(btn: MaterialButton, cb: MaterialCheckBox, divider: View, error: TextView) {
         val meta = Prefs.sessionMeta()
         val hasSaved = meta != null
         val user = meta?.get(1)?.takeIf { it.isNotBlank() }
         val bioReady = BiometricGate.isEnabled(this) && BiometricGate.canUse(this)
+        val hint = findViewById<TextView>(R.id.tvBioHint)
+        bioHasSaved = hasSaved
 
         cb.visibility = if (bioReady) View.VISIBLE else View.GONE
-        if (bioReady && hasSaved) {
-            btn.visibility = View.VISIBLE
-            divider.visibility = View.VISIBLE
-            btn.text = if (user != null) "指纹登录 · $user" else "指纹登录"
-            btn.setOnClickListener { doBioAuth(btn, error) }
-            if (!bioPrompted) {
-                bioPrompted = true
-                btn.post { doBioAuth(btn, error) }
+
+        when {
+            // 1) 指纹可用（设置开启 + 硬件支持）→ 无条件显示，不看 hasSaved：
+            //    老用户升级后没有加密会话，旧逻辑直接藏按钮，用户以为功能丢了。
+            bioReady -> {
+                btn.visibility = View.VISIBLE
+                divider.visibility = View.VISIBLE
+                btn.text = if (hasSaved && user != null) "指纹登录 · $user" else "指纹登录"
+                btn.setOnClickListener { doBioAuth(btn, error) }
+                // 没会话时按钮只是引导态：副标题提示先登录一次；自动弹验证只在有会话时做。
+                hint.visibility = if (hasSaved) View.GONE else View.VISIBLE
+                if (hasSaved && !bioPrompted) {
+                    bioPrompted = true
+                    btn.post { doBioAuth(btn, error) }
+                }
             }
-        } else if (hasSaved) {
-            // 指纹关闭/不可用:不显示指纹按钮,但仍允许用加密保存的会话直接进入。
-            btn.visibility = View.VISIBLE
-            divider.visibility = View.VISIBLE
-            btn.text = if (user != null) "使用已保存的登录信息进入 · $user" else "使用已保存的登录信息进入"
-            // 服务端若返回 401，MainActivity 会重新拉起登录页。
-            btn.setOnClickListener { useSavedSession() }
-        } else {
-            btn.visibility = View.GONE
-            divider.visibility = View.GONE
+            // 2) 指纹关闭/不可用但有已保存会话：不显示指纹按钮，但仍允许用加密保存的会话直接进入。
+            hasSaved -> {
+                btn.visibility = View.VISIBLE
+                divider.visibility = View.VISIBLE
+                btn.text = if (user != null) "使用已保存的登录信息进入 · $user" else "使用已保存的登录信息进入"
+                btn.setOnClickListener { enterWithSession(btn, error) }
+                hint.visibility = View.GONE
+            }
+            // 3) 都没有：隐藏按钮与分隔线（维持现状）。
+            else -> {
+                btn.visibility = View.GONE
+                divider.visibility = View.GONE
+                hint.visibility = View.GONE
+            }
         }
     }
 
-    /** 指纹验证成功后恢复会话并结束。 */
+    /**
+     * 指纹验证。成功后的去向由 [bioHasSaved] 决定：
+     * - 有会话：走 [enterWithSession]（写回会话 + 服务端校验，都通过才 finish）；
+     * - 无会话（引导态）：提示先登录一次并把焦点交回用户名框。
+     */
     private fun doBioAuth(btn: MaterialButton, error: TextView) {
         btn.isEnabled = false
         val onSuccess: () -> Unit = {
-            btn.isEnabled = true
-            if (applySavedSession()) {
-                setResult(RESULT_OK)
-                finish()
+            if (bioHasSaved) {
+                // 校验期间保持禁用，避免重复点按造成重复弹窗/重复校验
+                enterWithSession(btn, error)
             } else {
-                toast("未找到已保存的会话,请用账号密码登录")
+                btn.isEnabled = true
+                toast("还没有保存的登录信息,请先用账号密码登录一次")
+                etUserView?.requestFocus()
             }
         }
         val onFail: (String) -> Unit = { msg ->
@@ -169,13 +206,78 @@ class LoginActivity : AppCompatActivity() {
         BiometricGate.authenticate(this, "生物识别登录", "验证后直接进入 LinNAS", onSuccess, onFail)
     }
 
-    /** 无生物识别时用已保存会话直接进入。 */
-    private fun useSavedSession() {
-        if (applySavedSession()) {
-            setResult(RESULT_OK)
-            finish()
-        } else {
-            toast("未找到已保存的会话,请用账号密码登录")
+    /**
+     * 恢复已保存会话并进入主界面。与旧版「直接 finish」的区别：
+     * 先把会话写回 ServerConfig，再调一次服务端 /api/auth/me 校验——
+     * 旧版把过期 token 带回主界面，主界面第一发请求就 401 弹回登录页，
+     * 用户看到的就是「指纹验证通过了却没进去」。
+     */
+    private fun enterWithSession(btn: MaterialButton, error: TextView) {
+        lifecycleScope.launch {
+            // 服务器地址没配：谈不上恢复会话，先引导设置地址并高亮「切换」
+            if (ServerConfig.baseUrl.isBlank()) {
+                btn.isEnabled = true
+                toast("请先设置服务器地址")
+                error.visibility = View.VISIBLE
+                error.text = "请先设置服务器地址"
+                highlightSwitchServer()
+                return@launch
+            }
+            // 连加密会话都没有（升级前没登录过 / 已被清）：引导走账号密码
+            if (!applySavedSession()) {
+                btn.isEnabled = true
+                toast("还没有保存的登录信息,请先用账号密码登录一次")
+                etUserView?.requestFocus()
+                return@launch
+            }
+            // 服务端校验：401/会话失效 → 清会话引导重登；纯网络问题 → 保留会话只提示重试
+            // （Prefs.clearSession 的注释明确警告过：临时离线就清会话会让用户永久丢失指纹登录）
+            var expired = false
+            val ok = try {
+                val me = withContext(Dispatchers.IO) { client.authMe() }
+                if (me.username.isBlank()) expired = true
+                me.username.isNotBlank()
+            } catch (e: ApiException) {
+                // API 错误（401 等）按会话过期处理
+                expired = true
+                false
+            } catch (_: Exception) {
+                false
+            }
+            btn.isEnabled = true
+            if (ok) {
+                setResult(RESULT_OK)
+                finish()
+                return@launch
+            }
+            if (expired) {
+                // 真过期：清掉本地会话（含加密 token），按钮退回引导态
+                Prefs.clearSessionMeta()
+                Prefs.clearSession()
+                ServerConfig.sessionToken = ""
+                ServerConfig.sessionUser = ""
+                ServerConfig.sessionRole = ""
+                bioHasSaved = false
+                error.visibility = View.VISIBLE
+                error.text = "登录已过期,请重新输入密码"
+                etUserView?.requestFocus()
+                // 重绑按钮为「指纹登录」引导态，而不是继续指着一条死会话
+                val cb = cbBioView
+                val dv = bioDividerView
+                if (cb != null && dv != null) setupBioEntry(btn, cb, dv, error)
+            } else {
+                error.visibility = View.VISIBLE
+                error.text = "无法连接服务器,请确认服务端已启动后重试"
+            }
+        }
+    }
+
+    /** 让「切换」按钮脉冲两下，引导用户去设置服务器地址。 */
+    private fun highlightSwitchServer() {
+        val b = btnSwitchServerView ?: return
+        ObjectAnimator.ofFloat(b, View.ALPHA, 1f, 0.2f, 1f, 0.2f, 1f).apply {
+            duration = 1200
+            start()
         }
     }
 
@@ -190,25 +292,82 @@ class LoginActivity : AppCompatActivity() {
         return true
     }
 
-    /** 只读展示服务器地址 + 「切换」：这里用简单输入框修改 baseUrl。 */
-    private fun showSwitchServerDialog(tv: TextView) {
-        val input = EditText(this).apply {
-            setText(ServerConfig.baseUrl)
-            setHint("http://192.168.x.x:52700")
-            setSingleLine(true)
-            setPadding(48, 32, 48, 8)
-        }
-        AlertDialog.Builder(this)
-            .setTitle("服务器地址")
-            .setView(input)
-            .setPositiveButton("保存") { _, _ ->
-                val v = input.text.toString().trim()
-                ServerConfig.baseUrl = v
-                tv.text = v.ifBlank { "未设置服务器地址" }
+    /**
+     * 「切换服务器」底部弹窗（Sheet）：手动输入 + 局域网自动发现。
+     * 旧版是裸 AlertDialog，观感与其余二级弹窗不统一，这里用全局统一 Sheet 收口。
+     */
+    private fun showSwitchServerSheet(tv: TextView) {
+        scanning = false
+        val sheet = Sheet(this, "服务器地址", "手动输入,或在局域网内自动发现")
+        // URI 键盘少误触空格/联想；必须带 TYPE_CLASS_TEXT，单独的 VARIATION 位无效
+        sheet.input(
+            "http://192.168.x.x:52700",
+            ServerConfig.baseUrl,
+            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI,
+        )
+        fun save() {
+            var addr = sheet.value(0)
+            if (addr.isEmpty()) {
+                sheet.inputView(0)?.error = "地址不能为空"
+                return
             }
-            .setNegativeButton("取消", null)
-            .show()
+            // 缺协议自动补 http://（用户常只输 ip:port）
+            if (!addr.startsWith("http://") && !addr.startsWith("https://")) addr = "http://$addr"
+            // ServerConfig.baseUrl 的 setter 本身写 Prefs("base_url"),持久化路径与全局一致
+            ServerConfig.baseUrl = addr
+            tv.text = addr
+            sheet.dismiss()
+            toast("服务器地址已保存")
+        }
+        sheet.primary("保存") { save() }
+        sheet.onEnter { save() }
+        // 扫描行不关弹层：发现结果要就地列出来让用户挑
+        sheet.row(R.drawable.ic_scan, "扫描局域网", "自动发现同一 WiFi 下的 LinNAS 服务器", dismissOnClick = false) {
+            scanServersIntoSheet(sheet)
+        }
+        sheet.tonal("取消") { sheet.dismiss() }
+        sheet.show()
     }
+
+    /**
+     * 局域网扫描，发现的服务器逐台列进弹层；点击只回填输入框，不关弹层。
+     * Discovery.discover 的回调在 IO 线程，必须切回主线程再动 UI。
+     */
+    private fun scanServersIntoSheet(sheet: Sheet) {
+        if (scanning) return
+        scanning = true
+        val status = TextView(this).apply {
+            text = "正在扫描(广播 + mDNS + 网段扫描)…"
+            setTextColor(ThemeColors.color(this@LoginActivity, R.attr.lTextDim))
+            textSize = 12f
+            setPadding(0, dp(6), 0, dp(6))
+        }
+        sheet.customArea().addView(status)
+        val found = HashSet<String>()
+        lifecycleScope.launch {
+            Discovery.discover { s ->
+                runOnUiThread {
+                    if (!sheet.isShowing()) return@runOnUiThread
+                    if (!found.add(s.baseUrl)) return@runOnUiThread
+                    status.text = "找到 ${found.size} 台服务器,点击填入"
+                    sheet.row(R.drawable.ic_server, s.name.ifBlank { "LinNAS" } + " · " + s.ip, s.baseUrl, dismissOnClick = false) {
+                        sheet.inputView(0)?.setText(s.baseUrl)
+                    }
+                }
+            }
+            runOnUiThread {
+                scanning = false
+                if (!sheet.isShowing()) return@runOnUiThread
+                status.text = if (found.isEmpty()) {
+                    "没找到服务器。确认电脑端已启动、手机连的是同一个 WiFi。"
+                } else {
+                    "扫描完成,共找到 ${found.size} 台服务器"
+                }
+            }
+        }
+    }
+
+    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     private fun roleLabel(role: String) = when (role) {
         "admin" -> "管理员"

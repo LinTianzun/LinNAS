@@ -8,7 +8,7 @@
 | 组件 | 版本 | 说明 |
 |---|---|---|
 | Windows 服务端 | 1.7.0 | `server/config.go` 的 `const Version` |
-| Android 客户端 | 1.8.5（versionCode 14） | `android/app/build.gradle.kts` |
+| Android 客户端 | 1.8.6（versionCode 15） | `android/app/build.gradle.kts` |
 
 ## 里程碑进度
 

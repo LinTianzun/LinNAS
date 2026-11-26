@@ -1,6 +1,7 @@
 package com.linnas.app
 
 import android.content.Context
+import android.graphics.PorterDuff
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
@@ -76,19 +77,54 @@ object ScreenUi {
         }
     }
 
-    /** 42dp 圆形图标底 + 24dp 线性图标。 */
-    fun iconTile(ctx: Context, iconRes: Int, tintAttr: Int = R.attr.lPrimary): FrameLayout {
+    /**
+     * 圆形图标底 + 线性图标。
+     * @param tileSizeDp 圆底直径(dp)。传 0 表示不限制(底随图标 24dp 自然撑开);
+     *   传正值时图标收敛到 min(icon_lg, tileSizeDp-8dp),避免小圆底里图标贴边或被裁掉。
+     */
+    fun iconTile(ctx: Context, iconRes: Int, tintAttr: Int = R.attr.lPrimary, tileSizeDp: Int = 0): FrameLayout {
         val tile = FrameLayout(ctx).apply { setBackgroundResource(R.drawable.bg_icon_circle) }
+        val iconPx = if (tileSizeDp > 0) {
+            minOf(dim(ctx, R.dimen.icon_lg), dp(ctx, tileSizeDp - 8).coerceAtLeast(dp(ctx, 12)))
+        } else {
+            dim(ctx, R.dimen.icon_lg)
+        }
         tile.addView(
             ImageView(ctx).apply {
                 setImageResource(iconRes)
-                imageTintList = ThemeColors.csl(ctx, tintAttr)
+                tintGlyph(this, ctx, tintAttr)
                 scaleType = ImageView.ScaleType.FIT_CENTER
                 contentDescription = ""
             },
-            FrameLayout.LayoutParams(dim(ctx, R.dimen.icon_lg), dim(ctx, R.dimen.icon_lg), Gravity.CENTER),
+            FrameLayout.LayoutParams(iconPx, iconPx, Gravity.CENTER),
         )
         return tile
+    }
+
+    /**
+     * 给矢量图标上主题色:imageTintList 为主,再叠一层 SRC_IN 颜色过滤兜底。
+     * 为什么叠两层:个别机型/主题下 imageTintList 对 vector 不生效,图标会保持资源里
+     * 的原始颜色(设备图标是白色描边),叠在浅色圆底上几乎「隐身」;再用 setColorFilter
+     * 强制一次,保证任何情况下都是主题色。
+     */
+    internal fun tintGlyph(iv: ImageView, ctx: Context, tintAttr: Int) {
+        iv.imageTintList = ThemeColors.csl(ctx, tintAttr)
+        iv.setColorFilter(ThemeColors.color(ctx, tintAttr), PorterDuff.Mode.SRC_IN)
+    }
+
+    /**
+     * 图标圆底:主题色 + 约 12% 透明度(动态生成,不依赖 drawable)。
+     * 为什么在代码里画:bg_sheet_tile 里用 `<item android:alpha="0.12">` 包一个 solid 的
+     * lPrimary 形状,这个 item 级 alpha 在真机/部分主题上不生效,会把圆底渲染成"实心主色"圆;
+     * 而图标又被 tint 成同一个主色 → 底和图形同色,图标完全看不见。这里直接把 alpha 乘进
+     * ARGB 色值,任何设备都保证「淡色底 + 实色图标」。
+     */
+    internal fun tileTintBackground(ctx: Context, tintAttr: Int): GradientDrawable {
+        val wash = (ThemeColors.color(ctx, tintAttr) and 0x00FFFFFF) or 0x1F000000
+        return GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(wash)
+        }
     }
 
     /**
@@ -1001,17 +1037,25 @@ class Sheet(private val ctx: Context, title: String, subtitle: String? = null) {
 
     private fun dp(v: Int): Int = ScreenUi.dp(ctx, v)
 
-    /** 行首 34dp 圆形图标底 + 20dp 线性图标。 */
-    private fun iconTile(iconRes: Int, tintAttr: Int): FrameLayout {
-        val tile = FrameLayout(ctx).apply { setBackgroundResource(R.drawable.bg_sheet_tile) }
+    /**
+     * 行首圆形图标底 + 实色图标(默认 34dp 底 + 24dp 图标)。
+     * 圆底改用动态生成的主色 12% 淡色(ScreenUi.tileTintBackground),替代会渲染成实心主色的
+     * bg_sheet_tile —— 否则底与图标同为 lPrimary,图标会「消失」。
+     */
+    private fun iconTile(iconRes: Int, tintAttr: Int, tileSizeDp: Int = 34): FrameLayout {
+        val tile = FrameLayout(ctx).apply { background = ScreenUi.tileTintBackground(ctx, tintAttr) }
+        val iconPx = minOf(
+            ScreenUi.dim(ctx, R.dimen.icon_lg),
+            dp(tileSizeDp - 8).coerceAtLeast(dp(12)),
+        )
         tile.addView(
             ImageView(ctx).apply {
                 setImageResource(iconRes)
-                imageTintList = ThemeColors.csl(ctx, tintAttr)
+                ScreenUi.tintGlyph(this, ctx, tintAttr)
                 scaleType = ImageView.ScaleType.FIT_CENTER
                 contentDescription = ""
             },
-            FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER),
+            FrameLayout.LayoutParams(iconPx, iconPx, Gravity.CENTER),
         )
         return tile
     }

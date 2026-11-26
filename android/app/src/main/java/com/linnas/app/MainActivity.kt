@@ -1914,15 +1914,22 @@ class MainActivity : AppCompatActivity() {
     /**
      * 按设备名/UA 猜平台:Android 系关键词与桌面系统关键词都不含时视为未知。
      * 返回(图标, 平台中文名),只用于展示,不影响任何功能逻辑。
+     * 说明:okhttp 仍归 Android —— 本 App 自己请求的 UA 就是 "okhttp/x"(截图里 192.168.10.3
+     * 那台正是本机),移到脚本类会把本机错标成「命令行/脚本」。python/curl/wget/go-http 这类
+     * 无 android/mobile 的脚本客户端单独归到「命令行/脚本」,避免显示成手机或彻底未知。
      */
     private fun devicePlatform(ua: String): Pair<Int, String> {
-        val s = ua.lowercase()
+        val s = ua.trim().lowercase()
+        if (s.isEmpty()) return Pair(R.drawable.ic_device_unknown, "未知设备")
         val androidKw = listOf("android", "mobile", "okhttp", "dalvik")
-        val desktopKw = listOf("windows", "macintosh", "linux", "x11", "pc", "desktop")
+        // "pc" 是 "crop"/"pci" 的子串会误判,去掉;windows/macintosh/linux/x11/desktop 已足够识别桌面。
+        val desktopKw = listOf("windows", "macintosh", "linux", "x11", "desktop")
+        val scriptKw = listOf("python", "curl", "wget", "go-http", "libwww", "java/")
         return when {
             androidKw.any { it in s } -> Pair(R.drawable.ic_device_phone, "Android 手机")
+            scriptKw.any { it in s } -> Pair(R.drawable.ic_device_desktop, "命令行/脚本")
             desktopKw.any { it in s } -> Pair(R.drawable.ic_device_desktop, "桌面电脑")
-            else -> Pair(R.drawable.ic_devices, "未知设备")
+            else -> Pair(R.drawable.ic_device_unknown, "未知设备")
         }
     }
 
@@ -1937,8 +1944,10 @@ class MainActivity : AppCompatActivity() {
                     val isMe = !myIp.isNullOrBlank() && d.ip == myIp
                     val value = (if (isMe) "本机 · " else "") + "最近活跃 " + fmtLastSeen(d.last) + " · ${d.count} 次"
                     // v1.8.5:按平台换图标,副标题前缀标明平台,方便一眼区分手机与电脑。
+                    // UA 为空时只显示平台,避免出现孤零零的「平台 · 」尾巴。
                     val (icon, platform) = devicePlatform(d.ua)
-                    sheet.row(icon, d.ip, subtitle = platform + " · " + d.ua.take(60), value = value)
+                    val subtitle = if (d.ua.isBlank()) platform else platform + " · " + d.ua.take(60)
+                    sheet.row(icon, d.ip, subtitle = subtitle, value = value)
                 }
                 if (list.isNotEmpty()) sheet.danger("清空记录") { confirmClearDevices(sheet) }
                 sheet.tonal("关闭") { sheet.dismiss() }

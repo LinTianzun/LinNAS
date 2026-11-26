@@ -121,6 +121,18 @@
                     app:strokeColor="?attr/lOutline"
                     app:strokeWidth="1dp" />
 
+                <!-- 指纹引导副标题：指纹可用但没有已保存会话时显示，提示先登录一次 -->
+                <TextView
+                    android:id="@+id/tvBioHint"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:gravity="center"
+                    android:text="首次使用请先用账号密码登录一次"
+                    android:textColor="?attr/lTextDim"
+                    android:textSize="12sp"
+                    android:visibility="gone" />
+
                 <!-- 「或使用账号密码登录」分隔 -->
                 <LinearLayout
                     android:id="@+id/tvBioDivider"

@@ -6,9 +6,9 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
 import android.provider.OpenableColumns
+import android.util.Log
 import android.view.View
 import android.view.ViewGroup
-import android.widget.CompoundButton
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -16,8 +16,6 @@ import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
-import com.google.android.material.button.MaterialButton
-import com.google.android.material.checkbox.MaterialCheckBox
 import com.linnas.app.backup.BackupConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -36,8 +34,6 @@ class VaultActivity : AppCompatActivity() {
     private lateinit var lockedPanel: View
     private lateinit var unlockedPanel: View
     private lateinit var emptyView: View
-    private lateinit var btnVaultBio: MaterialButton
-    private lateinit var cbVaultBio: MaterialCheckBox
 
     private val pickFile = registerForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         val token = vt ?: return@registerForActivityResult
@@ -71,12 +67,6 @@ class VaultActivity : AppCompatActivity() {
         unlockedPanel = findViewById(R.id.vaultUnlocked)
         emptyView = findViewById(R.id.vaultEmpty)
 
-        btnVaultBio = findViewById(R.id.btnVaultBio)
-        cbVaultBio = findViewById(R.id.cbVaultBio)
-        cbVaultBio.setOnCheckedChangeListener(cbVaultBioListener)
-        btnVaultBio.setOnClickListener { doBioUnlock() }
-        refreshBio()
-
         findViewById<View>(R.id.btnVaultBack).setOnClickListener { finish() }
         findViewById<View>(R.id.btnVaultLock).setOnClickListener { lockNow() }
         findViewById<View>(R.id.btnVaultUnlock).setOnClickListener { promptUnlock() }
@@ -102,13 +92,21 @@ class VaultActivity : AppCompatActivity() {
         enter()
     }
 
+    override fun onResume() {
+        super.onResume()
+        // 设置里已关闭生物识别时,顺手清掉已保存的保险箱密码——
+        // 关掉开关后残留的凭据不该继续留在磁盘上;正常退出/返回不动它。
+        if (!BiometricGate.isEnabled(this)) {
+            BiometricGate.clearSecret(this, KEY_VAULT_PW)
+        }
+    }
+
     private fun showLocked() {
         lockedPanel.visibility = View.VISIBLE
         unlockedPanel.visibility = View.GONE
         hint.text = ""
         findViewById<View>(R.id.btnVaultMkdir).visibility = View.GONE
         findViewById<View>(R.id.btnVaultPw).visibility = View.GONE
-        refreshBio()
     }
 
     private fun showUnlocked() {
@@ -116,7 +114,6 @@ class VaultActivity : AppCompatActivity() {
         unlockedPanel.visibility = View.VISIBLE
         findViewById<View>(R.id.btnVaultMkdir).visibility = View.VISIBLE
         findViewById<View>(R.id.btnVaultPw).visibility = View.VISIBLE
-        btnVaultBio.visibility = View.GONE
     }
 
     // ---- v1.8.0 指纹快速解锁实现见文件末尾「生物识别快速解锁」小节 ----
@@ -187,10 +184,10 @@ class VaultActivity : AppCompatActivity() {
         sheet.show()
     }
 
-    /** 解锁入口:生物识别可用且已保存过密码时优先弹指纹,否则打开密码输入 Sheet。 */
+    /** 解锁入口:设置里开着生物识别就优先自动弹指纹;首次还没有已保存密码时自动回退到密码输入。 */
     private fun promptUnlock() {
         showLocked()
-        if (bioUnlockAvailable()) {
+        if (bioAvailable()) {
             bioUnlockThenFallBack()
         } else {
             showPasswordSheet()
@@ -201,7 +198,7 @@ class VaultActivity : AppCompatActivity() {
     private fun bioAvailable(): Boolean =
         BiometricGate.isEnabled(this) && BiometricGate.canUse(this)
 
-    /** 指纹解锁的前提:开关开启 + 设备可用 + 之前手动解锁时勾选保存过密码。 */
+    /** 指纹解锁的前提:开关开启 + 设备可用 + 已自动保存过密码。 */
     private fun bioUnlockAvailable(): Boolean =
         bioAvailable() && !BiometricGate.loadSecret(this, KEY_VAULT_PW).isNullOrBlank()
 
@@ -216,7 +213,7 @@ class VaultActivity : AppCompatActivity() {
         sheet.input("保险箱密码", inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD)
         sheet.primary("解锁") {
             val pwText = sheet.inputView(0)?.text?.toString().orEmpty()
-            unlockWithPassword(pwText, saveIfChecked = true, viaBio = false) { msg ->
+            unlockWithPassword(pwText, viaBio = false) { msg ->
                 sheet.inputView(0)?.error = msg
                 toast(msg)
             }
@@ -228,7 +225,6 @@ class VaultActivity : AppCompatActivity() {
     /** 用密码换 token 并进入已解锁状态;成功后记录 5 分钟免密窗口。 */
     private fun unlockWithPassword(
         pw: String,
-        saveIfChecked: Boolean,
         viaBio: Boolean,
         onError: (String) -> Unit,
     ) {
@@ -237,13 +233,12 @@ class VaultActivity : AppCompatActivity() {
                 val tok = withContext(Dispatchers.IO) { client.vaultUnlock(pw) }
                 if (tok.isBlank()) { onError("密码错误"); return@launch }
                 vt = tok
-                // 勾选后把保险箱密码加密保存,供指纹快速解锁。
-                if (saveIfChecked && cbVaultBio.isChecked && bioAvailable()) {
-                    if (BiometricGate.saveSecret(this@VaultActivity, KEY_VAULT_PW, pw)) {
-                        toast("已启用指纹快速解锁")
-                    } else {
-                        toast("指纹保存失败,可稍后重试")
-                    }
+                // 只要设置里开着生物识别就自动保存密码,下次进保险箱直接弹指纹,
+                // 用户不必再勾选任何开关;保存失败只影响指纹入口,不影响本次解锁。
+                if (bioAvailable() &&
+                    !BiometricGate.saveSecret(this@VaultActivity, KEY_VAULT_PW, pw)
+                ) {
+                    Log.w(TAG, "自动保存指纹解锁密码失败,下次进入仍需输入密码")
                 }
                 VaultSession.unlock(this@VaultActivity, tok)
                 hint.text = if (viaBio) "已通过生物识别解锁 · 文件在服务端加密存储" else "已解锁 · 文件在服务端加密存储"
@@ -265,7 +260,7 @@ class VaultActivity : AppCompatActivity() {
         BiometricGate.authenticate(
             this, "指纹/面容解锁", "验证后解锁保险箱",
             onSuccess = {
-                unlockWithPassword(saved, saveIfChecked = false, viaBio = true) { msg -> toast(msg) }
+                unlockWithPassword(saved, viaBio = true) { msg -> toast(msg) }
             },
             onFail = { msg ->
                 if (msg == BiometricGate.MSG_RETRY) toast(msg) else showPasswordSheet()
@@ -282,7 +277,8 @@ class VaultActivity : AppCompatActivity() {
             VaultSession.lock()
             list.removeAllViews()
             emptyView.visibility = View.GONE
-            BiometricGate.clearSecret(this@VaultActivity, KEY_VAULT_PW)
+            // 手动锁定只清会话,不清已保存的指纹密码:重进保险箱仍可自动弹指纹。
+            // 真正要清理的是「改密码」和「设置里关闭生物识别」两条路径。
             showLocked()
             promptUnlock()
         }
@@ -401,6 +397,7 @@ class VaultActivity : AppCompatActivity() {
                     VaultSession.lock()
                     list.removeAllViews()
                     emptyView.visibility = View.GONE
+                    // 旧密码已作废,清掉之前自动保存的指纹密码;下次解锁成功会重新自动保存。
                     BiometricGate.clearSecret(this@VaultActivity, KEY_VAULT_PW)
                     sheet.dismiss()
                     showLocked()
@@ -568,63 +565,16 @@ class VaultActivity : AppCompatActivity() {
 
     // ---------- 生物识别快速解锁 ----------
 
-    private val cbVaultBioListener = CompoundButton.OnCheckedChangeListener { _, isChecked ->
-        if (!isChecked) {
-            BiometricGate.clearSecret(this@VaultActivity, KEY_VAULT_PW)
-            refreshBio()
-        } else if (!BiometricGate.isEnabled(this)) {
-            // 设置里关了生物识别:不允许在这里偷偷启用。
-            cbVaultBio.isChecked = false
-            toast("生物识别已在设置中关闭")
-        } else if (!BiometricGate.canUse(this)) {
-            cbVaultBio.isChecked = false
-            toast("当前设备不支持生物识别")
-        } else if (BiometricGate.loadSecret(this, KEY_VAULT_PW).isNullOrBlank()) {
-            // 尚未保存密码(需先手动解锁一次),保持未勾选。
-            cbVaultBio.isChecked = false
-            toast("请先手动解锁并勾选,再启用指纹快速解锁")
-        }
-    }
-
-    /** 根据已保存密码与生物识别可用性刷新「指纹解锁」按钮与开关状态。 */
-    private fun refreshBio() {
-        val saved = BiometricGate.loadSecret(this, KEY_VAULT_PW)
-        // 开关关闭时即使存过密码也不再显示入口,避免设置里关掉了还在这里弹指纹。
-        val enabled = !saved.isNullOrBlank() && bioAvailable()
-        btnVaultBio.visibility = if (enabled) View.VISIBLE else View.GONE
-        if (cbVaultBio.isChecked != enabled) {
-            cbVaultBio.setOnCheckedChangeListener(null)
-            cbVaultBio.isChecked = enabled
-            cbVaultBio.setOnCheckedChangeListener(cbVaultBioListener)
-        }
-    }
-
-    /** 锁定页的「指纹解锁」按钮:验证成功后用保存的密码解锁,失败只提示不打断。 */
-    private fun doBioUnlock() {
-        val saved = BiometricGate.loadSecret(this, KEY_VAULT_PW)
-        if (!bioAvailable() || saved.isNullOrBlank()) {
-            toast("未保存保险箱密码或生物识别不可用,请手动解锁")
-            return
-        }
-        btnVaultBio.isEnabled = false
-        BiometricGate.authenticate(
-            this, "指纹/面容解锁", "验证后解锁保险箱",
-            onSuccess = {
-                btnVaultBio.isEnabled = true
-                unlockWithPassword(saved, saveIfChecked = false, viaBio = true) { msg -> toast(msg) }
-            },
-            onFail = { msg ->
-                btnVaultBio.isEnabled = true
-                toast(msg)
-            },
-        )
-    }
+    // 不再有勾选开关与单独的「指纹解锁」按钮:设置里开着生物识别时,
+    // 进保险箱(promptUnlock)自动弹指纹;密码解锁成功会自动保存密码,
+    // 取消/失败时由密码输入框里的「用指纹解锁」一行作为重试入口。
 
     // 说明:退出页面时不再清已保存的保险箱密码、也不锁 VaultSession——
     // 用户诉求是「退出保险箱再进不要重输」。真正的重新验证由以下路径保证:
     // 手动「锁定」(lockNow)、修改密码、或 App 真正退到后台/进程结束后超时。
 
     companion object {
+        private const val TAG = "VaultActivity"
         private const val KEY_VAULT_PW = "bio_vault_pw"
     }
 }
