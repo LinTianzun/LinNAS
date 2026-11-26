@@ -1,6 +1,6 @@
 # LinNAS — 本地云盘/NAS 方案与版本路线图
 
-> 当前组件版本（2026-11-27）：Windows 服务端 **1.7.0**；Android 客户端 **1.8.6**（`versionCode` 15）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
+> 当前组件版本（2026-11-27）：Windows 服务端 **1.8.0**；Android 客户端 **1.8.6**（`versionCode` 15）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
 
 > 下文保留早期技术决策与里程碑记录；历史版本号描述当时状态，不代表当前版本。
 
@@ -414,7 +414,7 @@
 
 **批次 4：自动整理规则（预览 → 执行 → 记录 → 撤销）**（✅ 已完成并部署 2026-11-27）
 
-> 状态：批次 4 已实现、测试并部署到本机 52700（服务端版本仍为 1.7.0，M16 全部完成后统一升 1.8.0）。新增 `server/organize.go` 与 `server/organize_test.go`；`api.go` 注册 10 条 `/api/organize/*` 路由并在 `authorize` 中限定管理端（非 GET 一律拒绝非 admin），`Server` 增加 `organize *organizeManager`。存储：规则 `DataDir/organize.json`，作业 `DataDir/organize/jobs.json`（保留最近 50），日志 `DataDir/organize/journal-<jobID>.jsonl`。UI 存储空间页新增「自动整理」页签（规则列表 / 编辑对话框 / 预览前 50 条 / 执行确认 / 进度 / 作业历史与撤销）。真实环境端到端验收：6 个测试文件按扩展名规则预览=执行数，执行后索引即时可见新路径，撤销后完全回原位（详见下方验收记录）。
+> 状态：批次 4 已实现、测试并部署到本机 52700（服务端版本已随 M16 完成升至 1.8.0）。新增 `server/organize.go` 与 `server/organize_test.go`；`api.go` 注册 10 条 `/api/organize/*` 路由并在 `authorize` 中限定管理端（非 GET 一律拒绝非 admin），`Server` 增加 `organize *organizeManager`。存储：规则 `DataDir/organize.json`，作业 `DataDir/organize/jobs.json`（保留最近 50），日志 `DataDir/organize/journal-<jobID>.jsonl`。UI 存储空间页新增「自动整理」页签（规则列表 / 编辑对话框 / 预览前 50 条 / 执行确认 / 进度 / 作业历史与撤销）。真实环境端到端验收：6 个测试文件按扩展名规则预览=执行数，执行后索引即时可见新路径，撤销后完全回原位（详见下方验收记录）。
 - 规则模型：`organizeRule{id, name, enabled, libId, match{matchPathPrefix, exts[], nameContains, kind, minSizeMB, maxSizeMB, olderThanDays}, action{moveTo, groupBy:"ext|kind|year-month|none"}}`，存 `organize.json`；`GET/POST/PUT/DELETE /api/organize/rules`（admin only）。
 - 预览：`POST /api/organize/preview` 只读计算计划 → `{items:[{from,to,reason}], skipped:[{from,reason}], conflicts, totalBytes}`，绝不落盘。
 - 执行：`POST /api/organize/run` 逐条移动，目标同名自动加 ` (1)`、跨库/只读库/保险箱/回收站/排除目录一律跳过，单次上限 5000 个文件；每步写 `organize/journal-<jobID>.jsonl`（from/to/ts/ok/err），完成后调 `Index.UpdatePaths` 增量刷新索引。
@@ -425,4 +425,4 @@
 - 验收：造 200 个散落文件 + 一条「按扩展名归类」规则，预览与实际执行数量一致；执行后索引即时可见新路径；撤销后文件与索引完全回到原位；中途取消不产生半移动文件（每条移动本身原子）。
 - 验收记录（2026-11-27，本机 52700 真实数据）：用 `I:\NAS\.orgtest` 下 6 个 txt + 1 个 jpg 建规则「lib2 / 前缀 `.orgtest` / 扩展名 `.txt` → `归档`」，预览返回 6 条且与执行数一致（jpg 不在规则内，正确留原地）；执行后 6 个文件落到 `I:\NAS\归档\` 且 `/api/search` 立即返回新路径；撤销后 6 个文件与索引全部回原位；作业表记 6 移动 0 失败，撤销后整理作业不再提供「撤销」。测试数据、规则与作业日志已清理。
 
-**依赖与顺序**：批次 1 → 批次 2（复用 housekeeping 与后台任务骨架）→ 批次 3（抽取 worker 与批次 2 的限速/进度骨架同构）→ 批次 4（复用 `UpdatePaths` 与回收站/保险箱边界判断）。每批独立可发布、独立补测试与文档，全部完成后版本升 1.8.0。
+**依赖与顺序**：批次 1 → 批次 2（复用 housekeeping 与后台任务骨架）→ 批次 3（抽取 worker 与批次 2 的限速/进度骨架同构）→ 批次 4（复用 `UpdatePaths` 与回收站/保险箱边界判断）。每批独立可发布、独立补测试与文档，全部完成后版本升 1.8.0（已完成：2026-11-27 服务端由 1.7.0 升到 **1.8.0**，`server/config.go` 的 `const Version`，并同步 README / PLAN / RELEASING / CHANGELOG）。

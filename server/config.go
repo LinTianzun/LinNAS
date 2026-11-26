@@ -3,7 +3,7 @@ package main
 import "fmt"
 
 // Version of linNas server.
-const Version = "1.7.0"
+const Version = "1.8.0"
 
 // DefaultPort is the port linNas listens on by default.
 const DefaultPort = 52700

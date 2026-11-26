@@ -4,7 +4,7 @@
 
 方案与里程碑见 [PLAN.md](../PLAN.md)。
 
-> 当前服务端版本：**1.7.0**（`config.go` 中的 `Version`）。服务端与 Android 客户端独立版本化。Windows 构建和发布步骤见根目录 [RELEASING.md](../RELEASING.md)。
+> 当前服务端版本：**1.8.0**（`config.go` 中的 `Version`）。服务端与 Android 客户端独立版本化。Windows 构建和发布步骤见根目录 [RELEASING.md](../RELEASING.md)。
 
 ## 一键启动(推荐)
 
