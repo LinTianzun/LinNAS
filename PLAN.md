@@ -441,7 +441,7 @@
 - **磁盘健康容量**：`GET /api/disks/health` 在物理磁盘信息外追加 `Win32_LogicalDisk`（DriveType=3）卷容量，条目新增 `totalGB` / `freeGB`（`attachVolumes` 按盘符大小写不敏感映射，1<<30 取整），修复同一 6TB 物理盘上 H:/I: 都显示 5589 GB 的问题；UI 磁盘健康卡改为「型号 · 介质 · 健康」+ 容量进度条（可用占比）+「已用 X% · 可用 A / B」。
 - **双击启动**：无命令行参数且非从已有终端启动（或 `LINNAS_QUIET=1`）时，隐藏控制台窗口、自动打开浏览器并驻留托盘；日志改写入 `<DataDir>/linnas.log`（UTF-8）；`launchedFromTerminal()`（`GetConsoleProcessList`）避免把用户终端一起隐藏；mDNS 实例名改用 `cfg.DisplayName()`。
 - **图片上一张 / 下一张**：`buildPlaylist` 图片单独成组（`kind==="image"`），左右按钮与 `ArrowLeft/ArrowRight` 在同组图片间切换；非视频隐藏倍速与画中画。
-- **音乐音量记忆**：`linnas_music_vol` 存本机，`applyMusicVolume()` 统一应用到音频元素、滑块与百分比，进入播放器即恢复。
+- **音乐音量记忆**：`linnas_music_vol` 存本机（首次默认 70%），`applyMusicVolume()` 统一应用到音频元素、滑块与百分比，进入播放器即恢复。
 - **音乐播放器增强**：均衡器律动（7 条，播放时 `.on`）、睡眠定时（0/15/30/60 分钟，到点暂停）、静音、收藏筛选（`linnas_music_favs`）、列表扩展名徽标。
 - **服务器自定义名称**：`Config.ServerName`（`serverName`）+ `Config.DisplayName()`（空回退 LinNAS）；`/api/health` 返回 `name`，`/api/settings` 可读写（trim + 40 字上限，仅管理员）；UI 应用到标题、品牌、锁屏与扫码说明。
 - **移除总览「规划中」占位卡**（M14–M16 功能均已交付）。

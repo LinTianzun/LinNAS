@@ -2629,7 +2629,7 @@ function musicAudio() { return $("#music-audio"); }
 /* ---- 音量:记忆 + 百分比 + 静音 ---- */
 function savedMusicVolume() {
   try { const v = parseFloat(localStorage.getItem("linnas_music_vol")); if (isFinite(v)) return Math.min(1, Math.max(0, v)); } catch (e) {}
-  return 1;
+  return 0.7;
 }
 function applyMusicVolume() {
   const a = musicAudio();
