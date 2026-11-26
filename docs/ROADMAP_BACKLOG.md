@@ -1,6 +1,6 @@
 # LinNAS 路线图与任务清单（ROADMAP BACKLOG）
 
-> 更新：2026-11-26 ｜ 基线：Windows 服务端 **1.7.0** / Android **1.8.0**（versionCode 9）
+> 更新：2026-11-26 ｜ 基线：Windows 服务端 **1.7.0** / Android **1.8.2**（versionCode 11）
 > 本文件把「还能做什么」整理成可执行任务：优先级、最小可交付、验收标准、涉及文件、依赖与建议排期。
 > 方向性构想见 [FEATURE_ROADMAP.md](FEATURE_ROADMAP.md)；已完成历史见 [PLAN.md](../PLAN.md) 与 [TASK_HISTORY.md](TASK_HISTORY.md)；当前状态见 [DEVELOPMENT_STATUS.md](DEVELOPMENT_STATUS.md)。
 
@@ -19,13 +19,13 @@
 | Android | 1.8.0 / versionCode 9（`android/app/build.gradle.kts`），debug 签名 |
 | 测试 | Go 15 个 `*_test.go`；Android 3 个单测 + 3 个仪器测试 |
 | CI | `.github/workflows/ci.yml`：`go-windows` / `go-race` / `android-emulator` |
-| 已知缺口 | 无真机端到端验收记录；无 release 签名；`linnas-data` 备份不含媒体 / 保险箱文件 |
+| 已知缺口 | 无 release 签名；完整多机型 / 系统版本矩阵未覆盖；`linnas-data` 备份不含媒体 / 保险箱文件 |
 
 ## 2. Backlog 总览
 
 | ID | 优先级 | 事项 | 工作量 | 状态 |
 |---|---|---|---|---|
-| BL-001 | P0 | Android 真机端到端验收（M10） | M | 待办 |
+| BL-001 | P0 | Android 真机端到端验收（M10） | M | 已完成（单机基本回归） |
 | BL-002 | P0 | release 签名与构建加固 | M | 待办 |
 | BL-003 | P0 | CI 发布自动化（tag → Release） | S–M | 待办 |
 | BL-010 | P1 | 对话空间 MVP（个人设备收件箱） | L–XL | 待办 |
@@ -58,6 +58,7 @@
 - **涉及**：`android/`（验证为主）、`ANDROID_TESTING.md`、`docs/DEVELOPMENT_STATUS.md`。
 - **依赖**：无。
 - **产出**：验收记录（设备型号 / 系统 / 服务端版本 / 结果 / 日志）。
+- **进展（2026-11-26）**：用户已在真机完成基本回归，未发现阻断问题（单设备）；完整 Android 7 / 14 多机型矩阵与只读账号场景列为可选补测。
 
 ### BL-002 release 签名与构建加固
 
