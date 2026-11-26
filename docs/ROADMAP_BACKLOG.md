@@ -16,7 +16,7 @@
 | 项 | 现状 |
 |---|---|
 | 服务端 | 1.7.0（`server/config.go` 的 `Version`），单 exe、内嵌 Web UI、纯 Go SQLite |
-| Android | 1.8.0 / versionCode 9（`android/app/build.gradle.kts`），debug 签名 |
+| Android | 1.8.2 / versionCode 11（`android/app/build.gradle.kts`），debug 签名 |
 | 测试 | Go 15 个 `*_test.go`；Android 3 个单测 + 3 个仪器测试 |
 | CI | `.github/workflows/ci.yml`：`go-windows` / `go-race` / `android-emulator` |
 | 已知缺口 | 无 release 签名；完整多机型 / 系统版本矩阵未覆盖；`linnas-data` 备份不含媒体 / 保险箱文件 |
@@ -58,7 +58,7 @@
 - **涉及**：`android/`（验证为主）、`ANDROID_TESTING.md`、`docs/DEVELOPMENT_STATUS.md`。
 - **依赖**：无。
 - **产出**：验收记录（设备型号 / 系统 / 服务端版本 / 结果 / 日志）。
-- **进展（2026-11-26）**：用户已在真机完成基本回归，未发现阻断问题（单设备）；完整 Android 7 / 14 多机型矩阵与只读账号场景列为可选补测。
+- **进展（2026-11-26）**：用户在 realme GT7 Pro（Android 16）完成基本回归，未发现阻断问题（单设备，服务端 1.7.0）；完整 Android 7 / 14 多机型矩阵与只读账号场景列为可选补测。
 
 ### BL-002 release 签名与构建加固
 
