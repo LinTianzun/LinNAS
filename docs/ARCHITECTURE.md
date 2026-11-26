@@ -1,4 +1,4 @@
-# LinNAS 架构说明
+﻿# LinNAS 架构说明
 
 > 更新：2026-11-26。当前版本：Windows 服务端 1.7.0；Android 1.8.2（versionCode 11）。
 > 本文描述**现状**；里程碑与版本演进见 [PLAN.md](../PLAN.md)，后续候选见 [FEATURE_ROADMAP.md](FEATURE_ROADMAP.md)。
@@ -55,6 +55,7 @@
 | `trend.go` | 存储增长趋势：`storage_snapshots` 按小时快照 + `GET /api/storage/trend`（7/30/90 天，SVG 面积图） |
 | `disk_health.go` | 磁盘健康：Windows `Get-PhysicalDisk`/`Get-Volume`，5 分钟缓存，`GET /api/disks/health`（非 Windows → supported:false） |
 | `alerts.go` | 空间告警存储：`alerts.json` 触发 / 恢复 / 已读，`GET /api/alerts`、`POST /api/alerts/ack` |
+| `patrol.go` | 校验巡检（`file_sig` 表）：quick（大小 + 首尾 64KB 抽样 SHA-256）/ deep（全文件 SHA-256，~20MB/s 限速）签名比对，单飞可取消，只报告不修改；`POST /api/storage/patrol/{start,cancel}`、`GET /api/storage/patrol/{status,last}` |
 | `overview.go` | 总览仪表盘数据：`GET /api/overview`（库容量、全库与类型统计、索引 / 回收站 / 分享 / 设备、近期活动、空间与索引告警） |
 | `webdav.go` | WebDAV 服务（`/dav/<库ID>/`，继承账号 / 只读，敏感目录不可访问） |
 | `zip.go` | 文件夹 / 多选服务端流式 Zip 打包 |
@@ -74,7 +75,7 @@
 - 安全 / 账号：`auth/{login,logout,me,status,sessions,revoke}`、`users`（+password / update）、`audit`、`devices`、`shares`、`share/{id}`、`share/{id}/raw`
 - 保险箱：`vault/{status,setup,unlock,lock,ls,raw,upload,delete,mkdir,import,export,改密}`
 - 回收站：`trash`、`trash/{restore,delete,empty,thumb}`
-- 其它：`health`、`settings`、`pair`、`pair/qr`、`qr`、`remote`、`remote/serve`、`hotspot`、`autostart`、`app/version`、`app/apk`、`wol`、`wol/send`、`maintenance/cleanup`、`system/open`、`overview`、`storage/{summary,large,duplicates,duplicates/scan,trend}`、`disks/health`、`alerts`、`alerts/ack`
+- 其它：`health`、`settings`、`pair`、`pair/qr`、`qr`、`remote`、`remote/serve`、`hotspot`、`autostart`、`app/version`、`app/apk`、`wol`、`wol/send`、`maintenance/cleanup`、`system/open`、`overview`、`storage/{summary,large,duplicates,duplicates/scan,trend}`、`disks/health`（可 `?lib=` 按存储库过滤）、`alerts`、`alerts/ack`、`storage/patrol/{start,status,cancel,last}`
 - 非 `/api`：`/pair`（配对页）、`/s/{id}`（分享页）、`/dav/<lib>/`（WebDAV）、`/ui/`（管理端）
 
 ### 3.3 鉴权与权限
@@ -120,6 +121,7 @@
   - 备份仅覆盖以上应用数据；媒体文件、保险箱文件（存储库内 `.linNasVault`）需另行备份，见 [DATA_BACKUP.md](../DATA_BACKUP.md)。
 - **存储库 `Library`**：`ID`（`lib1`…）、`Name`、`Path`（绝对路径）、`ReadOnly`、`Enabled`、`Exclude`（完全隐藏且不索引）、`MediaHide`（仍索引 / 可访问，仅不在媒体库展示）。
 - **索引表** `files(lib_id, path, parent, name, is_dir, size, mod_time, kind)`；全量扫描约 24.5 万文件 ~75s；启动 6 小时内不重扫。
+- **辅助表** `storage_snapshots(lib_id, ts, bytes, files)`（按小时容量快照，趋势用，保留 400 天）；`file_sig(lib_id, path, size, mod_time, sig, sig_at)`（巡检签名基线，`sig` 带 `quick:`/`deep:` 前缀）。
 - **隐藏目录**：保险箱 `.linNasVault`、回收站 `.linNasTrash`（含 `.meta`），不出现在浏览 / 搜索 / 索引。
 
 ## 7. 关键设计点

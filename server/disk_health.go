@@ -32,9 +32,11 @@ type diskHealthEntry struct {
 }
 
 // diskHealthResp 是 GET /api/disks/health 的响应。
+// Note 用于「按存储库过滤」时该库所在磁盘不在物理磁盘列表内的提示。
 type diskHealthResp struct {
 	Supported bool              `json:"supported"`
 	Reason    string            `json:"reason,omitempty"`
+	Note      string            `json:"note,omitempty"`
 	At        int64             `json:"at"`
 	Disks     []diskHealthEntry `json:"disks"`
 }
@@ -95,21 +97,77 @@ func (c *diskHealthCache) peek() []diskHealthEntry {
 	return out
 }
 
-// handleDisksHealth GET /api/disks/health — 物理磁盘健康状态(缓存 5 分钟)。
+// handleDisksHealth GET /api/disks/health?lib=<库ID> — 物理磁盘健康状态(缓存 5 分钟)。
+// 无 lib 或 lib=all 返回全部磁盘;指定库时只返回承载该库路径的磁盘(在缓存副本上过滤)。
 func (s *Server) handleDisksHealth(w http.ResponseWriter, r *http.Request) {
-	c := s.diskHealth
-	if c == nil {
+	var resp diskHealthResp
+	if c := s.diskHealth; c == nil {
 		// 没有缓存容器(例如测试里手工构造 Server):直接采集一次,不缓存。
-		writeJSON(w, 200, collectDiskHealth())
-		return
+		resp = collectDiskHealth()
+	} else if cached, ok := c.get(); ok {
+		resp = cached
+	} else {
+		resp = collectDiskHealth()
+		c.set(resp)
 	}
-	if resp, ok := c.get(); ok {
-		writeJSON(w, 200, resp)
-		return
+
+	// 按存储库过滤:只对缓存结果做过滤,不按库分缓存。
+	libID := strings.TrimSpace(r.URL.Query().Get("lib"))
+	if libID != "" && !strings.EqualFold(libID, "all") {
+		var lib *Library
+		if s.cfg != nil {
+			lib = s.cfg.LibraryByID(libID)
+		}
+		if lib == nil {
+			writeJSON(w, 404, map[string]string{"error": "library not found"})
+			return
+		}
+		drive := driveOfPath(lib.Path)
+		filtered := filterDisksByDrive(resp.Disks, drive)
+		if drive == "" || len(filtered) == 0 {
+			filtered = []diskHealthEntry{}
+			resp.Note = "该存储库所在磁盘不在本机物理磁盘列表内"
+		}
+		resp.Disks = filtered
 	}
-	resp := collectDiskHealth()
-	c.set(resp)
 	writeJSON(w, 200, resp)
+}
+
+// driveOfPath 返回 Windows 路径的盘符(如 "E:");非盘符路径(UNC/相对路径等)返回 ""。
+// 例:E:\a\b → "E:";E:/a → "E:";\\server\share → "";relative\path → ""。
+func driveOfPath(p string) string {
+	p = strings.TrimSpace(p)
+	if len(p) < 2 {
+		return ""
+	}
+	c := p[0]
+	if !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) {
+		return ""
+	}
+	if p[1] != ':' {
+		return ""
+	}
+	// 盘符之后必须是路径分隔符或字符串结束(如 "E:\"、"E:/"、"E:")。
+	if len(p) > 2 && p[2] != '\\' && p[2] != '/' {
+		return ""
+	}
+	return strings.ToUpper(string(c)) + ":"
+}
+
+// filterDisksByDrive 在全量磁盘列表里按盘符过滤(大小写不敏感)。
+// drive 为空或没有匹配时返回空切片(非 nil),便于直接 JSON 序列化为 []。
+func filterDisksByDrive(disks []diskHealthEntry, drive string) []diskHealthEntry {
+	out := []diskHealthEntry{}
+	drive = strings.TrimSpace(drive)
+	if drive == "" {
+		return out
+	}
+	for _, d := range disks {
+		if strings.EqualFold(strings.TrimSpace(d.Drive), drive) {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // collectDiskHealth 调用 PowerShell 采集并按盘符组装结果;任何失败都降级为 supported:false。

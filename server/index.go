@@ -77,6 +77,15 @@ func OpenIndex(dataDir string) (*Index, error) {
 			PRIMARY KEY (lib_id, ts)
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_snap_ts ON storage_snapshots(ts)`,
+		`CREATE TABLE IF NOT EXISTS file_sig (
+			lib_id   TEXT NOT NULL,
+			path     TEXT NOT NULL,
+			size     INTEGER NOT NULL,
+			mod_time INTEGER NOT NULL,
+			sig      TEXT NOT NULL,
+			sig_at   INTEGER NOT NULL,
+			PRIMARY KEY (lib_id, path)
+		)`,
 	} {
 		if _, err := db.Exec(stmt); err != nil {
 			return nil, err

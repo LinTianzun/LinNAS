@@ -1,4 +1,4 @@
-# LinNAS — 本地云盘/NAS 方案与版本路线图
+﻿# LinNAS — 本地云盘/NAS 方案与版本路线图
 
 > 当前组件版本（2026-11-26）：Windows 服务端 **1.7.0**；Android 客户端 **1.8.3**（`versionCode` 12）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
 
@@ -339,7 +339,7 @@
 - **兼容**：`GET /api/overview` 对所有已登录角色放行；Android 客户端不受影响；版本仍为 1.7.0。
 - **验证**：`go build` / `go vet` / `go test -count=1` 全绿；`node --check app.js` 通过；Playwright 1586×1102 实测无左侧死区、六项 KPI、五张卡片、两张规划卡、侧栏四组与「总览」高亮；800px 宽单列且无横向溢出。
 
-### M15 存储空间分析增强（规划，分两批实现）
+### M15 存储空间分析增强（两批均已实现，2026-11-26）
 总览页「规划中」第二张卡片的落地计划。目标：在已有概览 / 大文件 / 重复候选之上补齐**增长趋势、校验巡检、磁盘健康与空间告警**，全部复用现有 `files` 索引与 `analysis.go` 模式（后台异步 + 状态轮询），不引入第三方依赖，删除动作一律只进回收站且需人工确认。
 
 **批次 1：趋势快照 + 磁盘健康 + 空间告警**（✅ 已完成并部署 2026-11-26）
@@ -351,7 +351,9 @@
 - 空间告警：`Config` 新增 `spaceWarnPercent`（默认 10）、`spaceCriticalPercent`（默认 3），settings 可改（clamp 1–50 / 1–20）；`overview.go` 的 `buildOverviewAlerts` 改读这两个配置；新增 `alerts.json` 记录触发/恢复时间与已读状态，`GET /api/alerts`、`POST /api/alerts/ack`（按 id 集合标记已读）。总览告警条显示未读数并提供「全部已读」。
 - UI：存储空间页新增「趋势」tab（7 / 30 / 90 天切换，SVG 面积图 + 每库合计与本周变化）；总览「存储容量概览」卡片底部加迷你 sparkline 与「较上周 +X GB」；设置页「存储与维护」增加两个阈值输入；告警条加「已读」。
 
-**批次 2：校验巡检（integrity patrol）**
+**批次 2：校验巡检（integrity patrol）**（✅ 已完成并部署 2026-11-26）
+
+> 状态：批次 2 已实现、测试并部署到本机 52700（服务端版本仍为 1.7.0）；新增 `server/patrol.go` 与 `server/patrol_test.go`，`index.go` 增加 `file_sig` 表；签名带 `quick:` / `deep:` 前缀，切换模式不会误报「内容已变化」。同时 `GET /api/disks/health` 支持 `?lib=` 按存储库过滤磁盘。
 - 新表：`file_sig(lib_id TEXT, path TEXT, size INTEGER, mod_time INTEGER, sig TEXT, sig_at INTEGER, PRIMARY KEY(lib_id, path))`。
 - `server/patrol.go`：`patrolState{running, mode, startedAt, done, total, changed[], missing[], failed[], cancel}`；quick 模式 = 抽样哈希（大小 + 首尾各 64KB 的 SHA-256，与 `file_sig` 中上次签名比对），deep 模式 = 全文件 SHA-256 并限速（约 20MB/s，令牌桶）；两者都单飞、可取消、进度可轮询。
 - API：`POST /api/storage/patrol/start?mode=quick|deep&lib=`、`GET /api/storage/patrol/status`、`POST /api/storage/patrol/cancel`、`GET /api/storage/patrol/last`（最近 20 次摘要，落 `patrol.json`）。

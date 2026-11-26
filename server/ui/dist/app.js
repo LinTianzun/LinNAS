@@ -50,6 +50,13 @@ const state = {
   trendDays: 30,             // 趋势页签的时间范围(天)
   diskHealth: null,          // GET /api/disks/health 的缓存结果
   diskHealthSeq: 0,          // 防止并发请求把旧结果追加两遍
+  diskLib: "all",            // 磁盘健康按存储库过滤: all 或库 id
+  storageLibs: [],           // /api/storage/summary 返回的库列表(磁盘健康下拉用)
+  // 校验巡检(批次 2)
+  patrolMode: "quick",       // quick | deep
+  patrolTimer: null,         // 巡检状态轮询定时器
+  patrolStatus: null,        // 最近一次 GET /api/storage/patrol/status
+  patrolLast: null,          // 最近一条 GET /api/storage/patrol/last 记录
   // v1.4.0 D 安全
   auth: { multiUser: false, userCount: 0, idleLockMinutes: 30, username: "", role: "", session: false, locked: false },
   users: [],
@@ -3234,7 +3241,7 @@ $$("#storage-tabs button").forEach((b) => {
 
 // 供总览「快捷入口」等外部调用：切换存储页签并加载对应数据
 function setStorageTab(tab) {
-  if (tab !== "dups" && tab !== "trend") tab = "large";
+  if (tab !== "dups" && tab !== "trend" && tab !== "patrol") tab = "large";
   state.storageTab = tab;
   $$("#storage-tabs button").forEach((x) => {
     x.classList.toggle("on", x.dataset.tab === state.storageTab);
@@ -3243,6 +3250,9 @@ function setStorageTab(tab) {
   $("#storage-dups").hidden = state.storageTab !== "dups";
   const trendEl = $("#storage-trend");
   if (trendEl) trendEl.hidden = state.storageTab !== "trend";
+  const patrolEl = $("#storage-patrol");
+  if (patrolEl) patrolEl.hidden = state.storageTab !== "patrol";
+  if (state.storageTab !== "patrol") stopPatrolPoll();
   loadStorageTab();
 }
 
@@ -3256,6 +3266,7 @@ function showStorage() {
 function loadStorageTab() {
   if (state.storageTab === "dups") loadDupsStatus();
   else if (state.storageTab === "trend") loadTrend();
+  else if (state.storageTab === "patrol") loadPatrol();
   else loadStorageLarge();
 }
 
@@ -3277,6 +3288,7 @@ function renderStorageSummary(s) {
   const sub = $("#storage-sub");
   el.innerHTML = "";
   const libs = (s && s.libs) || [];
+  state.storageLibs = libs;
   sub.textContent = `共 ${s.totalFiles || 0} 个文件 · 占用 ${fmtSize(s.totalBytes || 0)}`;
   if (!libs.length) { el.innerHTML = '<div class="st-empty">暂无索引数据（需先建立文件索引）</div>'; renderDiskHealth(); return; }
   for (const lib of libs) {
@@ -3610,11 +3622,14 @@ function renderTrend(r, days) {
 }
 
 /* ============================================================ 磁盘健康(批次 1) */
-async function loadDiskHealth() {
+async function loadDiskHealth(lib) {
+  if (lib === undefined) lib = state.diskLib || "all";
+  state.diskLib = lib || "all";
   const seq = (state.diskHealthSeq || 0) + 1;
   state.diskHealthSeq = seq;
   let h = null;
-  try { h = await api("/api/disks/health"); } catch (e) { h = null; }
+  const q = (state.diskLib && state.diskLib !== "all") ? "?lib=" + enc(state.diskLib) : "";
+  try { h = await api("/api/disks/health" + q); } catch (e) { h = null; }
   if (seq !== state.diskHealthSeq) return; // 已有更新的请求,丢弃旧结果
   state.diskHealth = h;
   renderDiskHealth();
@@ -3627,15 +3642,46 @@ function renderDiskHealth() {
   const h = state.diskHealth;
   if (!h || h.supported !== true) return; // 不支持或接口不可用:整段隐藏
   const disks = Array.isArray(h.disks) ? h.disks : [];
-  if (!disks.length) return;
 
   const card = document.createElement("div"); card.className = "dh-card"; card.id = "storage-health";
   const anyBad = disks.some((dk) => (dk.healthStatus || "") !== "Healthy");
   if (anyBad) card.classList.add("warn");
   const head = document.createElement("div"); head.className = "dh-head";
   head.appendChild(ovEl("span", "dh-h", "磁盘健康"));
-  head.appendChild(ovEl("span", "dh-at", h.at ? "检测于 " + fmtTime(h.at) : ""));
+
+  // 存储库下拉(全部存储库 + summary.libs)
+  const tools = document.createElement("div"); tools.className = "dh-tools";
+  const libs = (Array.isArray(state.storageLibs) && state.storageLibs.length)
+    ? state.storageLibs
+    : (Array.isArray(state.libs) ? state.libs : []);
+  if (state.diskLib && state.diskLib !== "all" && !libs.some((l) => l && l.id === state.diskLib)) state.diskLib = "all";
+  const sel = document.createElement("select");
+  sel.className = "dh-lib-select"; sel.title = "按存储库筛选磁盘";
+  sel.setAttribute("aria-label", "按存储库筛选磁盘");
+  const optAll = document.createElement("option"); optAll.value = "all"; optAll.textContent = "全部存储库"; sel.appendChild(optAll);
+  for (const lib of libs) {
+    if (!lib || !lib.id) continue;
+    const o = document.createElement("option"); o.value = lib.id; o.textContent = lib.name || lib.id; sel.appendChild(o);
+  }
+  sel.value = state.diskLib || "all";
+  sel.onchange = () => { loadDiskHealth(sel.value); };
+  tools.appendChild(sel);
+  if (h.at) tools.appendChild(ovEl("span", "dh-at", "检测于 " + fmtTime(h.at)));
+  head.appendChild(tools);
   card.appendChild(head);
+
+  if (h.note) card.appendChild(ovEl("div", "dh-note", h.note));
+
+  if (!disks.length) {
+    if (!h.note) {
+      const msg = (state.diskLib && state.diskLib !== "all")
+        ? "该存储库所在磁盘不在本机物理磁盘列表内"
+        : "未检测到本机物理磁盘信息";
+      card.appendChild(ovEl("div", "dh-empty", msg));
+    }
+    host.appendChild(card);
+    return;
+  }
 
   const list = document.createElement("div"); list.className = "dh-list";
   for (const dk of disks) {
@@ -3657,6 +3703,194 @@ function renderDiskHealth() {
   }
   card.appendChild(list);
   host.appendChild(card);
+}
+
+/* ============================================================ 校验巡检(批次 2) */
+function stopPatrolPoll() { if (state.patrolTimer) { clearTimeout(state.patrolTimer); state.patrolTimer = null; } }
+
+function patrolElapsed(st) {
+  if (!st || !st.startedAt) return "0:00";
+  const end = st.running ? Math.floor(Date.now() / 1000) : (st.finishedAt || st.startedAt);
+  let sec = end - st.startedAt;
+  if (!isFinite(sec) || sec < 0) sec = 0;
+  return fmtDur(sec) || "0:00";
+}
+
+async function loadPatrol() {
+  const el = $("#storage-patrol");
+  if (!el) return;
+  if (!state.patrolStatus) el.innerHTML = '<div class="st-empty">读取巡检状态…</div>';
+  let st = null;
+  try { st = await api("/api/storage/patrol/status"); } catch (e) { st = null; }
+  if (st) state.patrolStatus = st;
+  renderPatrol(state.patrolStatus);
+  if (state.patrolStatus && state.patrolStatus.running) pollPatrol();
+  else loadPatrolLast();
+}
+
+function pollPatrol() {
+  stopPatrolPoll();
+  state.patrolTimer = setTimeout(async () => {
+    state.patrolTimer = null;
+    if (state.view !== "storage" || state.storageTab !== "patrol") return;
+    let st = null;
+    try { st = await api("/api/storage/patrol/status"); } catch (e) { st = null; }
+    if (!st) return;
+    state.patrolStatus = st;
+    renderPatrol(st);
+    if (st.running) pollPatrol();
+    else loadPatrolLast();
+  }, 1200);
+}
+
+async function loadPatrolLast() {
+  let r = null;
+  try { r = await api("/api/storage/patrol/last?limit=1"); } catch (e) { r = null; }
+  const items = (r && r.items) || [];
+  state.patrolLast = items[0] || null;
+  renderPatrolLast();
+}
+
+async function startPatrol() {
+  const mode = state.patrolMode || "quick";
+  try { await api("/api/storage/patrol/start?mode=" + enc(mode), { method: "POST" }); }
+  catch (e) {
+    if (/already running|已有/i.test(e.message || "")) toast("已有巡检在进行");
+    else toast("启动失败：" + (e.message || "未知错误"));
+    return;
+  }
+  toast("巡检已开始（" + (mode === "deep" ? "深度" : "快速") + "）");
+  await loadPatrol();
+}
+
+async function cancelPatrol() {
+  try { await api("/api/storage/patrol/cancel", { method: "POST" }); toast("已请求取消巡检"); }
+  catch (e) { toast("取消失败：" + (e.message || "未知错误")); }
+  loadPatrol();
+}
+
+function patrolGroups(st) {
+  const wrap = document.createElement("div"); wrap.className = "pt-groups";
+  wrap.appendChild(patrolGroup("内容已变化", "changed", (st && st.changed) || []));
+  wrap.appendChild(patrolGroup("文件缺失", "missing", (st && st.missing) || []));
+  wrap.appendChild(patrolGroup("读取失败", "failed", (st && st.failed) || []));
+  return wrap;
+}
+
+function patrolGroup(title, cls, items) {
+  const arr = Array.isArray(items) ? items : [];
+  const g = document.createElement("div"); g.className = "pt-group pt-" + cls;
+  const head = document.createElement("div"); head.className = "pt-group-head";
+  head.appendChild(ovEl("span", "pt-group-title", title));
+  head.appendChild(ovEl("span", "pt-group-count", arr.length + " 项"));
+  g.appendChild(head);
+  if (!arr.length) { g.appendChild(ovEl("div", "pt-empty", "无")); return g; }
+  const rows = document.createElement("div"); rows.className = "pt-rows";
+  for (const it of arr) {
+    const row = document.createElement("div"); row.className = "pt-row";
+    row.title = "点击跳到文件所在目录";
+    row.appendChild(ovEl("div", "pt-path", it.path || it.name || ""));
+    if (it.reason) row.appendChild(ovEl("div", "pt-reason", it.reason));
+    row.onclick = () => patrolJump(it);
+    rows.appendChild(row);
+  }
+  g.appendChild(rows);
+  return g;
+}
+
+function patrolJump(it) {
+  let vp = it && it.path ? String(it.path) : "";
+  if (vp && vp.charAt(0) !== "/" && it && it.libId) vp = "/" + it.libId + "/" + vp.replace(/^\/+/, "");
+  if (vp && /^\/lib[^/]+/.test(vp)) {
+    const dir = vp.replace(/\/[^/]*$/, "") || "/";
+    openPath(dir);
+    return;
+  }
+  if (vp) { copyText(vp); toast("已复制路径，无法自动定位目录"); return; }
+  toast("无法定位该文件");
+}
+
+function renderPatrol(st) {
+  const el = $("#storage-patrol");
+  if (!el) return;
+  el.innerHTML = "";
+  const running = !!(st && st.running);
+  const mode = running ? ((st && st.mode) || state.patrolMode || "quick") : (state.patrolMode || "quick");
+
+  const card = document.createElement("div"); card.className = "pt-card";
+  const bar = document.createElement("div"); bar.className = "pt-bar";
+
+  // 模式分段(运行中禁用)
+  const seg = document.createElement("div"); seg.className = "seg pt-mode";
+  [["quick", "快速"], ["deep", "深度"]].forEach(([v, label]) => {
+    const b = document.createElement("button"); b.type = "button"; b.textContent = label;
+    if (v === mode) b.classList.add("on");
+    b.disabled = running;
+    b.onclick = () => { if (state.patrolMode !== v) { state.patrolMode = v; renderPatrol(state.patrolStatus); } };
+    seg.appendChild(b);
+  });
+  bar.appendChild(seg);
+
+  const startBtn = document.createElement("button"); startBtn.className = "btn primary pt-start";
+  startBtn.innerHTML = svgIcon("search") + " 开始巡检";
+  startBtn.disabled = running;
+  startBtn.onclick = () => startPatrol();
+  bar.appendChild(startBtn);
+
+  if (running) {
+    const cancelBtn = document.createElement("button"); cancelBtn.className = "btn danger pt-cancel";
+    cancelBtn.textContent = "取消";
+    cancelBtn.onclick = () => cancelPatrol();
+    bar.appendChild(cancelBtn);
+  }
+  card.appendChild(bar);
+
+  // 进度 + 状态行
+  const done = Number((st && st.done) || 0);
+  const total = Number((st && st.total) || 0);
+  if (running || done || total) {
+    const prog = document.createElement("div"); prog.className = "pt-progress";
+    const track = document.createElement("div"); track.className = "pt-track";
+    const fill = document.createElement("i"); fill.className = "pt-fill";
+    const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : (running ? 0 : 100);
+    if (total > 0 || !running) fill.style.width = pct + "%"; else track.classList.add("indet");
+    track.appendChild(fill);
+    prog.appendChild(track);
+    const stat = document.createElement("span"); stat.className = "pt-stat";
+    stat.textContent = `${done}/${total || "?"} · ${pct}% · 已用时 ${patrolElapsed(st)}`;
+    prog.appendChild(stat);
+    card.appendChild(prog);
+  }
+  if (running && st && st.current) card.appendChild(ovEl("div", "pt-current", "当前：" + st.current));
+  if (!running && st && st.lastError) card.appendChild(ovEl("div", "pt-current err", "上次错误：" + st.lastError));
+  el.appendChild(card);
+
+  el.appendChild(patrolGroups(st));
+
+  const last = document.createElement("div"); last.className = "pt-last"; last.id = "pt-last";
+  el.appendChild(last);
+  renderPatrolLast();
+}
+
+function renderPatrolLast() {
+  const el = $("#pt-last");
+  if (!el) return;
+  el.innerHTML = "";
+  el.appendChild(ovEl("div", "pt-last-head", "上次巡检"));
+  const it = state.patrolLast;
+  if (!it) { el.appendChild(ovEl("div", "pt-last-empty", "暂无巡检记录")); return; }
+  const bits = [];
+  bits.push(it.startedAt ? fmtTime(it.startedAt) : "—");
+  bits.push(it.mode === "deep" ? "深度" : "快速");
+  if (it.cancelled) bits.push("已取消");
+  if (it.durationSec !== undefined && it.durationSec !== null) bits.push("耗时 " + (fmtDur(it.durationSec) || Math.round(it.durationSec) + " 秒"));
+  el.appendChild(ovEl("div", "pt-last-meta", bits.join(" · ")));
+  const stats = document.createElement("div"); stats.className = "pt-last-stats";
+  const add = (cls, label, n) => stats.appendChild(ovEl("span", "pt-last-stat pt-" + cls, label + " " + (Number(n) || 0)));
+  add("changed", "内容已变化", it.changed);
+  add("missing", "文件缺失", it.missing);
+  add("failed", "读取失败", it.failed);
+  el.appendChild(stats);
 }
 
 /* ============================================================ 启动 */

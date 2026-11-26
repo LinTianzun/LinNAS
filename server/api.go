@@ -30,6 +30,8 @@ type Server struct {
 	alerts *alertStore
 	// diskHealth 缓存物理磁盘健康采集结果(5 分钟)。
 	diskHealth *diskHealthCache
+	// patrol 保存校验巡检的单飞状态与历史(DataDir/patrol.json)。
+	patrol *patrolManager
 }
 
 // NewServer creates the HTTP mux with all routes registered.
@@ -46,6 +48,7 @@ func NewServer(cfg *Config) *Server {
 		dup:        newDupScanState(),
 		alerts:     newAlertStore(cfg.DataDir),
 		diskHealth: &diskHealthCache{},
+		patrol:     newPatrolManager(cfg.DataDir),
 	}
 
 	api := http.NewServeMux()
@@ -61,9 +64,14 @@ func NewServer(cfg *Config) *Server {
 	api.HandleFunc("GET /api/storage/large", s.handleStorageLarge)
 	api.HandleFunc("POST /api/storage/duplicates/scan", s.handleStorageDupScan)
 	api.HandleFunc("GET /api/storage/duplicates", s.handleStorageDupStatus)
-	// 存储空间趋势(按小时快照)与物理磁盘健康
+	// 存储空间趋势(按小时快照)与物理磁盘健康(支持 ?lib=<库ID> 按存储库过滤)
 	api.HandleFunc("GET /api/storage/trend", s.handleStorageTrend)
 	api.HandleFunc("GET /api/disks/health", s.handleDisksHealth)
+	// 校验巡检(批次 2):快速/深度签名,单飞可取消,只报告不修改
+	api.HandleFunc("POST /api/storage/patrol/start", s.handlePatrolStart)
+	api.HandleFunc("GET /api/storage/patrol/status", s.handlePatrolStatus)
+	api.HandleFunc("POST /api/storage/patrol/cancel", s.handlePatrolCancel)
+	api.HandleFunc("GET /api/storage/patrol/last", s.handlePatrolLast)
 	// 告警记录:列表与标记已读(任意登录角色,只影响已读状态)
 	api.HandleFunc("GET /api/alerts", s.handleAlerts)
 	api.HandleFunc("POST /api/alerts/ack", s.handleAlertsAck)
