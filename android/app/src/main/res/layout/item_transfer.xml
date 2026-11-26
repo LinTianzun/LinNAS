@@ -50,6 +50,15 @@
         android:layout_marginTop="@dimen/space_2"
         android:gravity="end">
         <com.google.android.material.button.MaterialButton
+            android:id="@+id/tmore"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="0dp"
+            android:visibility="gone"
+            android:text="另存"
+            android:textSize="@dimen/text_caption" />
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/tclear"
             style="@style/Widget.Material3.Button.TextButton"
             android:layout_width="wrap_content"

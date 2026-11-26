@@ -287,6 +287,52 @@
                         android:text="音乐" />
                 </com.google.android.material.button.MaterialButtonToggleGroup>
 
+                <!-- v1.8.0:展示模式切换(全部平铺 / 文件夹浏览) + 文件夹模式路径条 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.button.MaterialButtonToggleGroup
+                        android:id="@+id/mediaModeToggle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        app:checkedButton="@id/btnModeFlat"
+                        app:selectionRequired="true"
+                        app:singleSelection="true">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnModeFlat"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:minWidth="0dp"
+                            android:text="全部" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnModeFolder"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:minWidth="0dp"
+                            android:text="文件夹" />
+                    </com.google.android.material.button.MaterialButtonToggleGroup>
+
+                    <TextView
+                        android:id="@+id/mediaPath"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="12dp"
+                        android:layout_weight="1"
+                        android:maxLines="1"
+                        android:ellipsize="middle"
+                        android:textColor="?attr/lTextDim"
+                        android:textSize="@dimen/text_caption"
+                        android:visibility="gone" />
+                </LinearLayout>
+
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/mediaGrid"
                     android:layout_width="match_parent"

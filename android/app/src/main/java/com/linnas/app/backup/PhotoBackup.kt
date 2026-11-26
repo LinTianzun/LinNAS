@@ -40,6 +40,32 @@ object BackupConfig {
     fun uploadedCount(ctx: Context) = sp(ctx).getInt("count", 0)
     fun addUploaded(ctx: Context, n: Int) =
         sp(ctx).edit().putInt("count", uploadedCount(ctx) + n).apply()
+
+    // ---- v1.8.0 逐文件去重:记录已上传文件的指纹,避免重复备份 ----
+    private const val K_UPLOADED = "uploaded_keys"
+    private const val K_DIR_AT_LAST = "dir_at_last"
+
+    /** 已备份文件指纹集合(名称|大小|创建时间)。 */
+    fun uploadedKeys(ctx: Context): MutableSet<String> =
+        HashSet(sp(ctx).getStringSet(K_UPLOADED, emptySet()) ?: emptySet())
+
+    fun isUploaded(ctx: Context, key: String): Boolean = uploadedKeys(ctx).contains(key)
+
+    fun markUploaded(ctx: Context, key: String) {
+        val set = uploadedKeys(ctx)
+        set.add(key)
+        sp(ctx).edit().putStringSet(K_UPLOADED, set).apply()
+    }
+
+    fun uploadedKeyCount(ctx: Context): Int = uploadedKeys(ctx).size
+
+    fun uploadedNames(ctx: Context): List<String> =
+        uploadedKeys(ctx).map { it.substringBefore('|') }.distinct().sorted()
+
+    fun clearUploaded(ctx: Context) = sp(ctx).edit().remove(K_UPLOADED).apply()
+
+    fun dirAtLast(ctx: Context) = sp(ctx).getString(K_DIR_AT_LAST, "") ?: ""
+    fun setDirAtLast(ctx: Context, v: String) = sp(ctx).edit().putString(K_DIR_AT_LAST, v).apply()
 }
 
 /** 调度器。 */
@@ -80,7 +106,10 @@ class PhotoBackupWorker(appContext: Context, params: WorkerParameters) : Worker(
         val displayName: String,
         val size: Long,
         val dateAdded: Long,
-    )
+    ) {
+        /** 去重指纹:同名同大小同创建时间视为同一张。 */
+        val key: String get() = "$displayName|$size|$dateAdded"
+    }
 
     override fun doWork(): Result {
         val ctx = applicationContext
@@ -93,6 +122,11 @@ class PhotoBackupWorker(appContext: Context, params: WorkerParameters) : Worker(
 
         val client = LinNasClient()
         val dir = BackupConfig.targetDir(ctx)
+        // 备份目录变更后旧指纹失效,清空避免误跳过
+        if (BackupConfig.dirAtLast(ctx) != dir) {
+            BackupConfig.clearUploaded(ctx)
+            BackupConfig.setDirAtLast(ctx, dir)
+        }
         // 确保目标目录存在(已存在会报错,忽略)
         try { client.mkdir(dir) } catch (_: Exception) { }
 
@@ -107,6 +141,12 @@ class PhotoBackupWorker(appContext: Context, params: WorkerParameters) : Worker(
         var uploaded = 0
         var failed = 0
         for (item in items) {
+            // 已备份过的直接跳过,不重复上传
+            if (BackupConfig.isUploaded(ctx, item.key)) {
+                lastTs = maxOf(lastTs, item.dateAdded)
+                BackupConfig.setLastTs(ctx, lastTs)
+                continue
+            }
             try {
                 // 有些 provider 的 SIZE 为空/0,用文件描述符补一个准确大小
                 var size = item.size
@@ -125,6 +165,7 @@ class PhotoBackupWorker(appContext: Context, params: WorkerParameters) : Worker(
                         ?: throw java.io.IOException("无法读取 ${item.displayName}")
                 }
                 client.upload(factory, size, item.displayName, dir)
+                BackupConfig.markUploaded(ctx, item.key)
                 uploaded++
                 lastTs = maxOf(lastTs, item.dateAdded)
                 BackupConfig.setLastTs(ctx, lastTs) // 逐条前移,避免失败重传
@@ -136,8 +177,8 @@ class PhotoBackupWorker(appContext: Context, params: WorkerParameters) : Worker(
         if (uploaded > 0) BackupConfig.addUploaded(ctx, uploaded)
         BackupConfig.setLastResult(
             ctx,
-            "本次上传 %d 张,失败 %d 张(%s)".format(
-                uploaded, failed,
+            "本次上传 %d 张,失败 %d 张,已记录 %d 个文件(%s)".format(
+                uploaded, failed, BackupConfig.uploadedKeyCount(ctx),
                 java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault())
                     .format(java.util.Date())
             )
@@ -158,7 +199,7 @@ class PhotoBackupWorker(appContext: Context, params: WorkerParameters) : Worker(
                 MediaStore.MediaColumns.SIZE,
                 MediaStore.MediaColumns.DATE_ADDED,
             )
-            val selection = "${MediaStore.MediaColumns.DATE_ADDED} > ?"
+            val selection = "${MediaStore.MediaColumns.DATE_ADDED} >= ?"
             val args = arrayOf(sinceSec.toString())
             val sort = "${MediaStore.MediaColumns.DATE_ADDED} ASC"
             try {

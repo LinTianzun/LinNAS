@@ -1,6 +1,6 @@
 # LinNAS — 本地云盘/NAS 方案与版本路线图
 
-> 当前组件版本（2026-11-26）：Windows 服务端 **1.7.0**；Android 客户端 **1.8.0**（`versionCode` 9）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
+> 当前组件版本（2026-11-26）：Windows 服务端 **1.7.0**；Android 客户端 **1.8.1**（`versionCode` 10）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
 
 > 下文保留早期技术决策与里程碑记录；历史版本号描述当时状态，不代表当前版本。
 
@@ -291,3 +291,15 @@
 - **全局视觉打磨**：新增 `DESIGN.md` 设计规范（颜色/字号/间距/圆角/组件样式/页面骨架，纯 XML + 代码动态视图，无 Compose）；补充 `dimens.xml` / `styles.xml` 与一批 `bg_*`、`ic_player_*` drawable，统一卡片/按钮/播放器控件外观。
 - **版本**：Android `versionCode` 9 / `versionName` 1.8.0；产物 `release/linNas-1.8.0-debug.apk`（附 SHA-256）。
 - **验证**：本地镜像 Gradle 8.7 + JDK 21 执行 `:app:compileDebugKotlin`、`:app:testDebugUnitTest`、`:app:assembleDebug` 均 BUILD SUCCESSFUL；Android 单测 11 个通过（新增 `FileFiltersTest` 3 个），Go 侧新增 `app_update_test.go` 并通过 `go test ./...`。
+
+### M13.1 Android v1.8.1 真机反馈修复与体验打磨（2026-11-26，Android v1.8.1）
+- **媒体库双模式**：媒体页新增「全部 / 文件夹」切换。全部模式平铺展示所有媒体；文件夹模式像文件页一样按目录浏览（目录树由媒体路径推导），点文件夹进入，返回键逐级返回。
+- **横屏播放**：竖屏视频右上角新增「全屏」按钮，点击切横屏沉浸（隐藏系统栏、显示 B 站式控制层）；横屏顶栏新增「退出全屏」按钮；返回键在横屏时先回竖屏。
+- **设置页主题色块**：色块改为「主题底色 + 主色条」双色预览，6 套主题一眼可辨（此前深色主题都显示为近黑方块）。
+- **面包屑导航**：改用主题色（浅色主题不再发白看不清），长路径自动省略（maxWidth + 省略号）。
+- **三点菜单**：文件页/媒体页的 ⋯ 菜单改为圆角底部动作面板（BottomSheetDialog），替代默认 PopupMenu。
+- **离线缓存与下载**：缓存完成后隐藏满格进度条，显示「已缓存 · 仅本应用可播」；新增「打开」直接播放与「另存」到下载目录（SAF）；下载完成显示保存目录与文件名。
+- **添加存储库**：修复磁盘列表显示裸 JSON 的问题，改为「磁盘 C: · 剩余 x」。
+- **相册备份去重**：改为逐文件指纹（名称|大小|创建时间）记录，已备份文件跳过不再重复上传；查询用 `DATE_ADDED >=` 避免同秒遗漏；设置页显示「已记录 N 个」，点备份状态可查看已备份清单 / 清空记录。
+- **版本**：Android `versionCode` 10 / `versionName` 1.8.1；产物 `release/linNas-1.8.1-debug.apk`（附 SHA-256）。
+- **验证**：`:app:compileDebugKotlin`、`:app:testDebugUnitTest`（11 个单测）、`:app:assembleDebug` 均 BUILD SUCCESSFUL。

@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.LayerDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -26,6 +27,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.button.MaterialButtonToggleGroup
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.progressindicator.LinearProgressIndicator
@@ -36,6 +38,7 @@ import com.linnas.app.backup.BackupConfig
 import com.linnas.app.backup.PhotoBackupScheduler
 import com.linnas.app.transfer.TransferService
 import com.linnas.app.upload.UploadService
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -75,6 +78,11 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var fileAdapter: FileListAdapter
     private lateinit var mediaAdapter: MediaGridAdapter
+    private lateinit var mediaFolderAdapter: MediaFolderAdapter
+    private var mediaMode = "flat"          // flat=全部平铺 / folder=文件夹浏览
+    private var mediaFolderPath = ""        // 文件夹模式当前目录
+    private val mediaFolderStack = mutableListOf<String>()
+    private var mediaFolderEntries: List<Entry> = emptyList()  // 文件夹模式的数据源(当前类型的全部媒体)
 
     private var libs: List<Library> = emptyList()
     private var curPath: String = ""                    // "" = 存储库根
@@ -109,6 +117,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var searchInput: TextInputEditText
     private lateinit var mediaGrid: RecyclerView
     private lateinit var mediaEmpty: View
+    private lateinit var mediaPath: TextView
     private lateinit var swBackup: MaterialSwitch
     private lateinit var swWifi: MaterialSwitch
     private lateinit var etBackupDir: TextInputEditText
@@ -234,6 +243,11 @@ class MainActivity : AppCompatActivity() {
         fileGrid.adapter = gridAdapter
 
         mediaAdapter = MediaGridAdapter({ vp -> client.thumbUrl(vp) }, ::onMediaOpen)
+        mediaFolderAdapter = MediaFolderAdapter(
+            { vp -> client.thumbUrl(vp) },
+            ::onMediaOpenFolder,
+            ::onMediaOpen,
+        )
         val mediaGlm = GridLayoutManager(this, 2)
         mediaGlm.spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
             override fun getSpanSize(position: Int) =
@@ -241,6 +255,25 @@ class MainActivity : AppCompatActivity() {
         }
         mediaGrid.layoutManager = mediaGlm
         mediaGrid.adapter = mediaAdapter
+        mediaPath = findViewById(R.id.mediaPath)
+        findViewById<MaterialButtonToggleGroup>(R.id.mediaModeToggle)
+            .addOnButtonCheckedListener { _, id, checked ->
+                if (!checked) return@addOnButtonCheckedListener
+                mediaMode = if (id == R.id.btnModeFolder) "folder" else "flat"
+                if (mediaMode == "flat") {
+                    mediaFolderStack.clear()
+                    mediaFolderPath = ""
+                    mediaPath.visibility = View.GONE
+                    mediaGrid.layoutManager = mediaGlm
+                    mediaGrid.adapter = mediaAdapter
+                    loadMedia(mediaType)
+                } else {
+                    mediaPath.visibility = View.VISIBLE
+                    mediaGrid.layoutManager = LinearLayoutManager(this)
+                    mediaGrid.adapter = mediaFolderAdapter
+                    if (mediaFolderEntries.isEmpty()) loadMedia(mediaType) else renderMediaFolder()
+                }
+            }
 
         findViewById<View>(R.id.btnRefresh).setOnClickListener { connectAndLoad(silent = true) }
         findViewById<View>(R.id.btnMenu).setOnClickListener { showTopMenu(it) }
@@ -350,6 +383,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleBack() {
+        // 媒体页文件夹模式:先在目录树里返回上一级
+        if (currentTab == R.id.tab_media && mediaFolderBack()) return
         if (currentTab != R.id.tab_files) {
             (findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.bottomNav))
                 .selectedItemId = R.id.tab_files
@@ -523,7 +558,9 @@ class MainActivity : AppCompatActivity() {
         crumbs.forEachIndexed { i, (label, vp) ->
             if (i > 0) {
                 val sep = TextView(this).apply {
-                    text = "/"; setTextColor(getColor(R.color.outline)); textSize = 13f
+                    text = "/"
+                    setTextColor(ThemeColors.outline(this@MainActivity))
+                    textSize = 12f
                     setPadding(dp(2), 0, dp(2), 0)
                 }
                 crumbsBar.addView(sep)
@@ -535,8 +572,14 @@ class MainActivity : AppCompatActivity() {
     private fun chip(label: String, active: Boolean, onClick: () -> Unit): TextView =
         TextView(this).apply {
             text = label
-            setTextColor(getColor(if (active) R.color.text else R.color.text_dim))
+            setTextColor(
+                if (active) ThemeColors.primary(this@MainActivity)
+                else ThemeColors.textDim(this@MainActivity)
+            )
             textSize = 13f
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            maxWidth = dp(150)
             setPadding(dp(11), dp(6), dp(11), dp(6))
             background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_pill)
             setOnClickListener { onClick() }
@@ -566,52 +609,40 @@ class MainActivity : AppCompatActivity() {
     private fun onRowMore(row: ListRow, anchor: View) {
         if (row !is ListRow.FileRow) return
         val e = row.e
-        val vp = e.vpath ?: (curPath.trimEnd('/') + "/" + e.name)   // P2:跨库搜索结果带绝对 vpath
+        val vp = e.vpath ?: (curPath.trimEnd('/') + "/" + e.name)
         val ext = e.name.substringAfterLast('.', "").lowercase()
         val playable = !e.isDir && (ext in FileListAdapter.VIDEO || ext in FileListAdapter.AUDIO)
         val offline = OfflineStore.get(this, vp)
-        val popup = PopupMenu(this, anchor)
+        val actions = mutableListOf<Pair<String, () -> Unit>>()
         if (canWrite()) {
-            popup.menu.add(0, 1, 0, "重命名")
-            popup.menu.add(0, 2, 1, "删除")
-            popup.menu.add(0, 3, 2, "移动到…")
-            popup.menu.add(0, 4, 3, "复制到…")
-            popup.menu.add(0, 5, 4, "分享链接…")
-        }
-        popup.menu.add(0, 6, 5, "详情")
-        popup.menu.add(0, 8, 5, "打包下载(ZIP)")
-        if (playable) {
-            when (offline?.status) {
-                OfflineStore.ST_DONE -> popup.menu.add(0, 7, 6, "移除离线缓存")
-                OfflineStore.ST_DOWNLOADING, OfflineStore.ST_PAUSED ->
-                    popup.menu.add(0, 7, 6, "离线下载中…")
-                else -> popup.menu.add(0, 7, 6, "缓存到手机")
-            }
-        }
-        popup.menu.add(0, 9, 4, if (FavoritesStore.isFavorite(this, vp)) "取消收藏" else "收藏")
-        popup.setOnMenuItemClickListener { mi ->
-            when (mi.itemId) {
-                1 -> renameDialog(vp, e.name)
-                2 -> deleteConfirm(vp, e)
-                3 -> showDirPicker { dest -> transferEntry(vp, dest, move = true) }
-                4 -> showDirPicker { dest -> transferEntry(vp, dest, move = false) }
-                5 -> startActivity(Intent(this, SharesActivity::class.java).apply {
+            actions += "重命名" to { renameDialog(vp, e.name) }
+            actions += "删除" to { deleteConfirm(vp, e) }
+            actions += "移动到…" to { showDirPicker { dest -> transferEntry(vp, dest, move = true) } }
+            actions += "复制到…" to { showDirPicker { dest -> transferEntry(vp, dest, move = false) } }
+            actions += "分享链接…" to {
+                startActivity(Intent(this, SharesActivity::class.java).apply {
                     putExtra(SharesActivity.EXTRA_INITIAL_VPATH, vp)
                 })
-                6 -> showInfoDialog(vp, e)
-                7 -> toggleOffline(vp, e)
-                8 -> downloadZip(vp, e)
-                9 -> {
-                    val nowFav = FavoritesStore.toggleFavorite(this, FavoritesStore.Ref(vp, e.name, e.isDir))
-                    toast(if (nowFav) "已收藏" else "已取消收藏")
-                }
             }
-            true
         }
-        popup.show()
+        actions += "详情" to { showInfoDialog(vp, e) }
+        actions += "打包下载(ZIP)" to { downloadZip(vp, e) }
+        if (playable) {
+            when (offline?.status) {
+                OfflineStore.ST_DONE -> actions += "移除离线缓存" to { toggleOffline(vp, e) }
+                OfflineStore.ST_DOWNLOADING, OfflineStore.ST_PAUSED ->
+                    actions += "离线下载中…" to { toggleOffline(vp, e) }
+                else -> actions += "缓存到手机" to { toggleOffline(vp, e) }
+            }
+        }
+        val fav = FavoritesStore.isFavorite(this, vp)
+        actions += (if (fav) "取消收藏" else "收藏") to {
+            val nowFav = FavoritesStore.toggleFavorite(this, FavoritesStore.Ref(vp, e.name, e.isDir))
+            toast(if (nowFav) "已收藏" else "已取消收藏")
+        }
+        showActionSheet(e.name, actions)
     }
 
-    /** v1.8.0:把单个文件/文件夹打包成 zip 下载(/api/zip)。 */
     private fun downloadZip(vp: String, e: Entry) {
         val base = (if (e.isDir) e.name else e.name.substringBeforeLast('.')).ifBlank { "下载" }
         val zipName = "$base.zip"
@@ -646,6 +677,72 @@ class MainActivity : AppCompatActivity() {
             })
         } catch (e: Exception) {
             toast("没有可用的打开方式:${e.message}")
+        }
+    }
+
+    /** 离线缓存完成:直接播放本机文件(图片走系统查看器)。 */
+    private fun playOffline(o: OfflineStore.Item) {
+        val f = OfflineStore.localFile(this, o.vpath)
+        if (f == null) { toast("本地缓存文件不存在,请重新缓存"); return }
+        val ext = o.name.substringAfterLast('.', "").lowercase()
+        if (ext in FileListAdapter.IMAGE) {
+            try {
+                startActivity(Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(Uri.fromFile(f), "image/*")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                })
+            } catch (_: Exception) { toast("没有可用的图片查看器") }
+            return
+        }
+        val (pl, idx) = playlistFor(o.vpath)
+        startPlayer("file://" + f.absolutePath, o.name, o.vpath, null, pl, idx)
+    }
+
+    /** 把应用内离线缓存另存到用户选的下载目录(SAF),方便在「文件」里找到。 */
+    private fun exportOffline(o: OfflineStore.Item) {
+        val src = OfflineStore.localFile(this, o.vpath)
+        if (src == null) { toast("本地缓存文件不存在"); return }
+        val tree = UiPrefs.downloadTreeUri(this)
+        if (tree.isBlank()) {
+            toast("请先选择下载文件夹")
+            showDownloadDirDialog()
+            return
+        }
+        lifecycleScope.launch {
+            val ok = withContext(Dispatchers.IO) { copyToDownloadTree(tree, src, o.name) }
+            val where = UiPrefs.downloadTreeName(this@MainActivity).ifBlank { "下载目录" }
+            toast(if (ok) "已另存到「$where」" else "另存失败,请重试")
+        }
+    }
+
+    private fun copyToDownloadTree(treeUri: String, src: File, name: String): Boolean {
+        return try {
+            val tree = Uri.parse(treeUri)
+            val parent = DocumentsContract.buildDocumentUriUsingTree(
+                tree, DocumentsContract.getTreeDocumentId(tree)
+            )
+            val doc = DocumentsContract.createDocument(contentResolver, parent, mimeOf(name), name)
+                ?: return false
+            contentResolver.openOutputStream(doc)?.use { out ->
+                src.inputStream().use { it.copyTo(out) }
+            } ?: return false
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun mimeOf(name: String): String {
+        val ext = name.substringAfterLast('.', "").lowercase()
+        return when (ext) {
+            in FileListAdapter.VIDEO -> "video/*"
+            in FileListAdapter.AUDIO -> "audio/*"
+            in FileListAdapter.IMAGE -> "image/*"
+            "apk" -> "application/vnd.android.package-archive"
+            "zip" -> "application/zip"
+            "pdf" -> "application/pdf"
+            "txt" -> "text/plain"
+            else -> "application/octet-stream"
         }
     }
 
@@ -804,39 +901,24 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showTopMenu(anchor: View) {
-        val popup = PopupMenu(this, anchor)
-        if (canWrite()) popup.menu.add(0, 1, 0, "新建文件夹")
-        popup.menu.add(0, 4, 1, "批量选择…")
-        popup.menu.add(0, 2, 2, "重新扫描服务器")
-        popup.menu.add(0, 3, 3, "连接其他服务器")
-        popup.menu.add(0, 10, 4, "收藏与最近…")
-        popup.menu.add(0, 11, 5, "搜索历史…")
-        popup.menu.add(0, 12, 6, "按类型筛选…")
-        popup.menu.add(0, 13, 7, "按大小筛选…")
-        popup.menu.add(0, 14, 8, "按时间筛选…")
-        if (hasActiveFilter()) popup.menu.add(0, 15, 9, "清除筛选")
-        popup.setOnMenuItemClickListener { mi ->
-            when (mi.itemId) {
-                1 -> mkdirDialog()
-                4 -> showBatchSelect()
-                2 -> connectAndLoad(silent = true)
-                3 -> showDiscoveryDialog()
-                10 -> showFavoritesAndRecents()
-                11 -> showSearchHistory()
-                12 -> chooseTypeFilter()
-                13 -> chooseSizeFilter()
-                14 -> chooseTimeFilter()
-                15 -> {
-                    typeFilter = "all"; sizeFilter = "all"; timeFilter = "all"
-                    filterFiles(); toast("已清除筛选")
-                }
-            }
-            true
+        val actions = mutableListOf<Pair<String, () -> Unit>>()
+        if (canWrite()) actions += "新建文件夹" to { mkdirDialog() }
+        actions += "批量选择…" to { showBatchSelect() }
+        actions += "重新扫描服务器" to { connectAndLoad(silent = true) }
+        actions += "连接其他服务器" to { showDiscoveryDialog() }
+        actions += "收藏与最近…" to { showFavoritesAndRecents() }
+        actions += "搜索历史…" to { showSearchHistory() }
+        actions += "按类型筛选…" to { chooseTypeFilter() }
+        actions += "按大小筛选…" to { chooseSizeFilter() }
+        actions += "按时间筛选…" to { chooseTimeFilter() }
+        if (hasActiveFilter()) actions += "清除筛选" to {
+            typeFilter = "all"; sizeFilter = "all"; timeFilter = "all"
+            filterFiles(); toast("已清除筛选")
         }
-        popup.show()
+        showActionSheet("更多", actions)
     }
 
-    // ---------- v1.8.0 收藏 / 最近访问 / 搜索历史 / 筛选 ----------
+    // ---------- 收藏 / 最近 / 搜索历史 / 筛选 ----------
 
     private fun showFavoritesAndRecents() {
         val favs = FavoritesStore.favorites(this)
@@ -1084,10 +1166,62 @@ class MainActivity : AppCompatActivity() {
             } catch (_: Exception) { }
             withContext(Dispatchers.Main) {
                 mediaAll = all   // P2:播放列表来源
-                mediaAdapter.submitGrouped(groupByFolder(all))
+                mediaFolderEntries = all
+                if (mediaMode == "flat") {
+                    // 全部模式:平铺展示,所有媒体一屏可见
+                    mediaAdapter.submit(all)
+                } else {
+                    renderMediaFolder()
+                }
                 mediaEmpty.visibility = if (all.isEmpty()) View.VISIBLE else View.GONE
             }
         }
+    }
+
+    /**
+     * v1.8.0 文件夹模式:像文件页一样按目录浏览媒体。
+     * 服务端 /api/media 只返回文件,目录树由 vpath 推导:
+     * 当前目录的下一层目录 = 父路径命中当前前缀且再无更深层级的那些目录。
+     */
+    private fun renderMediaFolder() {
+        val cur = mediaFolderPath
+        mediaPath.text = if (cur.isEmpty()) "全部媒体(根)" else cur
+        val prefix = if (cur.isEmpty()) "/" else "$cur/"
+        val childDirs = LinkedHashSet<String>()
+        val childFiles = mutableListOf<Entry>()
+        for (e in mediaFolderEntries) {
+            val vp = e.vpath ?: continue
+            if (!vp.startsWith(prefix)) continue
+            val rest = vp.substring(prefix.length)
+            val slash = rest.indexOf('/')
+            if (slash < 0) {
+                childFiles += e
+            } else {
+                childDirs += prefix + rest.substring(0, slash)
+            }
+        }
+        val dirs = childDirs.map { p ->
+            Entry(p.substringAfterLast('/'), true, 0L, 0L, p)
+        }
+        mediaFolderAdapter.submit(dirs + childFiles)
+        mediaEmpty.visibility = if (dirs.isEmpty() && childFiles.isEmpty()) View.VISIBLE else View.GONE
+    }
+
+    /** 文件夹模式点目录:进入该目录。 */
+    private fun onMediaOpenFolder(e: Entry) {
+        val vp = e.vpath ?: return
+        mediaFolderStack.add(mediaFolderPath)
+        mediaFolderPath = vp
+        renderMediaFolder()
+    }
+
+    /** 文件夹模式返回上一级。 */
+    private fun mediaFolderBack(): Boolean {
+        if (mediaMode != "folder") return false
+        val parent = mediaFolderStack.removeLastOrNull() ?: ""
+        mediaFolderPath = parent
+        renderMediaFolder()
+        return true
     }
 
     private fun onMediaOpen(e: Entry) {
@@ -1142,7 +1276,36 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateBackupStatus() {
-        backupStatus.text = "上次:${BackupConfig.lastResult(this)}  ·  累计 ${BackupConfig.uploadedCount(this)} 张"
+        val recorded = BackupConfig.uploadedKeyCount(this)
+        backupStatus.text = "上次:${BackupConfig.lastResult(this)}  ·  累计 ${BackupConfig.uploadedCount(this)} 张" +
+            if (recorded > 0) "  ·  已记录 $recorded 个" else ""
+        backupStatus.setOnClickListener { showBackupRecords() }
+    }
+
+    /** v1.8.0:展示已备份文件清单,回答「备份了哪些 / 会不会重复」。 */
+    private fun showBackupRecords() {
+        val names = BackupConfig.uploadedNames(this)
+        if (names.isEmpty()) {
+            toast("还没有已备份记录")
+            return
+        }
+        val shown = names.takeLast(50).reversed()
+        val msg = buildString {
+            append("已记录 ${names.size} 个已备份文件(按名称去重)。\n")
+            append("重复的同名同大小文件不会再次上传;更换备份目录会重置记录。\n\n")
+            shown.forEach { append("· ").append(it).append('\n') }
+            if (names.size > shown.size) append("…… 仅显示最近 ${shown.size} 个")
+        }
+        AlertDialog.Builder(this)
+            .setTitle("已备份文件")
+            .setMessage(msg)
+            .setPositiveButton("关闭", null)
+            .setNeutralButton("清空记录") { _, _ ->
+                BackupConfig.clearUploaded(this)
+                updateBackupStatus()
+                toast("已清空备份记录")
+            }
+            .show()
     }
 
     /** v1.8.0 下载保存位置:用系统文件夹选择器(SAF)让用户直接选手机里的目录。 */
@@ -1215,6 +1378,7 @@ class MainActivity : AppCompatActivity() {
                 UploadService.progress.remove(t.name)
                 refreshTransfers()
             }
+            v.findViewById<View>(R.id.tmore).visibility = View.GONE
             transferList.addView(v)
         }
         // 离线缓存区(OfflineStore 登记的任务)
@@ -1230,32 +1394,41 @@ class MainActivity : AppCompatActivity() {
             v.findViewById<TextView>(R.id.tstate).text = when (o.status) {
                 OfflineStore.ST_DOWNLOADING -> "缓存中 $pct%"
                 OfflineStore.ST_PAUSED -> "已暂停 $pct%"
-                OfflineStore.ST_DONE -> "已缓存"
+                OfflineStore.ST_DONE -> "已缓存 · 仅本应用可播"
                 else -> "失败: ${o.msg}"
             }
             val bar = v.findViewById<LinearProgressIndicator>(R.id.tprog)
             bar.max = 100
             bar.setProgressCompat(if (o.status == OfflineStore.ST_DONE) 100 else pct, true)
+            // 完成后满格进度条会让人以为还在下载 —— 直接隐藏
+            bar.visibility = if (o.status == OfflineStore.ST_DONE) View.GONE else View.VISIBLE
             val btn = v.findViewById<com.google.android.material.button.MaterialButton>(R.id.tact)
-            btn.visibility = if (o.status == OfflineStore.ST_DONE) View.GONE else View.VISIBLE
+            btn.visibility = View.VISIBLE
             btn.text = when (o.status) {
+                OfflineStore.ST_DONE -> "打开"
                 OfflineStore.ST_PAUSED -> "继续"
                 OfflineStore.ST_FAILED -> "重试"
                 else -> "暂停"
             }
             btn.setOnClickListener {
-                if (o.status == OfflineStore.ST_PAUSED || o.status == OfflineStore.ST_FAILED) {
-                    lifecycleScope.launch {
+                when (o.status) {
+                    OfflineStore.ST_DONE -> playOffline(o)
+                    OfflineStore.ST_PAUSED, OfflineStore.ST_FAILED -> lifecycleScope.launch {
                         if (!OfflineDownloader.resume(this@MainActivity, o.vpath, o.name, o.size)) {
                             toast("无法恢复离线缓存，请重试")
                         }
                         refreshTransfers()
                     }
-                } else {
-                    OfflineDownloader.pause(this, o.vpath)
-                    refreshTransfers()
+                    else -> {
+                        OfflineDownloader.pause(this, o.vpath)
+                        refreshTransfers()
+                    }
                 }
             }
+            val more = v.findViewById<com.google.android.material.button.MaterialButton>(R.id.tmore)
+            more.visibility = if (o.status == OfflineStore.ST_DONE) View.VISIBLE else View.GONE
+            more.text = "另存"
+            more.setOnClickListener { exportOffline(o) }
             val clear = v.findViewById<com.google.android.material.button.MaterialButton>(R.id.tclear)
             clear.visibility = View.VISIBLE
             clear.text = if (o.status == OfflineStore.ST_DONE) "移除" else "取消"
@@ -1274,7 +1447,11 @@ class MainActivity : AppCompatActivity() {
             val v = layoutInflater.inflate(R.layout.item_transfer, downloadList, false)
             v.findViewById<TextView>(R.id.tname).text = d.title
             val stateText = when (d.state) {
-                TransferStore.ST_DONE -> "已完成 · ${d.fileName}"
+                TransferStore.ST_DONE -> "已保存 · " + (
+                    if (d.localUri.startsWith("content:"))
+                        UiPrefs.downloadTreeName(this).ifBlank { "所选文件夹" }
+                    else "应用私有目录"
+                ) + " · " + d.fileName
                 TransferStore.ST_FAILED -> "失败:${d.error}"
                 TransferStore.ST_CANCELLED -> "已取消"
                 TransferStore.ST_PAUSED -> "已暂停 ${d.percent}%"
@@ -1315,6 +1492,7 @@ class MainActivity : AppCompatActivity() {
                 TransferStore.remove(this, d.id)
                 refreshTransfers()
             }
+            v.findViewById<View>(R.id.tmore).visibility = View.GONE
             downloadList.addView(v)
         }
     }
@@ -1463,8 +1641,16 @@ class MainActivity : AppCompatActivity() {
                 if (path.isEmpty()) {
                     val drives = o.optJSONArray("drives")
                     if (drives != null) for (i in 0 until drives.length()) {
-                        val s = drives.optString(i)
-                        row("磁盘 " + s) { load(s) }
+                        val el = drives.opt(i)
+                        if (el is org.json.JSONObject) {
+                            val letter = el.optString("letter").ifBlank { el.optString("name") }
+                            val free = el.optLong("freeMB", 0L)
+                            val caption = if (free > 0) " · 剩余 " + fmtGB(free) else ""
+                            row("磁盘 " + letter.trimEnd('\\') + caption) { load(letter) }
+                        } else {
+                            val s = drives.optString(i)
+                            row("磁盘 $s") { load(s) }
+                        }
                     }
                 }
             }
@@ -1858,17 +2044,26 @@ class MainActivity : AppCompatActivity() {
             setPadding(dp(4), dp(6), dp(4), dp(6))
             background = ripple
         }
+        val base = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(14).toFloat()
+            setColor(ContextCompat.getColor(this@MainActivity, t.swatch))
+            setStroke(
+                dp(if (selected) 2 else 1),
+                if (selected) ThemeColors.primary(this@MainActivity)
+                else ThemeColors.outline(this@MainActivity)
+            )
+        }
+        val accent = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(14).toFloat()
+            setColor(ContextCompat.getColor(this@MainActivity, t.primary))
+        }
         val swatch = View(this).apply {
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(14).toFloat()
-                setColor(ContextCompat.getColor(this@MainActivity, t.swatch))
-                setStroke(
-                    dp(if (selected) 2 else 1),
-                    if (selected) ThemeColors.primary(this@MainActivity)
-                    else ThemeColors.outline(this@MainActivity)
-                )
+            background = LayerDrawable(arrayOf(base, accent)).apply {
+                // 底部主题色条:6 套主题一眼可辨(原来只有近黑的底色)
+                setLayerInset(1, dp(10), dp(28), dp(10), dp(8))
             }
         }
         cell.addView(swatch, LinearLayout.LayoutParams(dp(72), dp(46)))
@@ -1910,6 +2105,37 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ---------- 小工具 ----------
+
+    /** 统一的「更多」动作面板:圆角底部弹层,替代默认 PopupMenu 的突兀样式。 */
+    private fun showActionSheet(title: String?, actions: List<Pair<String, () -> Unit>>) {
+        val dlg = BottomSheetDialog(this)
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(8), dp(6), dp(8), dp(20))
+        }
+        if (!title.isNullOrBlank()) {
+            box.addView(TextView(this).apply {
+                text = title
+                textSize = 13f
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
+                setTextColor(ThemeColors.textDim(this@MainActivity))
+                setPadding(dp(16), dp(10), dp(16), dp(6))
+            })
+        }
+        for ((label, action) in actions) {
+            box.addView(TextView(this).apply {
+                text = label
+                textSize = 15f
+                setTextColor(ThemeColors.text(this@MainActivity))
+                setPadding(dp(16), dp(14), dp(16), dp(14))
+                background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_ripple)
+                setOnClickListener { dlg.dismiss(); action() }
+            })
+        }
+        dlg.setContentView(box)
+        dlg.show()
+    }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 

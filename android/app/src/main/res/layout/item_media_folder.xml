@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v1.8.0 媒体库「文件夹模式」的目录行 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:background="@drawable/bg_card"
+    android:foreground="@drawable/bg_ripple"
+    android:padding="@dimen/card_padding"
+    android:layout_margin="@dimen/space_2">
+
+    <ImageView
+        android:id="@+id/mfolderIcon"
+        android:layout_width="@dimen/tile_md"
+        android:layout_height="@dimen/tile_md"
+        android:background="@drawable/bg_icon_circle"
+        android:contentDescription="文件夹"
+        android:padding="9dp"
+        android:scaleType="fitCenter"
+        android:src="@drawable/ic_folder"
+        android:tint="?attr/lPrimary" />
+
+    <TextView
+        android:id="@+id/mfolderName"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginStart="@dimen/space_3"
+        android:maxLines="1"
+        android:ellipsize="middle"
+        android:textColor="?attr/lText"
+        android:textSize="@dimen/text_md"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/mfolderMeta"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="@dimen/space_2"
+        android:textColor="?attr/lTextDim"
+        android:textSize="@dimen/text_caption" />
+</LinearLayout>

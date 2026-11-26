@@ -275,6 +275,12 @@ class PlayerActivity : AppCompatActivity() {
             }
         })
 
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (isLandscape()) exitFullscreen() else finish()
+            }
+        })
+
         setupButtons(p)
         setupGestures()
         setupSeekBar(seekBar)
@@ -778,6 +784,19 @@ class PlayerActivity : AppCompatActivity() {
             .show()
     }
 
+    /** 进入横屏全屏(B 站式):切横屏、隐藏系统栏、显示控制层。 */
+    private fun enterFullscreen() {
+        locked = true
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        showHint("横屏播放")
+    }
+
+    /** 退出横屏回竖屏详情页。 */
+    private fun exitFullscreen() {
+        locked = false
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+    }
+
     /** 锁定/恢复横屏(沿用 v1.5 的旋转锁定能力)。 */
     private fun toggleRotationLock() {
         locked = !locked
@@ -802,6 +821,9 @@ class PlayerActivity : AppCompatActivity() {
     private fun setupButtons(p: ExoPlayer) {
         findViewById<View>(R.id.btn_back).setOnClickListener { finish() }
         findViewById<View>(R.id.btn_back_portrait).setOnClickListener { finish() }
+        // v1.8.0 横屏播放:竖屏点全屏 → 横屏沉浸;横屏点退出 → 回竖屏
+        findViewById<View>(R.id.btn_fullscreen).setOnClickListener { enterFullscreen() }
+        findViewById<View>(R.id.btn_exit_fullscreen).setOnClickListener { exitFullscreen() }
         btnPlay.setOnClickListener { togglePlay() }
         btnPortraitPlay.setOnClickListener { togglePlay() }
         findViewById<MaterialButton>(R.id.btn_seek_back).setOnClickListener {

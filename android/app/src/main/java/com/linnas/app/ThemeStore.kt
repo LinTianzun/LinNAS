@@ -7,15 +7,22 @@ import android.content.Context
  * [swatch] 是设置页色块预览用的颜色资源。
  */
 object ThemeStore {
-    data class T(val key: String, val label: String, val dark: Boolean, val style: Int, val swatch: Int)
+    data class T(
+        val key: String,
+        val label: String,
+        val dark: Boolean,
+        val style: Int,
+        val swatch: Int,
+        val primary: Int,
+    )
 
     val all = listOf(
-        T("blue", "墨蓝", true, R.style.Theme_LinNas, R.color.sw_blue),
-        T("green", "墨绿", true, R.style.Theme_LinNas_Green, R.color.sw_green),
-        T("amber", "琥珀", true, R.style.Theme_LinNas_Amber, R.color.sw_amber),
-        T("mono", "纯黑", true, R.style.Theme_LinNas_Mono, R.color.sw_mono),
-        T("light", "云白", false, R.style.Theme_LinNas_Light, R.color.sw_light),
-        T("warm", "暖沙", false, R.style.Theme_LinNas_Warm, R.color.sw_warm),
+        T("blue", "墨蓝", true, R.style.Theme_LinNas, R.color.sw_blue, R.color.t_blue_primary),
+        T("green", "墨绿", true, R.style.Theme_LinNas_Green, R.color.sw_green, R.color.t_green_primary),
+        T("amber", "琥珀", true, R.style.Theme_LinNas_Amber, R.color.sw_amber, R.color.t_amber_primary),
+        T("mono", "纯黑", true, R.style.Theme_LinNas_Mono, R.color.sw_mono, R.color.t_mono_primary),
+        T("light", "云白", false, R.style.Theme_LinNas_Light, R.color.sw_light, R.color.t_light_primary),
+        T("warm", "暖沙", false, R.style.Theme_LinNas_Warm, R.color.sw_warm, R.color.t_warm_primary),
     )
 
     private fun sp(ctx: Context) = ctx.getSharedPreferences("linnas_ui", Context.MODE_PRIVATE)
