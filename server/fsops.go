@@ -343,3 +343,41 @@ func copyFile(src, dst string, mode os.FileMode) error {
 }
 
 var errSamePath = errors.New("same path")
+
+// POST /api/fs/mkdir {path:"D:\\媒体\\新目录"} — 在电脑本机按绝对路径新建目录。
+// 添加存储库/编辑存储库时用来先建目录再选择;MkdirAll 会补建缺失的父目录(用户手输整条路径也适用)。
+// 仅管理员可调用(见 api.go 的 authorize)。
+func (s *Server) handleFsMkdir(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Path string `json:"path"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeErr(w, 400, "请求格式错误")
+		return
+	}
+	p := strings.TrimSpace(req.Path)
+	if p == "" {
+		writeErr(w, 400, "路径不能为空")
+		return
+	}
+	if !filepath.IsAbs(p) {
+		writeErr(w, 400, "请填写绝对路径,例如 D:\\媒体")
+		return
+	}
+	// 拒绝 "C:" / "C:\" 这类盘符根本身之外的无意义创建,防止误建空目录
+	clean := filepath.Clean(p)
+	if len(clean) <= 3 {
+		writeErr(w, 400, "不能创建盘符根目录")
+		return
+	}
+	if err := os.MkdirAll(clean, 0o755); err != nil {
+		writeErr(w, 500, "创建目录失败: "+err.Error())
+		return
+	}
+	info, err := os.Stat(clean)
+	if err != nil || !info.IsDir() {
+		writeErr(w, 500, "创建后校验失败")
+		return
+	}
+	writeJSON(w, 200, map[string]string{"path": clean})
+}

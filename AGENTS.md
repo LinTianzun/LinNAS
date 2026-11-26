@@ -23,8 +23,8 @@ release/    构建产物（APK / 服务端 exe，已被 .gitignore 忽略）
 
 | 组件 | 当前版本 | 版本号位置 |
 |---|---|---|
-| Windows 服务端 | 1.8.2 | `server/config.go` 的 `const Version` |
-| Android 客户端 | 1.8.10（versionCode 19） | `android/app/build.gradle.kts` |
+| Windows 服务端 | 1.8.3 | `server/config.go` 的 `const Version` |
+| Android 客户端 | 1.8.11（versionCode 20） | `android/app/build.gradle.kts` |
 
 改版本号时同时更新对应 README、`PLAN.md` 与 `RELEASING.md`；两个组件版本号互不推算。
 

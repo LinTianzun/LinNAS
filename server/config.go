@@ -6,7 +6,7 @@ import (
 )
 
 // Version of linNas server.
-const Version = "1.8.2"
+const Version = "1.8.3"
 
 // DefaultPort is the port linNas listens on by default.
 const DefaultPort = 52700

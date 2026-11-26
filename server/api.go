@@ -118,6 +118,7 @@ func NewServer(cfg *Config) *Server {
 
 	// 目录选择器 / 编辑存储库 / 文件移动复制
 	api.HandleFunc("GET /api/fs/dirs", s.handleFsDirs)
+	api.HandleFunc("POST /api/fs/mkdir", s.handleFsMkdir)
 	api.HandleFunc("POST /api/libs/update", s.handleLibUpdate)
 	api.HandleFunc("POST /api/libs/media-hide", s.handleMediaHide)
 	api.HandleFunc("POST /api/move", s.handleMove)
@@ -314,6 +315,10 @@ func (s *Server) authorize(sess *Session, r *http.Request) bool {
 	if (p == "/api/libs" || p == "/api/libs/update") && m != "GET" {
 		return false
 	}
+	// 在电脑本机任意位置新建目录(添加存储库用),属于系统级写操作,仅管理员
+	if p == "/api/fs/mkdir" {
+		return false
+	}
 	if p == "/api/devices/clear" {
 		return false
 	}
@@ -415,9 +420,24 @@ func (s *Server) handleAddLib(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "路径不能为空")
 		return
 	}
+	if !filepath.IsAbs(req.Path) {
+		writeErr(w, 400, "请填写绝对路径,例如 D:\\媒体")
+		return
+	}
 	info, err := os.Stat(req.Path)
-	if err != nil || !info.IsDir() {
-		writeErr(w, 400, "路径不存在或不是目录")
+	if err != nil {
+		// 手输的路径不存在:按输入直接创建(MkdirAll 会一并补建缺失的父目录)
+		if mkErr := os.MkdirAll(req.Path, 0o755); mkErr != nil {
+			writeErr(w, 400, "路径不存在且创建失败: "+mkErr.Error())
+			return
+		}
+		info, err = os.Stat(req.Path)
+		if err != nil || !info.IsDir() {
+			writeErr(w, 400, "路径不存在或不是目录")
+			return
+		}
+	} else if !info.IsDir() {
+		writeErr(w, 400, "该路径是文件,不是目录")
 		return
 	}
 	abs, err := filepath.Abs(req.Path)

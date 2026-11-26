@@ -1898,7 +1898,7 @@ class MainActivity : AppCompatActivity() {
 
         // 兜底:手动粘贴完整路径,进入后照常逐级浏览/校验(统一走 Sheet,与其余弹层一致)
         sheet.tonal("手动输入路径") {
-            val input = Sheet(this, "手动输入路径", "粘贴或输入电脑上的完整路径")
+            val input = Sheet(this, "手动输入路径", "粘贴或输入电脑上的完整路径,不存在时会自动创建")
             input.input("完整路径,如 D:\\电影", cur, InputType.TYPE_CLASS_TEXT)
             fun submit() {
                 val p = input.value(0).trim()
@@ -1906,15 +1906,60 @@ class MainActivity : AppCompatActivity() {
                     input.inputView(0)?.error = "请输入完整路径"
                     return
                 }
-                cur = p
-                nameAuto()
-                input.dismiss()
-                reload()
+                if (!p.contains(':') && !p.startsWith("\\\\")) {
+                    input.inputView(0)?.error = "请输入绝对路径,如 D:\\电影"
+                    return
+                }
+                lifecycleScope.launch {
+                    val ok = try {
+                        withContext(Dispatchers.IO) { client.fsMkdir(p) }
+                        true
+                    } catch (e: Exception) {
+                        // 目录已存在等情况交给 addCurrent 兜底;仅提示网络类失败
+                        withContext(Dispatchers.Main) { toast("无法连接服务端: ${e.message}") }
+                        false
+                    }
+                    if (!ok) return@launch
+                    cur = if (p.endsWith('\\')) p else p + "\\"   // 与 fsDirs 的目录风格一致,便于继续下钻
+                    nameAuto()
+                    input.dismiss()
+                    reload()
+                }
             }
             input.onEnter { submit() }
-            input.primary("进入") { submit() }
+            input.primary("创建并进入") { submit() }
             input.tonal("取消") { input.dismiss() }
             input.show()
+        }
+        // 在当前位置下新建子文件夹,建完刷新列表即可点选
+        sheet.tonal("新建文件夹") {
+            val mk = Sheet(this, "新建文件夹", "在当前位置下创建新目录")
+            mk.input("文件夹名称,如 电影", "", InputType.TYPE_CLASS_TEXT)
+            fun create() {
+                val nm = mk.value(0).trim()
+                if (nm.isBlank()) { mk.inputView(0)?.error = "请输入名称"; return }
+                if (nm.contains('\\') || nm.contains('/') || nm == "." || nm == "..") {
+                    mk.inputView(0)?.error = "名称不能包含 \\ / 或为 . .."
+                    return
+                }
+                val base = cur.ifBlank { return.also { toast("先选择一个磁盘或目录") } }
+                val sep = if (base.endsWith('\\')) "" else "\\"
+                val target = base + sep + nm
+                lifecycleScope.launch {
+                    try {
+                        withContext(Dispatchers.IO) { client.fsMkdir(target) }
+                        mk.dismiss()
+                        toast("已创建 $nm")
+                        reload()
+                    } catch (e: Exception) {
+                        mk.inputView(0)?.error = "创建失败: ${e.message}"
+                    }
+                }
+            }
+            mk.onEnter { create() }
+            mk.primary("创建") { create() }
+            mk.tonal("取消") { mk.dismiss() }
+            mk.show()
         }
         sheet.primary("添加为存储库") { addCurrent() }
         sheet.show()

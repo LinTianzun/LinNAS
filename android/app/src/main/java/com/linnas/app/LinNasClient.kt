@@ -549,6 +549,11 @@ class LinNasClient {
         post("/api/mkdir", JSONObject().put("vpath", vpath).toString())
     }
 
+    /** 在电脑本机按绝对路径新建目录(添加存储库用),服务端会补建缺失的父目录。 */
+    fun fsMkdir(path: String) {
+        post("/api/fs/mkdir", JSONObject().put("path", path).toString())
+    }
+
     fun rename(vpath: String, newName: String) {
         post("/api/rename", JSONObject().put("vpath", vpath).put("newName", newName).toString())
     }

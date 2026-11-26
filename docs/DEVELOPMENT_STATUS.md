@@ -7,8 +7,8 @@
 
 | 组件 | 版本 | 说明 |
 |---|---|---|
-| Windows 服务端 | 1.8.2 | `server/config.go` 的 `const Version` |
-| Android 客户端 | 1.8.10（versionCode 19） | `android/app/build.gradle.kts` |
+| Windows 服务端 | 1.8.3 | `server/config.go` 的 `const Version` |
+| Android 客户端 | 1.8.11（versionCode 20） | `android/app/build.gradle.kts` |
 
 ## 里程碑进度
 
@@ -26,6 +26,7 @@
 
 ## 最近改动
 
+- 2026-11-27 服务端 **1.8.3** + Android **1.8.11**（M13.11）：添加存储库支持**路径自动创建**——`POST /api/libs` 对不存在的绝对路径 `os.MkdirAll` 自动建目录；新增 `POST /api/fs/mkdir`（`fsops.go`，按绝对路径建目录、补建父目录、拒绝盘符根，仅管理员）与 `fsops_mkdir_test.go`；Android 侧「手动输入路径」改为先创建再进入、新增**「新建文件夹」**入口（`LinNasClient.fsMkdir`）；`go test/vet` 全绿、Android 单测 15/15、出包 `release/linNas-1.8.11-debug.apk`。
 - 2026-11-27 服务端 **1.8.2**：播放器与登录体验——音乐三态播放模式（列表/单曲循环/随机，记忆）、睡眠定时剩余时间显示与自定义 1–600 分钟、侧栏存储库行高与选中竖条修复（`.lib-list` flex 压缩根因）、登录会话持久化（`sessions.json`，重启免登录、停机不计闲置超时）；`go test/vet` 与 `node --check` 全绿，已重建部署 52700。
 - 2026-11-27 服务端 **1.8.1**：界面与体验改进（用户 8 项反馈）——磁盘健康容量进度条 + 按卷容量（`totalGB`/`freeGB`，修复多分区显示整盘容量）、双击 exe 静默启动（隐藏控制台 + 自动开浏览器 + 托盘，`LINNAS_QUIET=1`，日志写 `linnas.log`）、图片上一张/下一张（同组图片播放列表 + 方向键）、音乐音量记忆与播放器增强（均衡器/睡眠/静音/收藏/扩展名徽标）、服务器自定义名称（`serverName` → 标题/品牌/扫码）、移除总览「规划中」占位卡、侧栏选中态竖条；`go build/vet/test` 全绿，已重建部署 52700。
 - 2026-11-27 服务端 **1.8.0**：M16（内容搜索 + 自动整理）全部交付后版本升级（`server/config.go` `const Version` 1.7.0 → 1.8.0），同步 README / PLAN / RELEASING / CHANGELOG 等；重新构建并部署到本机 52700。
