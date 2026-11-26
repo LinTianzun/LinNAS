@@ -262,12 +262,12 @@
             <span class="music-time" id="music-dur">0:00</span>
           </div>
           <div class="music-controls">
-            <button class="mc-btn mc-sq" id="music-shuffle" title="随机播放:关" aria-pressed="false">⤨</button>
+            <button class="mc-btn mc-sq mc-mode" id="music-mode" title="列表播放(点击切换:列表播放 → 单曲循环 → 随机播放)" aria-pressed="true" data-mode="all">⥁</button>
             <button class="mc-btn" id="music-prev" title="上一首">⏮</button>
             <button class="mc-btn mc-primary" id="music-play" title="播放 / 暂停">▶</button>
             <button class="mc-btn" id="music-next" title="下一首">⏭</button>
-            <button class="mc-btn mc-sq" id="music-repeat" title="循环:关" aria-pressed="false">⥁</button>
             <button class="mc-btn mc-sq" id="music-sleep" title="睡眠定时:关" aria-pressed="false">🌙</button>
+            <span class="music-sleep-left" id="music-sleep-left" hidden></span>
           </div>
           <div class="music-volume">
             <button class="mc-btn mc-sq mc-mini" id="music-mute" title="静音" aria-pressed="false">🔊</button>

@@ -1,4 +1,4 @@
-﻿# 开发状态（DEVELOPMENT STATUS）
+# 开发状态（DEVELOPMENT STATUS）
 
 > 快照时间：2026-11-27（Asia/Shanghai）。
 > 本文件是**当前状态**快照；任务流水见 [TASK_HISTORY.md](TASK_HISTORY.md)，正在做的事见 [CURRENT_TASK.md](CURRENT_TASK.md)。
@@ -7,7 +7,7 @@
 
 | 组件 | 版本 | 说明 |
 |---|---|---|
-| Windows 服务端 | 1.8.1 | `server/config.go` 的 `const Version` |
+| Windows 服务端 | 1.8.2 | `server/config.go` 的 `const Version` |
 | Android 客户端 | 1.8.10（versionCode 19） | `android/app/build.gradle.kts` |
 
 ## 里程碑进度
@@ -26,6 +26,7 @@
 
 ## 最近改动
 
+- 2026-11-27 服务端 **1.8.2**：播放器与登录体验——音乐三态播放模式（列表/单曲循环/随机，记忆）、睡眠定时剩余时间显示与自定义 1–600 分钟、侧栏存储库行高与选中竖条修复（`.lib-list` flex 压缩根因）、登录会话持久化（`sessions.json`，重启免登录、停机不计闲置超时）；`go test/vet` 与 `node --check` 全绿，已重建部署 52700。
 - 2026-11-27 服务端 **1.8.1**：界面与体验改进（用户 8 项反馈）——磁盘健康容量进度条 + 按卷容量（`totalGB`/`freeGB`，修复多分区显示整盘容量）、双击 exe 静默启动（隐藏控制台 + 自动开浏览器 + 托盘，`LINNAS_QUIET=1`，日志写 `linnas.log`）、图片上一张/下一张（同组图片播放列表 + 方向键）、音乐音量记忆与播放器增强（均衡器/睡眠/静音/收藏/扩展名徽标）、服务器自定义名称（`serverName` → 标题/品牌/扫码）、移除总览「规划中」占位卡、侧栏选中态竖条；`go build/vet/test` 全绿，已重建部署 52700。
 - 2026-11-27 服务端 **1.8.0**：M16（内容搜索 + 自动整理）全部交付后版本升级（`server/config.go` `const Version` 1.7.0 → 1.8.0），同步 README / PLAN / RELEASING / CHANGELOG 等；重新构建并部署到本机 52700。
 - 2026-11-27 自动整理（批次 4）：新增 `server/organize.go` 与 `server/organize_test.go`；规则 CRUD（`organize.json`，admin only）、`POST /api/organize/preview` 只读预览、`/run` 单飞执行（`os.Rename`、同名加序号、跨库/只读/保险箱/回收站/排除目录跳过、单次上限 5000、`journal-<jobID>.jsonl`、完成后调 `Index.UpdatePaths` 增量刷新）、`/undo` 按 journal 倒序回搬、`/jobs` 最近 50 条、`/cancel`；撤销后整理作业不再提供撤销。UI 存储空间页新增「自动整理」页签（规则列表 / 编辑对话框 / 预览前 50 条 / 执行确认 / 进度 / 作业历史与撤销）。真实环境端到端验收通过；`go build/vet/test` 全绿。已构建并部署到本机 52700（工作区待提交）。

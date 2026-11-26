@@ -135,25 +135,24 @@ body {
   font-size: 12px; font-weight: 600; letter-spacing: .08em;
   color: var(--faint); text-transform: uppercase;
 }
-.lib-list { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
+.lib-list { display: flex; flex-direction: column; gap: 2px; flex: 0 0 auto; overflow: visible; }
 
 .lib-item {
   display: flex; align-items: center; gap: 10px;
-  width: 100%; padding: 9px 10px;
+  width: 100%; padding: 9px 10px; min-height: 40px;
   background: none; border: 0; border-radius: var(--radius-sm);
   color: var(--text); font: inherit; font-size: 14px; text-align: left;
   cursor: pointer; position: relative;
   transition: background .15s var(--ease-out), box-shadow .15s var(--ease-out);
 }
 .lib-item:hover { background: var(--panel); }
-.lib-item.active { background: var(--panel-2); }
-.lib-item.active::before {
-  content: ""; position: absolute; left: 3px; top: 50%;
-  transform: translateY(-50%);
-  width: 3px; height: 18px; border-radius: 99px;
-  background: var(--accent);
-  box-shadow: 0 0 8px rgba(232,163,61,.45);
+.lib-item:hover::before, .lib-item.active::before {
+  content: ""; position: absolute; left: 3px; top: 6px; bottom: 6px;
+  width: 3px; border-radius: 99px; background: var(--accent);
 }
+.lib-item:hover::before { opacity: .45; box-shadow: none; }
+.lib-item.active { background: var(--panel-2); }
+.lib-item.active::before { opacity: 1; box-shadow: 0 0 8px rgba(232,163,61,.45); }
 .lib-item .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex-shrink: 0; opacity: .9; transition: transform .2s var(--ease-out); }
 .lib-item:hover .dot { transform: scale(1.35); }
 .lib-item.active .dot { box-shadow: 0 0 8px rgba(232,163,61,.6); }
@@ -956,6 +955,12 @@ dialog.wide { width: min(94vw, 600px); }
 .music-volume svg { width: 14px; height: 14px; flex: 0 0 auto; }
 .music-vol-pct { font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; min-width: 34px; text-align: right; }
 .mc-btn.mc-mini { width: 30px; height: 30px; font-size: 13px; }
+/* 睡眠定时:剩余时间提示 + 下拉菜单 */
+.music-sleep-left { font-size: 11px; color: var(--accent); background: var(--accent-soft); border-radius: 999px; padding: 4px 9px; font-variant-numeric: tabular-nums; white-space: nowrap; line-height: 1; }
+.music-sleep-menu { position: fixed; z-index: 200; min-width: 132px; padding: 6px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 14px 32px rgba(0,0,0,.5); display: flex; flex-direction: column; gap: 2px; }
+.music-sleep-menu .msm-item { border: 0; background: none; color: var(--text); font: inherit; font-size: 13px; text-align: left; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+.music-sleep-menu .msm-item:hover { background: var(--bg-soft); color: var(--accent); }
+.music-sleep-menu .msm-item.on { color: var(--accent); font-weight: 600; }
 /* 播放时的均衡器律动(装饰) */
 .music-eq { display: flex; align-items: flex-end; justify-content: center; gap: 3px; height: 16px; margin-top: 9px; opacity: .3; transition: opacity .25s var(--ease-out); }
 .music-eq.on { opacity: 1; }

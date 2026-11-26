@@ -2618,7 +2618,21 @@ $("#btn-sel-vault").onclick = async () => {
 function vaultImport() { /* 兼容占位:改用 vaultImportFiles / 存入保险箱 */ }
 
 /* ============================================================ 音乐播放器 */
-const musicState = { list: [], index: -1, playing: false, miniClosed: false, shuffle: false, repeat: "off", filter: "", saveAt: 0, pendingPos: 0, favOnly: false, sleepMin: 0, sleepTimer: null };
+/* 播放模式:三态循环切换(列表播放 → 单曲循环 → 随机播放),替代原来的「随机」+「列表循环」两个按钮 */
+const MUSIC_MODES = ["all", "one", "shuffle"];
+const MUSIC_MODE_META = {
+  all: { icon: "⥁", label: "列表播放", title: "列表播放(播完最后一首回到第一首)" },
+  one: { icon: "⥂", label: "单曲循环", title: "单曲循环(当前这首反复播放)" },
+  shuffle: { icon: "⤨", label: "随机播放", title: "随机播放(随机挑选下一首)" }
+};
+function savedMusicMode() {
+  try { const m = localStorage.getItem("linnas_music_mode"); if (MUSIC_MODES.indexOf(m) >= 0) return m; } catch (e) {}
+  return "all";
+}
+function musicIsShuffle() { return musicState.mode === "shuffle"; }
+function musicIsRepeatOne() { return musicState.mode === "one"; }
+
+const musicState = { list: [], index: -1, playing: false, miniClosed: false, mode: savedMusicMode(), filter: "", saveAt: 0, pendingPos: 0, favOnly: false, sleepMin: 0, sleepEnd: 0, sleepTimer: null };
 
 function fmtClock(sec) {
   sec = Math.max(0, Math.floor(sec || 0));
@@ -2656,20 +2670,90 @@ function toggleMusicFav(path) {
   try { localStorage.setItem("linnas_music_favs", JSON.stringify([...s])); } catch (e) {}
   renderMusicList();
 }
-/* ---- 睡眠定时(到点暂停播放) ---- */
-function setSleepTimer(min) {
-  musicState.sleepMin = min;
-  if (musicState.sleepTimer) { clearTimeout(musicState.sleepTimer); musicState.sleepTimer = null; }
-  if (min > 0) {
-    musicState.sleepTimer = setTimeout(() => {
-      const a = musicAudio(); if (a) a.pause();
-      setMusicPlaying(false);
-      musicState.sleepMin = 0; musicState.sleepTimer = null;
-      syncMusicToggles();
-      toast("睡眠定时:已暂停播放");
-    }, min * 60000);
+/* ---- 睡眠定时(到点暂停播放;按钮旁显示剩余时间,支持自定义分钟) ---- */
+function renderSleepLeft() {
+  const chip = $("#music-sleep-left");
+  const sl = $("#music-sleep");
+  if (musicState.sleepMin > 0 && musicState.sleepEnd > 0) {
+    const left = Math.max(0, musicState.sleepEnd - Date.now());
+    const text = "🌙 " + fmtClock(left / 1000);
+    if (chip) { chip.hidden = false; chip.textContent = text; chip.title = "睡眠定时剩余 " + fmtClock(left / 1000) + "(点击可修改)"; }
+    if (sl) sl.title = "睡眠定时:" + fmtClock(left / 1000) + " 后暂停(点击修改)";
+  } else {
+    if (chip) { chip.hidden = true; chip.textContent = ""; }
+    if (sl) sl.title = "睡眠定时:关(点击设置)";
   }
+}
+function setSleepTimer(min) {
+  min = Math.max(0, Math.floor(Number(min) || 0));
+  musicState.sleepMin = min;
+  if (musicState.sleepTimer) { clearInterval(musicState.sleepTimer); musicState.sleepTimer = null; }
+  musicState.sleepEnd = min > 0 ? Date.now() + min * 60000 : 0;
+  if (min > 0) {
+    musicState.sleepTimer = setInterval(() => {
+      const left = musicState.sleepEnd - Date.now();
+      if (left <= 0) {
+        clearInterval(musicState.sleepTimer); musicState.sleepTimer = null;
+        const a = musicAudio(); if (a) a.pause();
+        setMusicPlaying(false);
+        musicState.sleepMin = 0; musicState.sleepEnd = 0;
+        syncMusicToggles();
+        toast("睡眠定时:已暂停播放");
+        return;
+      }
+      renderSleepLeft();
+    }, 1000);
+    toast("睡眠定时:" + min + " 分钟后暂停播放");
+  } else {
+    toast("睡眠定时:已关闭");
+  }
+  renderSleepLeft();
   syncMusicToggles();
+}
+
+/* 睡眠定时下拉菜单:预设 + 自定义 */
+let sleepMenuEl = null;
+function closeSleepMenu() {
+  if (sleepMenuEl && sleepMenuEl.parentNode) sleepMenuEl.parentNode.removeChild(sleepMenuEl);
+  sleepMenuEl = null;
+  document.removeEventListener("pointerdown", sleepMenuOutside, true);
+}
+function sleepMenuOutside(ev) {
+  if (sleepMenuEl && !sleepMenuEl.contains(ev.target)) closeSleepMenu();
+}
+function openSleepMenu(anchor) {
+  if (sleepMenuEl) { closeSleepMenu(); return; }
+  const menu = document.createElement("div");
+  menu.className = "music-sleep-menu";
+  const opts = [[15, "15 分钟"], [30, "30 分钟"], [45, "45 分钟"], [60, "60 分钟"], ["custom", "自定义…"], [0, "关闭定时"]];
+  opts.forEach(([v, label]) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "msm-item" + (v !== "custom" && v !== 0 && v === musicState.sleepMin ? " on" : "");
+    b.textContent = label;
+    b.onclick = async (ev) => {
+      ev.stopPropagation();
+      closeSleepMenu();
+      if (v === "custom") {
+        const s = await askInput("自定义睡眠定时", String(musicState.sleepMin || 30), "分钟数(1-600)");
+        if (s === null) return;
+        const n = parseInt(s, 10);
+        if (!isFinite(n) || n <= 0 || n > 600) { toast("请输入 1-600 之间的分钟数"); return; }
+        setSleepTimer(n);
+        return;
+      }
+      setSleepTimer(v);
+    };
+    menu.appendChild(b);
+  });
+  document.body.appendChild(menu);
+  sleepMenuEl = menu;
+  const r = anchor.getBoundingClientRect();
+  const w = menu.offsetWidth || 132;
+  const h = menu.offsetHeight || 0;
+  menu.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, r.left + r.width / 2 - w / 2)) + "px";
+  menu.style.top = Math.max(8, r.top - h - 8) + "px";
+  setTimeout(() => document.addEventListener("pointerdown", sleepMenuOutside, true), 0);
 }
 
 /* 唱片旋转交给 CSS 动画(停播就移除 class,避免每帧改 DOM) */
@@ -2800,7 +2884,7 @@ function toggleMusic() {
 function musicStep(delta) {
   const n = musicState.list.length;
   if (!n) return;
-  if (musicState.shuffle && n > 1) {
+  if (musicIsShuffle() && n > 1 && delta > 0) {
     let k = musicState.index;
     for (let t = 0; t < 8; t++) { const r = Math.floor(Math.random() * n); if (r !== musicState.index) { k = r; break; } }
     if (k === musicState.index) k = (musicState.index + 1) % n;
@@ -2810,25 +2894,24 @@ function musicStep(delta) {
   playMusic((musicState.index + delta + n) % n);
 }
 
-/* 随机 / 循环 / 音量 / 筛选 状态与按钮同步 */
+/* 播放模式 / 睡眠定时 / 音量 / 筛选 状态与按钮同步 */
 function syncMusicToggles() {
-  const sh = $("#music-shuffle");
-  if (sh) { sh.classList.toggle("on", musicState.shuffle); sh.setAttribute("aria-pressed", musicState.shuffle ? "true" : "false"); sh.title = "随机播放:" + (musicState.shuffle ? "开" : "关"); }
-  const rp = $("#music-repeat");
-  if (rp) {
-    const on = musicState.repeat !== "off";
-    rp.classList.toggle("on", on);
-    rp.setAttribute("aria-pressed", on ? "true" : "false");
-    rp.title = "循环:" + (musicState.repeat === "one" ? "单曲循环" : musicState.repeat === "all" ? "列表循环" : "关");
-    rp.textContent = musicState.repeat === "one" ? "⥂" : "⥁";
+  const md = $("#music-mode");
+  if (md) {
+    const meta = MUSIC_MODE_META[musicState.mode] || MUSIC_MODE_META.all;
+    md.textContent = meta.icon;
+    md.dataset.mode = musicState.mode;
+    md.classList.toggle("on", musicState.mode !== "all");
+    md.setAttribute("aria-pressed", musicState.mode !== "all" ? "true" : "false");
+    md.title = meta.title + "(点击切换:列表播放 → 单曲循环 → 随机播放)";
   }
   const sl = $("#music-sleep");
   if (sl) {
     const on = musicState.sleepMin > 0;
     sl.classList.toggle("on", on);
     sl.setAttribute("aria-pressed", on ? "true" : "false");
-    sl.title = on ? "睡眠定时:" + musicState.sleepMin + " 分钟后暂停" : "睡眠定时:关";
   }
+  renderSleepLeft();
 }
 function refreshMusicPos() {
   const a = musicAudio();
@@ -2882,11 +2965,11 @@ async function playMediaAudio(it) {
     if (!$("#mini-player").hidden) updateMiniPlayer();
   });
   a.addEventListener("ended", () => {
-    if (musicState.repeat === "one") { try { a.currentTime = 0; } catch (e) {} a.play().catch(() => {}); return; }
+    if (musicIsRepeatOne()) { try { a.currentTime = 0; } catch (e) {} a.play().catch(() => {}); return; }
     const n = musicState.list.length;
-    if (musicState.shuffle && n > 1) { musicStep(1); return; }
+    if (musicIsShuffle() && n > 1) { musicStep(1); return; }
     if (musicState.index < n - 1) { musicStep(1); return; }
-    if (musicState.repeat === "all" && n > 0) { playMusic(0); return; }
+    if (musicState.mode === "all" && n > 0) { playMusic(0); return; }
     setMusicPlaying(false);
   });
   a.addEventListener("play", () => setMusicPlaying(true));
@@ -2908,13 +2991,14 @@ async function playMediaAudio(it) {
 })();
 window.addEventListener("beforeunload", () => stopRotation());
 
-/* 随机 / 循环 / 音量 / 筛选 / 迷你播放器拖动进度 / 音乐页快捷键 */
+/* 播放模式 / 音量 / 筛选 / 睡眠定时 / 迷你播放器拖动进度 / 音乐页快捷键 */
 (function bindMusicExtras() {
-  const sh = $("#music-shuffle"), rp = $("#music-repeat"), vol = $("#music-vol"), filter = $("#music-filter");
-  if (sh) sh.onclick = () => { musicState.shuffle = !musicState.shuffle; syncMusicToggles(); };
-  if (rp) rp.onclick = () => {
-    musicState.repeat = musicState.repeat === "off" ? "all" : musicState.repeat === "all" ? "one" : "off";
+  const mode = $("#music-mode"), vol = $("#music-vol"), filter = $("#music-filter");
+  if (mode) mode.onclick = () => {
+    musicState.mode = MUSIC_MODES[(MUSIC_MODES.indexOf(musicState.mode) + 1) % MUSIC_MODES.length];
+    try { localStorage.setItem("linnas_music_mode", musicState.mode); } catch (e) {}
     syncMusicToggles();
+    toast("播放模式:" + MUSIC_MODE_META[musicState.mode].label);
   };
   if (vol) vol.oninput = () => {
     const a = musicAudio(); const v = parseFloat(vol.value);
@@ -2925,7 +3009,7 @@ window.addEventListener("beforeunload", () => stopRotation());
   const mute = $("#music-mute");
   if (mute) mute.onclick = () => { const a = musicAudio(); if (a) a.muted = !a.muted; applyMusicVolume(); };
   const sleep = $("#music-sleep");
-  if (sleep) sleep.onclick = () => { const order = [0, 15, 30, 60]; const i = order.indexOf(musicState.sleepMin); setSleepTimer(order[(i + 1) % order.length]); };
+  if (sleep) sleep.onclick = (ev) => { ev.stopPropagation(); openSleepMenu(sleep); };
   document.querySelectorAll("#music-chips .music-chip").forEach((chip) => {
     chip.onclick = () => {
       musicState.favOnly = chip.dataset.fav === "1";

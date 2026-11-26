@@ -45,15 +45,21 @@ type usersDoc struct {
 	Users []User `json:"users"`
 }
 
-// Session 是一个已登录会话(在内存中,闲置超时后失效 = 自动锁定)。
+// Session 是一个已登录会话(闲置超时后失效 = 自动锁定)。
+// 会话会持久化到 DataDir/sessions.json,服务重启后仍然有效(不必重新登录)。
 type Session struct {
-	Token    string
-	UserID   string
-	Username string
-	Role     string
-	IP       string
-	Created  int64
-	LastSeen int64
+	Token    string `json:"token"`
+	UserID   string `json:"userId"`
+	Username string `json:"username"`
+	Role     string `json:"role"`
+	IP       string `json:"ip"`
+	Created  int64  `json:"created"`
+	LastSeen int64  `json:"lastSeen"`
+}
+
+// sessionsDoc 是 sessions.json 的落盘结构。
+type sessionsDoc struct {
+	Sessions []Session `json:"sessions"`
 }
 
 // 登录防爆破:按「用户名 + 来源 IP」统计连续失败次数,超过阈值后指数退避锁定。
@@ -81,12 +87,14 @@ func (e *LockoutError) Error() string {
 }
 
 type authStore struct {
-	mu       sync.Mutex
-	users    []User
-	sessions map[string]*Session
-	fails    map[string]*bruteState
-	path     string
-	idle     time.Duration
+	mu          sync.Mutex
+	users       []User
+	sessions    map[string]*Session
+	fails       map[string]*bruteState
+	path        string
+	sessPath    string
+	sessSavedAt int64 // 上次把会话落盘的时间(Unix 秒),用于限流写盘
+	idle        time.Duration
 }
 
 func newAuthStore(dataDir string, idleMinutes int) *authStore {
@@ -94,12 +102,14 @@ func newAuthStore(dataDir string, idleMinutes int) *authStore {
 		sessions: map[string]*Session{},
 		fails:    map[string]*bruteState{},
 		path:     filepath.Join(dataDir, "users.json"),
+		sessPath: filepath.Join(dataDir, "sessions.json"),
 	}
 	if idleMinutes <= 0 {
 		idleMinutes = 30
 	}
 	a.idle = time.Duration(idleMinutes) * time.Minute
 	a.load()
+	a.loadSessions()
 	return a
 }
 
@@ -120,6 +130,53 @@ func (a *authStore) saveLocked() error {
 		return err
 	}
 	return os.WriteFile(a.path, raw, 0o600)
+}
+
+// loadSessions 把上次运行时的会话读回内存,让服务重启后客户端不必重新登录。
+// 只有仍存在且未被禁用的用户会话会被恢复;停机时长不计入闲置超时(恢复时把 LastSeen 置为当前时间)。
+func (a *authStore) loadSessions() {
+	raw, err := os.ReadFile(a.sessPath)
+	if err != nil {
+		return
+	}
+	var doc sessionsDoc
+	if json.Unmarshal(raw, &doc) != nil {
+		return
+	}
+	now := time.Now().Unix()
+	for _, s := range doc.Sessions {
+		if s.Token == "" || s.UserID == "" {
+			continue
+		}
+		u := a.findByID(s.UserID)
+		if u == nil || u.Disabled {
+			continue
+		}
+		sess := s
+		sess.Username = u.Username
+		sess.Role = u.Role
+		sess.LastSeen = now
+		a.sessions[sess.Token] = &sess
+	}
+	a.sessSavedAt = now
+}
+
+// saveSessionsLocked 把当前会话写盘(调用方需持有 a.mu)。忽略写盘错误,不影响登录。
+func (a *authStore) saveSessionsLocked() {
+	if a.sessPath == "" {
+		return
+	}
+	list := make([]Session, 0, len(a.sessions))
+	for _, s := range a.sessions {
+		list = append(list, *s)
+	}
+	raw, err := json.MarshalIndent(sessionsDoc{Sessions: list}, "", "  ")
+	if err != nil {
+		return
+	}
+	if os.WriteFile(a.sessPath, raw, 0o600) == nil {
+		a.sessSavedAt = time.Now().Unix()
+	}
 }
 
 func (a *authStore) MultiUser() bool {
@@ -268,6 +325,7 @@ func (a *authStore) DeleteUser(id string) error {
 			delete(a.sessions, tok)
 		}
 	}
+	a.saveSessionsLocked()
 	return a.saveLocked()
 }
 
@@ -307,6 +365,7 @@ func (a *authStore) Login(username, pw, ip string) (*Session, error) {
 	s.Created = time.Now().Unix()
 	s.LastSeen = s.Created
 	a.sessions[s.Token] = s
+	a.saveSessionsLocked()
 	return s, nil
 }
 
@@ -390,12 +449,17 @@ func (a *authStore) Get(tok string) *Session {
 	now := time.Now()
 	if now.Sub(time.Unix(s.LastSeen, 0)) > a.idle {
 		delete(a.sessions, tok)
+		a.saveSessionsLocked()
 		return nil
 	}
 	s.LastSeen = now.Unix()
 	if u := a.findByID(s.UserID); u != nil {
 		s.Role = u.Role
 		s.Username = u.Username
+	}
+	// 限流:最多每 60 秒把 LastSeen 落盘一次,避免每个请求都写文件。
+	if now.Unix()-a.sessSavedAt >= 60 {
+		a.saveSessionsLocked()
 	}
 	return s
 }
@@ -404,6 +468,7 @@ func (a *authStore) Logout(tok string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	delete(a.sessions, tok)
+	a.saveSessionsLocked()
 }
 
 // SessionInfo 是「活跃会话」列表里的一行(不暴露完整 token)。
@@ -472,6 +537,7 @@ func (a *authStore) Revoke(idPrefix string, caller *Session) (int, error) {
 		}
 		return 0, fmt.Errorf("未找到该会话")
 	}
+	a.saveSessionsLocked()
 	return removed, nil
 }
 

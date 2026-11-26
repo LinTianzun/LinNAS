@@ -1,6 +1,6 @@
 # LinNAS — 本地云盘/NAS 方案与版本路线图
 
-> 当前组件版本（2026-11-27）：Windows 服务端 **1.8.1**；Android 客户端 **1.8.10**（`versionCode` 19）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
+> 当前组件版本（2026-11-27）：Windows 服务端 **1.8.2**；Android 客户端 **1.8.10**（`versionCode` 19）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
 
 > 下文保留早期技术决策与里程碑记录；历史版本号描述当时状态，不代表当前版本。
 
@@ -470,3 +470,11 @@ v1.8.8 只把「名 · host」拼成一行，用户反馈希望**名称和 IP �
 - **移除总览「规划中」占位卡**（M14–M16 功能均已交付）。
 - **侧边栏选中态**：`.lib-item.active` 改用左侧 3px 竖条（`::before`），不再被圆角挤压。
 - **验证**：`go test ./...` / `go vet` / `go build` 全绿；`node --check app.js` 通过；隔离实例（独立 DataDir 与端口）实测磁盘健康容量、服务器改名、图片上一张/下一张与左右键、音乐音量恢复 35%、设置页服务器名称保存、总览无占位卡、侧栏选中竖条；`LINNAS_QUIET=1` 启动验证控制台隐藏且写入 `linnas.log`；已构建并部署到本机 52700。
+
+### M18 播放器与登录体验改进（2026-11-27，服务端 1.8.2）
+> 状态：已实现、测试并部署到本机 52700。用户 4 项反馈，逐项落地。
+- **三态播放模式**：`#music-mode` 单键循环 `列表播放(all) → 单曲循环(one) → 随机播放(shuffle)`，图标 ⥁/⥂/⤨，状态存 `localStorage:linnas_music_mode`；移除原 `#music-repeat` 按钮与 `music-shuffle` 引用；`musicStep` / `ended` / `syncMusicToggles` 统一按 `musicState.mode` 判断。
+- **睡眠定时可视化**：`#music-sleep-left` 显示 `🌙 mm:ss` 剩余并每秒刷新；菜单 15/30/45/60/自定义/关闭，自定义校验 1–600 分钟，到点暂停并 toast。
+- **侧栏行高修复**：根因是 `.sidebar` flex 列下 `.lib-list` 被 `flex-shrink` 压缩且自身 `overflow:auto`；改为 `flex:0 0 auto; overflow:visible`，`.lib-item{min-height:40px}`，选中/悬停竖条 `top:6px;bottom:6px` 贯穿整行。
+- **登录会话持久化**：`authStore` 增加 `sessions.json`（`loadSessions` / `saveSessionsLocked`，0600，60s 限流落盘），Login/Logout/Revoke/DeleteUser/闲置清理时同步；重启后恢复会话（跳过已删/禁用用户），停机时间不计入闲置超时；新增 `server/security_session_test.go`。
+- **验证**：`go test -count=1 ./...` ok、`go vet` 干净、`node --check app.js` 通过；隔离实例实测三态循环、睡眠倒计时与自定义校验、侧栏无裁剪；已重建部署 52700（`/api/health` = 1.8.2）。

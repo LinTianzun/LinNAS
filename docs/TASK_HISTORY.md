@@ -6,6 +6,7 @@
 
 | 里程碑 | 日期 | 组件 / 版本 | 主要内容 |
 |---|---|---|---|
+| M18 | 2026-11-27 | Windows 服务端 1.8.2 | 播放器与登录体验（用户 4 项）：音乐三态播放模式（列表/单曲循环/随机）、睡眠定时剩余时间显示与自定义时间、侧栏存储库行高与选中竖条修复、登录会话持久化（`sessions.json`，重启免登录） |
 | M17 | 2026-11-27 | Windows 服务端 1.8.1 | 界面与体验改进（用户 8 项）：磁盘健康容量进度条 + 按卷容量、双击 exe 静默启动、图片上一张/下一张、音乐音量记忆与播放器增强、服务器自定义名称、移除总览「规划中」、侧栏选中态竖条 |
 | M16.3 | 2026-11-27 | 服务端 **1.8.0** | 版本升级：M16（内容搜索 + 自动整理）全部交付后，`server/config.go` 的 `const Version` 由 1.7.0 升至 1.8.0，同步 README / PLAN / RELEASING / CHANGELOG / ARCHITECTURE / DEVELOPMENT_STATUS / TASK_HISTORY；重新构建并部署本机 52700 |
 | M16.2 | 2026-11-27 | 服务端 1.7.0 | 自动整理规则：`server/organize.go`（规则 CRUD `organize.json`、`POST /api/organize/preview` 只读预览、`/run` 单飞执行 `os.Rename` + 同名加序号 + 跨库/只读/保险箱/回收站/排除跳过 + 上限 5000 + `journal-<jobID>.jsonl` + `Index.UpdatePaths`、`/undo` 倒序回搬、`/jobs` 最近 50 条、`/cancel`）；全部 admin only，不删除文件；UI「自动整理」页签（规则列表 / 编辑 / 预览前 50 条 / 执行确认 / 作业历史与撤销）；真实环境端到端验收通过 |
@@ -38,7 +39,10 @@
 （M2 / M3 等为早期 Android 构建阶段，逐项记录见 [PLAN.md](../PLAN.md)。）
 
 ## 近期提交（git log）
-- 工作区（待提交）：服务端 **1.8.1** —— M17 界面与体验改进（`server/disk_health.go` 卷容量 `totalGB`/`freeGB`、`server/main.go` 静默启动 + `linnas.log`、`server/tray_windows.go` `launchedFromTerminal`、`server/config.go` `ServerName`/`DisplayName()` + 版本 1.8.1、`server/settings.go` `serverName`；UI 磁盘健康容量条 / 图片翻页 / 音乐音量记忆与增强 / 服务器名称 / 移除规划中卡 / 侧栏选中竖条）。## 近期提交（git log）
+- 工作区（待提交）：服务端 **1.8.1** —— M17 界面与体验改进（`server/disk_health.go` 卷容量 `totalGB`/`freeGB`、`server/main.go` 静默启动 + `linnas.log`、`server/tray_windows.go` `launchedFromTerminal`、`server/config.go` `ServerName`/`DisplayName()` + 版本 1.8.1、`server/settings.go` `serverName`；UI 磁盘健康容量条 / 图片翻页 / 音乐音量记忆与增强 / 服务器名称 / 移除规划中卡 / 侧栏选中竖条）。
+
+## 近期提交（git log）
+- 工作区（待提交）：服务端 **1.8.2** —— M18 播放器与登录体验（`server/security.go` 会话持久化 + `server/security_session_test.go`；UI 三态播放模式 / 睡眠定时剩余时间与自定义 / 侧栏行高与竖条修复）。
 - 工作区（待提交）：服务端 **1.8.0** —— 版本升级（`server/config.go` `const Version` 1.7.0 → 1.8.0；同步 README / PLAN / RELEASING / CHANGELOG / ARCHITECTURE / DEVELOPMENT_STATUS / CURRENT_TASK / TASK_HISTORY）。
 - 工作区（待提交）：服务端 1.7.0 —— M16 批次 4（自动整理 `server/organize.go` + `organize_test.go`、`/api/organize/{rules,preview,run,undo,status,cancel,jobs}`、`organize.json` / `jobs.json` / `journal-<jobID>.jsonl`、UI「自动整理」页签）。
 - 工作区（待提交）：服务端 1.7.0 —— M16 批次 3（正文索引 `server/content.go` + `content` / `content_meta` 表 + `GET /api/search/content` / `GET /api/content/status`；UI 搜索范围切换与片段高亮；磁盘健康默认只显示已添加存储库所在磁盘）。

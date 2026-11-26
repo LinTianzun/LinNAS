@@ -1,4 +1,4 @@
-﻿# 构建与发布
+# 构建与发布
 
 ## 组件版本
 
@@ -6,7 +6,7 @@
 
 | 组件 | 当前版本 | 版本号维护位置 |
 |---|---:|---|
-| Windows 服务端 | 1.8.1 | `server/config.go`（`Version`） |
+| Windows 服务端 | 1.8.2 | `server/config.go`（`Version`） |
 | Android 客户端 | 1.8.10，`versionCode` 为 19 | `android/app/build.gradle.kts` |
 
 发布前先更新对应组件的版本号。每次发布新的 Android APK 时，`versionCode` 必须递增。请同步更新对应组件的 README 和 `PLAN.md`；两个组件的版本号互不关联，不要根据其中一个推算另一个。
@@ -52,8 +52,8 @@ Android APK 使用 **debug** 签名，适合直接安装和测试；它不是 Go
 - 对照产物与校验和文件，例如：
 
   ```powershell
-  Get-FileHash .\release\linNas-server-1.8.1-windows-amd64.exe -Algorithm SHA256
-  Get-Content .\release\linNas-server-1.8.1-windows-amd64.exe.sha256
+  Get-FileHash .\release\linNas-server-1.8.2-windows-amd64.exe -Algorithm SHA256
+  Get-Content .\release\linNas-server-1.8.2-windows-amd64.exe.sha256
   ```
 
 - 替换现有服务端前，先停止服务并备份 `linnas-data`。保留历史版本产物；不同内容不要复用同一个版本号。
