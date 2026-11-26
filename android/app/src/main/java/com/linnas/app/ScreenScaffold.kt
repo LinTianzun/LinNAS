@@ -367,6 +367,22 @@ object ScreenUi {
     fun dangerButton(ctx: Context, label: String, onClick: () -> Unit): Button =
         button(ctx, label, R.attr.lDanger, R.drawable.bg_button_tonal, onClick)
 
+    /** 顶栏文字按钮(主色文字 + 无边框按压背景)。 */
+    fun headerTextButton(ctx: Context, label: String, onClick: () -> Unit): Button =
+        Button(ctx).apply {
+            text = label
+            isAllCaps = false
+            setTextColor(ThemeColors.color(ctx, R.attr.lPrimary))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, sp(ctx, R.dimen.text_sm))
+            minWidth = 0
+            minHeight = 0
+            backgroundTintList = null
+            stateListAnimator = null
+            setPadding(dim(ctx, R.dimen.space_3), 0, dim(ctx, R.dimen.space_3), 0)
+            borderlessBackground(ctx)?.let { setBackground(it) }
+            setOnClickListener { onClick() }
+        }
+
     private fun button(
         ctx: Context,
         label: String,
@@ -382,6 +398,9 @@ object ScreenUi {
         minHeight = 0
         minWidth = 0
         stateListAnimator = null
+        // Material3 主题会给 Button 套 backgroundTint,会盖掉 bg_button_* 的语义色,
+        // 这里清掉,让 drawable 里的 ?attr/lPrimary / lSurfaceHigh 生效。
+        backgroundTintList = null
         setBackgroundResource(bgRes)
         setPadding(
             dim(ctx, R.dimen.space_4),
@@ -434,17 +453,7 @@ abstract class ScreenScaffold : AppCompatActivity() {
             setPadding(dp(8), dp(4), dp(8), dp(4))
         }
         bar.addView(
-            Button(this).apply {
-                text = "返回"
-                isAllCaps = false
-                setTextColor(ThemeColors.color(this@ScreenScaffold, R.attr.lPrimary))
-                setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, ScreenUi.sp(this@ScreenScaffold, R.dimen.text_sm))
-                minWidth = 0
-                minHeight = 0
-                setPadding(dp(12), 0, dp(12), 0)
-                ScreenUi.borderlessBackground(this@ScreenScaffold)?.let { setBackground(it) }
-                setOnClickListener { finish() }
-            },
+            ScreenUi.headerTextButton(this, "返回") { finish() },
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT),
         )
         bar.addView(
@@ -482,17 +491,7 @@ abstract class ScreenScaffold : AppCompatActivity() {
     /** 顶栏右侧加动作按钮(主色文字按钮)。 */
     protected fun addHeaderAction(label: String, onClick: () -> Unit) {
         actionBarRow.addView(
-            Button(this).apply {
-                text = label
-                isAllCaps = false
-                setTextColor(ThemeColors.color(this@ScreenScaffold, R.attr.lPrimary))
-                setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, ScreenUi.sp(this@ScreenScaffold, R.dimen.text_sm))
-                minWidth = 0
-                minHeight = 0
-                setPadding(dp(12), 0, dp(12), 0)
-                ScreenUi.borderlessBackground(this@ScreenScaffold)?.let { setBackground(it) }
-                setOnClickListener { onClick() }
-            },
+            ScreenUi.headerTextButton(this, label, onClick),
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT),
         )
     }
