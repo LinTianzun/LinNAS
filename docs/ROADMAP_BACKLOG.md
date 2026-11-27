@@ -156,9 +156,9 @@
 
 ### BL-020 测试补齐
 
-- **现状**：Go 26 个测试文件；Android 4 个单测 + 3 个仪器测试。
+- **现状**：Go 27 个测试文件；Android 4 个单测 + 3 个仪器测试。已补 `server/authorize_test.go`（admin/user/viewer × 约 45 条路由的授权矩阵）。
 - **最小可交付**（按风险排序）：
-  - Go：`authorize` 角色矩阵（admin/user/viewer × 读写接口）、上传异常 / 回滚 / 同名冲突、WebDAV 边界（Range、只读、越权）、Zip 路径穿越、索引对账并发。
+  - Go：~~`authorize` 角色矩阵（admin/user/viewer × 读写接口）~~（已完成）、上传异常 / 回滚 / 同名冲突、WebDAV 边界（Range、只读、越权）、Zip 路径穿越、索引对账并发。
   - Android：传输中心暂停 / 续传 / 取消、生物识别降级路径、版本检查 404 / 降级、筛选组合。
 - **验收标准**：新增用例在 CI 稳定通过；关键路径无回归。
 - **涉及**：`server/*_test.go`、`android/app/src/test|androidTest`。
