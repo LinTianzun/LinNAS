@@ -26,8 +26,8 @@
 | ID | 优先级 | 事项 | 工作量 | 状态 |
 |---|---|---|---|---|
 | BL-001 | P0 | Android 真机端到端验收（M10） | M | 已完成（单机基本回归） |
-| BL-002 | P0 | release 签名与构建加固 | M | 待办 |
-| BL-003 | P0 | CI 发布自动化（tag → Release） | S–M | 待办 |
+| BL-002 | P0 | release 签名与构建加固 | M | 已完成 |
+| BL-003 | P0 | CI 发布自动化（tag → Release） | S–M | 已完成 |
 | BL-010 | P1 | 对话空间 MVP（个人设备收件箱） | L–XL | 待办 |
 | BL-011 | P1 | ZIP 预览与安全解压 | M–L | 待办 |
 | BL-012 | P1 | 上传收集箱 | M | 待办 |
@@ -62,18 +62,19 @@
 
 ### BL-002 release 签名与构建加固
 
-- **现状**：`android/app/build.gradle.kts` 仅有 debug 签名，`isMinifyEnabled = false`，无 `signingConfigs` / ProGuard 规则。
-- **最小可交付**：`signingConfigs.release`（keystore 走环境变量 / CI secret）、`buildTypes.release` 开 `isMinifyEnabled` + ProGuard/R8 规则、产出 `assembleRelease` / `bundleRelease`。
-- **验收标准**：release 包可安装登录；混淆后播放器 / 反射 / 序列化无崩溃；构建可重复；密钥不入库。
-- **涉及**：`android/app/build.gradle.kts`、`android/app/proguard-rules.pro`（新建）、`.gitignore`、CI。
+- **现状**：✅ 已完成（2026-11-27）。`android/app/build.gradle.kts` 新增 `signingConfigs.release`（环境变量 `LINNAS_KEYSTORE_FILE` / `LINNAS_KEYSTORE_PASSWORD` / `LINNAS_KEY_ALIAS` / `LINNAS_KEY_PASSWORD`，或 `android/keystore.properties`）；`buildTypes.release` 开 `isMinifyEnabled = true`（`isShrinkResources = false`）并引用新建的 `android/app/proguard-rules.pro`；未配置密钥时回退 debug 签名，仅供本地验证。
+- **最小可交付**：已交付——`assembleRelease` 可产出 R8 混淆包（release APK 约 4.85 MB，debug 约 11.1 MB）。
+- **验收标准**：release 包可安装登录；混淆后播放器 / 反射 / 序列化无崩溃；构建可重复；密钥不入库。（本地 `:app:assembleRelease` 与 `:app:testDebugUnitTest` 已通过；真机安装登录待发布前复核）
+- **涉及**：`android/app/build.gradle.kts`、`android/app/proguard-rules.pro`、`.gitignore`、CI。
 - **依赖**：可与 BL-001 并行。
+- **进展**：`.gitignore` 增加 `android/keystore.properties`、`*.jks`、`*.keystore`；`RELEASING.md` 补充签名变量与本地构建命令。
 
 ### BL-003 CI 发布自动化
 
-- **最小可交付**：tag（如 `v*`）触发 workflow：`go test` / `vet` + Android 单测 / 构建 + 生成带版本号产物与 `.sha256` + 创建 GitHub Release 并附产物。
-- **验收标准**：打 tag 后 Release 自动出现两个组件产物与校验和；失败不产出半成品。
-- **涉及**：`.github/workflows/`、`scripts/release.ps1`。
-- **依赖**：BL-002。
+- **最小可交付**：✅ 已交付（2026-11-27）。新增 `.github/workflows/release.yml`：推送 `v*` 标签（或手动 dispatch）→ 读取双端版本 → `go test` / `go vet` + 服务端 exe → Android 单测 + `assembleRelease` → 生成 `.sha256` → 创建 GitHub Release；缺 `LINNAS_KEYSTORE_BASE64` 等 Secrets 时直接失败，避免发出未签名包。
+- **验收标准**：打 tag 后 Release 自动出现两个组件产物与校验和；失败不产出半成品。（工作流已就位，待首次打 tag 实测）
+- **涉及**：`.github/workflows/release.yml`、`scripts/release.ps1`。
+- **依赖**：BL-002（已完成）。
 
 ## 4. P1 — 高价值功能
 

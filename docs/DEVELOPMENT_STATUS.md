@@ -26,6 +26,7 @@
 
 ## 最近改动
 
+- 2026-11-27 发布工程（M20 / BL-002、BL-003）：`android/app/build.gradle.kts` 增加 `signingConfigs.release`（环境变量或 `android/keystore.properties`）与 R8 `isMinifyEnabled`，新增 `android/app/proguard-rules.pro`；未配置密钥时回退 debug 签名仅供本地验证。新增 `.github/workflows/release.yml`：`v*` 标签触发双端构建 + `.sha256` + GitHub Release（密钥走 Secrets）。本地 `:app:assembleRelease` 通过，release APK 4.85 MB；`:app:testDebugUnitTest` 通过。
 - 2026-11-27 服务端 **1.8.4**（M19）：修开机自启仍拉起旧版 1.7.0——`server/autostart.go` 拆出 `autostartScript` / `autostartExeFromScript` / `autostartTargetAt` / `autostartSetAt` / `samePath` / `autostartStaleTarget` / `autostartHeal`，`main.go` 启动时自愈脚本（旧路径→当前 exe 并记日志），`GET /api/autostart` 新增 `target` / `stale`；端口被旧实例占用时托盘弹窗提示；新增 `server/autostart_test.go`；本机已把旧 `linNas.exe` 退役，52700 由 `linNas-server.exe` 提供服务。
 - 2026-11-27 服务端 **1.8.3** + Android **1.8.11**（M13.11）：添加存储库支持**路径自动创建**——`POST /api/libs` 对不存在的绝对路径 `os.MkdirAll` 自动建目录；新增 `POST /api/fs/mkdir`（`fsops.go`，按绝对路径建目录、补建父目录、拒绝盘符根，仅管理员）与 `fsops_mkdir_test.go`；Android 侧「手动输入路径」改为先创建再进入、新增**「新建文件夹」**入口（`LinNasClient.fsMkdir`）；`go test/vet` 全绿、Android 单测 15/15、出包 `release/linNas-1.8.11-debug.apk`。
 - 2026-11-27 服务端 **1.8.2**：播放器与登录体验——音乐三态播放模式（列表/单曲循环/随机，记忆）、睡眠定时剩余时间显示与自定义 1–600 分钟、侧栏存储库行高与选中竖条修复（`.lib-list` flex 压缩根因）、登录会话持久化（`sessions.json`，重启免登录、停机不计闲置超时）；`go test/vet` 与 `node --check` 全绿，已重建部署 52700。

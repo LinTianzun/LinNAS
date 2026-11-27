@@ -6,6 +6,7 @@
 
 | 里程碑 | 日期 | 组件 / 版本 | 主要内容 |
 |---|---|---|---|
+| M20 | 2026-11-27 | 发布工程（BL-002 / BL-003） | release 签名与构建加固：`signingConfigs.release` 走环境变量 / `android/keystore.properties`，R8 `isMinifyEnabled` + `proguard-rules.pro`，release APK 4.85 MB；CI 发布：`.github/workflows/release.yml` 在 `v*` 标签时构建双端产物、生成 `.sha256` 并创建 GitHub Release |
 | M19 | 2026-11-27 | Windows 服务端 1.8.4 | 开机自启修正：启动脚本写死绝对路径指向改名前的 `linNas.exe`（1.7.0），每次登录拉起旧版并占住 52700，新版静默绑定失败；`server/autostart.go` 拆出 `autostartScript` / `autostartExeFromScript` / `autostartTargetAt` / `autostartSetAt` / `samePath` / `autostartStaleTarget` / `autostartHeal`，`main.go` 启动自愈 + 日志，`GET /api/autostart` 增加 `target` / `stale`，端口占用时托盘弹窗；新增 `server/autostart_test.go` |
 | M13.11 | 2026-11-27 | 服务端 1.8.3 + Android 1.8.11 (vc20) | 添加存储库路径自动创建与新建文件夹：服务端 `POST /api/libs` 对不存在的绝对路径 `os.MkdirAll` 自动创建、新增 `POST /api/fs/mkdir`（`fsops.go`，绝对路径建目录、补建父目录、拒绝盘符根，仅管理员）与 `fsops_mkdir_test.go`；Android「手动输入路径」先创建再进入（主按钮「创建并进入」）、新增「新建文件夹」入口（`LinNasClient.fsMkdir`）；`go test/vet` 全绿、Android 单测 15/15 |
 | M18 | 2026-11-27 | Windows 服务端 1.8.2 | 播放器与登录体验（用户 4 项）：音乐三态播放模式（列表/单曲循环/随机）、睡眠定时剩余时间显示与自定义时间、侧栏存储库行高与选中竖条修复、登录会话持久化（`sessions.json`，重启免登录） |

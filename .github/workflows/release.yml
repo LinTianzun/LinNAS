@@ -1,0 +1,105 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read component versions
+        id: versions
+        shell: pwsh
+        run: |
+          $server = (Select-String -Path server/config.go -Pattern 'const\s+Version\s*=\s*"([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          $android = (Select-String -Path android/app/build.gradle.kts -Pattern 'versionName\s*=\s*"([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          if (-not $server -or -not $android) { throw "无法读取服务端或 Android 版本号" }
+          "server=$server" >> $env:GITHUB_OUTPUT
+          "android=$android" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: Test server
+        working-directory: server
+        run: go test ./...
+
+      - name: Vet server
+        working-directory: server
+        run: go vet ./...
+
+      - name: Build server
+        working-directory: server
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path ../release | Out-Null
+          go build -trimpath -ldflags "-s -w" -o "../release/linNas-server-${{ steps.versions.outputs.server }}-windows-amd64.exe" .
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-34 build-tools;34.0.0"
+
+      - name: Decode release keystore
+        shell: pwsh
+        env:
+          KEYSTORE_BASE64: ${{ secrets.LINNAS_KEYSTORE_BASE64 }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:KEYSTORE_BASE64)) {
+            throw "缺少 secret LINNAS_KEYSTORE_BASE64：正式发布必须使用 release 签名。"
+          }
+          $path = Join-Path $env:RUNNER_TEMP "linnas-release.jks"
+          [IO.File]::WriteAllBytes($path, [Convert]::FromBase64String($env:KEYSTORE_BASE64))
+          "LINNAS_KEYSTORE_FILE=$path" >> $env:GITHUB_ENV
+
+      - name: Test Android unit tests
+        working-directory: android
+        run: .\gradlew.bat --no-daemon :app:testDebugUnitTest
+
+      - name: Build Android release APK
+        working-directory: android
+        env:
+          LINNAS_KEYSTORE_PASSWORD: ${{ secrets.LINNAS_KEYSTORE_PASSWORD }}
+          LINNAS_KEY_ALIAS: ${{ secrets.LINNAS_KEY_ALIAS }}
+          LINNAS_KEY_PASSWORD: ${{ secrets.LINNAS_KEY_PASSWORD }}
+        run: .\gradlew.bat --no-daemon :app:assembleRelease
+
+      - name: Stage artifacts and checksums
+        shell: pwsh
+        run: |
+          $apk = "android/app/build/outputs/apk/release/app-release.apk"
+          if (-not (Test-Path $apk)) { throw "未生成 release APK: $apk" }
+          Copy-Item -LiteralPath $apk -Destination "release/linNas-${{ steps.versions.outputs.android }}-release.apk" -Force
+          Get-ChildItem release | Where-Object { $_.Extension -in '.exe', '.apk' } | ForEach-Object {
+            $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)" | Set-Content -LiteralPath "$($_.FullName).sha256" -Encoding ascii
+          }
+          Get-ChildItem release | ForEach-Object { Write-Host $_.Name }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linnas-release-${{ github.ref_name }}
+          path: release/*
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: LinNAS ${{ github.ref_name }}
+          files: release/*
+          fail_on_unmatched_files: true

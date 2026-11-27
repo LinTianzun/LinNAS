@@ -42,7 +42,52 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\release.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\release.ps1 -GradleCommand "C:\path\to\gradle.bat"
 ```
 
-Android APK 使用 **debug** 签名，适合直接安装和测试；它不是 Google Play 或正式生产签名包。如需发布生产 APK，请另行配置 release 签名。
+`scripts/release.ps1` 默认产出 **debug** 签名 APK（适合直接安装测试），不是正式生产签名包；正式发布请用下面的 release 签名或标签工作流。
+
+## Android release 签名
+
+release 构建启用 R8 混淆（`isMinifyEnabled = true`，`isShrinkResources = false`），签名密钥从**环境变量**或 `android/keystore.properties`（已加入 `.gitignore`）读取：
+
+| 变量 / 键 | 说明 |
+|---|---|
+| `LINNAS_KEYSTORE_FILE` / `storeFile` | keystore 文件路径 |
+| `LINNAS_KEYSTORE_PASSWORD` / `storePassword` | keystore 口令 |
+| `LINNAS_KEY_ALIAS` / `keyAlias` | 密钥别名 |
+| `LINNAS_KEY_PASSWORD` / `keyPassword` | 密钥口令 |
+
+本地构建：
+
+```powershell
+$env:LINNAS_KEYSTORE_FILE = "C:\keys\linnas-release.jks"
+$env:LINNAS_KEYSTORE_PASSWORD = "..."
+$env:LINNAS_KEY_ALIAS = "linnas"
+$env:LINNAS_KEY_PASSWORD = "..."
+cd android
+.\gradlew.bat --no-daemon :app:assembleRelease
+```
+
+产物：`android/app/build/outputs/apk/release/app-release.apk`。
+
+> 未配置密钥时，release 构建会回退 **debug 签名**，仅用于本地验证 R8 / 可构建性，**不可作为正式发布包**。
+
+## 标签发布（GitHub Actions）
+
+推送 `v*` 标签会触发 [.github/workflows/release.yml](.github/workflows/release.yml)：
+
+1. 读取服务端 / Android 版本号；
+2. `go test` / `go vet` 并构建服务端 exe；
+3. 用 `LINNAS_KEYSTORE_BASE64` 还原 keystore，跑 Android 单测与 `assembleRelease`；
+4. 生成 `.sha256`，创建 GitHub Release 并附两个产物。
+
+需要在仓库 Secrets 配置：`LINNAS_KEYSTORE_BASE64`（keystore 的 Base64）、`LINNAS_KEYSTORE_PASSWORD`、`LINNAS_KEY_ALIAS`、`LINNAS_KEY_PASSWORD`。缺任意一个都会失败，避免误发未签名包。
+
+```powershell
+# 生成 keystore 的 Base64
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\keys\linnas-release.jks")) | Set-Clipboard
+
+git tag v1.8.12
+git push origin v1.8.12
+```
 
 ## 验证与分发
 
