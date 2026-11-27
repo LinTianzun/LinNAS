@@ -1,6 +1,6 @@
 # LinNAS 架构说明
 
-> 更新：2026-11-27。当前版本：Windows 服务端 1.8.5；Android 1.8.13（versionCode 22）。
+> 更新：2026-11-28。当前版本：Windows 服务端 1.9.1；Android 1.8.15（versionCode 24）。
 > 本文描述**现状**；里程碑与版本演进见 [PLAN.md](../PLAN.md)，后续候选见 [FEATURE_ROADMAP.md](FEATURE_ROADMAP.md)。
 
 ## 1. 目标与约束
@@ -47,7 +47,9 @@
 | `index.go` / `api_index.go` | SQLite 索引（全量扫描、`UpdatePaths` 增量、`ReconcileAll` 对账）、搜索 / 媒体查询 |
 | `upload.go` | 分块上传（5 MiB）会话、断点续传、SHA-256、冲突 / 回滚 |
 | `media.go` / `subtitle.go` / `transcode.go` / `info.go` | 缩略图抽帧；字幕列表 / 转 WebVTT；ffmpeg 按需转码与缓存；ffprobe 详情 |
-| `vault.go` | 隐私保险箱（隐藏目录 + 密码，非加密；导入 / 导出 / 浏览 / 播放） |
+| `vault.go` | 隐私保险箱接口：解锁会话（token → VMK，2 小时）、列表 / 上传 / 下载播放 / 删除 / 导入导出 / 改密、一次性迁移入口 |
+| `vault_container.go` / `vault_encrypted_file.go` | `.lvault` 容器：AES-256-GCM 64KB 分块、512 字节固定头区、AAD 绑定块索引、文件名加密头；`encryptedFile` 支持 `io.ReaderAt`+`io.ReadSeeker`（Range / 视频拖动按需解密）与流式加密写（明文不落临时文件） |
+| `vault_keystore.go` / `vault_paths.go` / `vault_transfer.go` / `vault_migrate.go` / `vault_hide_*.go` / `vault_thumb.go` | 信封密钥（口令 KEK 包裹随机 VMK，CEK 用 VMK 包裹；v1 配置自动升级）、显示名 ↔ token 磁盘路径、导入导出递归加解密、旧明文 / 旧容器一次性迁移、Windows 隐藏+系统属性、保险箱缩略图（解密流→ffmpeg 管道，仅内存缓存） |
 | `trash.go` | 回收站（`.linNasTrash` + `.meta`，恢复 / 彻底删除 / 清空 / 按天清理 / 缩略图） |
 | `fsops.go` / `size.go` / `disks.go` | 目录选择器 / 盘符枚举、移动 / 复制 / 改名 / 删除、目录递归大小、磁盘剩余 |
 | `analysis.go` | 存储空间分析：概览、大文件 Top N、重复文件候选（后台抽样哈希，人工确认后删除） |
@@ -77,7 +79,7 @@
 - 自动整理：`organize/rules`（GET/POST/PUT/DELETE）、`organize/preview`、`organize/run`、`organize/undo`、`organize/status`、`organize/cancel`、`organize/jobs`（全部 admin only；规则存 `organize.json`，作业 `organize/jobs.json`，日志 `organize/journal-<jobID>.jsonl`）
 - 存储库 / 磁盘：`libs`（GET / POST / DELETE / update / media-hide）、`fs/dirs`、`disks`
 - 安全 / 账号：`auth/{login,logout,me,status,sessions,revoke}`、`users`（+password / update）、`audit`、`devices`、`shares`、`share/{id}`、`share/{id}/raw`
-- 保险箱：`vault/{status,setup,unlock,lock,ls,raw,upload,delete,mkdir,import,export,改密}`
+- 保险箱：`vault/{status,setup,unlock,lock,ls,raw,thumb,upload,delete,mkdir,import,export,migrate,改密}`
 - 回收站：`trash`、`trash/{restore,delete,empty,thumb}`
 - 其它：`health`、`settings`、`pair`、`pair/qr`、`qr`、`remote`、`remote/serve`、`hotspot`、`autostart`、`app/version`、`app/apk`、`wol`、`wol/send`、`maintenance/cleanup`、`system/open`、`overview`、`playback`、`playback/recent`、`storage/{summary,large,duplicates,duplicates/scan,trend}`、`disks/health`（可 `?lib=` 按存储库过滤）、`alerts`、`alerts/ack`、`storage/patrol/{start,status,cancel,last}`
 - 非 `/api`：`/pair`（配对页）、`/s/{id}`（分享页）、`/dav/<lib>/`（WebDAV）、`/ui/`（管理端）

@@ -6,7 +6,7 @@
 
 | 组件 | 当前版本 | 版本号维护位置 |
 |---|---:|---|
-| Windows 服务端 | 1.8.5 | `server/config.go`（`Version`） |
+| Windows 服务端 | 1.9.1 | `server/config.go`（`Version`） |
 | Android 客户端 | 1.8.15，`versionCode` 为 24 | `android/app/build.gradle.kts` |
 
 发布前先更新对应组件的版本号。每次发布新的 Android APK 时，`versionCode` 必须递增。请同步更新对应组件的 README 和 `PLAN.md`；两个组件的版本号互不关联，不要根据其中一个推算另一个。
@@ -76,7 +76,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\bundle-portable.ps
 
 # 也可显式指定路径 / 输出名 / 覆盖
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\bundle-portable.ps1 `
-  -ServerExe .\release\linNas-server-1.8.5-windows-amd64.exe `
+  -ServerExe .\release\linNas-server-1.9.1-windows-amd64.exe `
   -FfmpegPath "C:\path\to\ffmpeg.exe" `
   -OutZip .\release\linNas-portable.zip -Overwrite
 ```
@@ -93,6 +93,29 @@ README.txt          面向最终用户的使用说明
 
 > **Tailscale 不随包分发**。它是需要后台服务 + 登录的组网工具,只作为「远程访问」的可选依赖。
 > 服务端会探测本机 Tailscale(`server/tailscale.go`),未安装时「远程访问」页会提示安装,不影响局域网内的核心功能。
+
+## 同机运行多个实例(端口与数据目录)
+
+默认端口固定为 `52700`(`server/config.go` 的 `DefaultPort`),数据目录默认为 exe 同目录的
+`linnas-data`(可用 `LINNAS_DATA` 覆盖)。因此**同一台电脑**再启动一个实例时会因端口被占用而失败,
+日志/弹窗会提示「无法监听 …: 通常表示已有一个 linNas 在运行」。
+
+此时用两个环境变量给第二个实例一套独立的端口与数据目录即可:
+
+```powershell
+# 第二个实例:换端口 + 换数据目录,互不干扰
+$env:LINNAS_PORT = "52701"
+$env:LINNAS_DATA = "D:\linnas2-data"
+.\linNas-server.exe
+```
+
+| 变量 | 作用 | 说明 |
+|---|---|---|
+| `LINNAS_PORT` | 覆盖 HTTP 监听端口 | 优先于 `config.json` 里保存的端口;非法值(非数字 / 不在 1-65535)会被忽略并在 stderr 给出警告 |
+| `LINNAS_DATA` | 覆盖运行期数据目录 | 含 `config.json`、`users.json`、`index.db`、`thumbs/`、`transcode/` 等 |
+
+> **两台不同的设备不需要任何额外配置**:IP 不同、各自绑定自己的端口,天然不冲突。
+> 若希望手机端的发现列表里能区分两台,给它们设置不同的服务器名称(设置页的 `serverName`)即可。
 
 ## Android release 签名
 

@@ -1626,6 +1626,14 @@ document.addEventListener("keydown", (e) => {
   if (modal.hidden) return;
   const v = $("#player-video");
   if (e.key === "Escape") { closePreview(); return; }
+  const aEl = $("#player-audio");
+  if (v.hidden && aEl && !aEl.hidden) {
+    // 音频:空格播放暂停、左右 5 秒
+    if (e.code === "Space") { e.preventDefault(); aEl.paused ? aEl.play().catch(() => {}) : aEl.pause(); }
+    else if (e.key === "ArrowLeft") { e.preventDefault(); aEl.currentTime = Math.max(0, (aEl.currentTime || 0) - 5); }
+    else if (e.key === "ArrowRight") { e.preventDefault(); aEl.currentTime = Math.min(aEl.duration || 1e9, (aEl.currentTime || 0) + 5); }
+    return;
+  }
   if (v.hidden) {
     // 图片预览:左右方向键切换上一张 / 下一张
     const img = $("#player-img");
@@ -1635,10 +1643,177 @@ document.addEventListener("keydown", (e) => {
     }
     return;
   }
+  const pk = (e.key || "").toLowerCase();
   if (e.code === "Space") { e.preventDefault(); v.paused ? v.play().catch(() => {}) : v.pause(); }
   else if (e.key === "ArrowLeft") { v.currentTime = Math.max(0, v.currentTime - 5); }
   else if (e.key === "ArrowRight") { v.currentTime = Math.min(v.duration || 1e9, v.currentTime + 5); }
-  else if (e.key === "m" || e.key === "M") { v.muted = !v.muted; }
+  else if (pk === "j") { v.currentTime = Math.min(v.duration || 1e9, v.currentTime + 10); }
+  else if (pk === "l") { v.currentTime = Math.max(0, v.currentTime - 10); }
+  else if (pk === "k") { v.paused ? v.play().catch(() => {}) : v.pause(); }
+  else if (pk === "m") { v.muted = !v.muted; }
+  else if (pk === "f") { $("#player-full").click(); }
+  else if (pk === "p") { $("#player-pip").click(); }
+  else if (pk === "n") { if (state.playIndex >= 0 && state.playIndex < state.playlist.length - 1) playItem(state.playIndex + 1); }
+  else if (pk === "b") { if (state.playIndex > 0) playItem(state.playIndex - 1); }
+  else if (e.key === "]" || e.key === "=" || e.key === "+") { $("#player-speed").click(); }
+  else if (e.key === "[" || e.key === "-" || e.key === "_") {
+    const cur = v.playbackRate || 1;
+    const i = SPEEDS.findIndex((x) => Math.abs(x - cur) < 0.01);
+    const prev = SPEEDS[(i <= 0 ? SPEEDS.length : i) - 1];
+    v.playbackRate = prev;
+    $("#player-speed").textContent = prev + "×";
+  }
+});
+
+/* ============================================================ 键盘增强 */
+function browseBaseVPath(en) { return state.curPath.replace(/\/$/, "") + "/" + en.name; }
+function browseVisibleList() { return sortedEntries(); }
+function browseCurrentIndex() {
+  const list = browseVisibleList();
+  if (!state.selected || !state.selected.size) return -1;
+  const first = Array.from(state.selected)[0];
+  return list.findIndex((e) => browseBaseVPath(e) === first);
+}
+function browseSelectIndex(i, extend) {
+  const list = browseVisibleList();
+  if (!list.length) return;
+  i = Math.max(0, Math.min(list.length - 1, i));
+  if (!extend) { state.selected.clear(); state.selAnchor = i; }
+  else if (typeof state.selAnchor !== "number") state.selAnchor = i;
+  const lo = extend ? Math.min(state.selAnchor, i) : i;
+  const hi = extend ? Math.max(state.selAnchor, i) : i;
+  for (let k = lo; k <= hi; k++) state.selected.add(browseBaseVPath(list[k]));
+  $$(".frow").forEach((r) => r.classList.toggle("selected", state.selected.has(r.dataset.vpath)));
+  updateSelBar();
+  const target = document.querySelector('.frow[data-vpath="' + browseBaseVPath(list[i]) + '"]');
+  if (target) target.scrollIntoView({ block: "nearest" });
+}
+function browsePreviewSelected() {
+  const vps = Array.from(state.selected || []);
+  if (vps.length !== 1) return false;
+  const en = browseVisibleList().find((x) => browseBaseVPath(x) === vps[0]);
+  if (!en || en.isDir) return false;
+  const kv = kindOf(en.name);
+  if (kv !== "video" && kv !== "audio" && kv !== "image") return false;
+  openPreview(kv, vps[0], en.name);
+  return true;
+}
+function browseGoUp() {
+  const lib = state.curLib;
+  if (!lib) return;
+  const parts = state.curPath.slice(("/" + lib.id).length).split("/").filter(Boolean);
+  parts.pop();
+  openPath("/" + lib.id + (parts.length ? "/" + parts.join("/") : ""));
+}
+function showKeys() {
+  const rows = [
+    ["文件浏览", ""],
+    ["↑ ↓ / Home End / PgUp PgDn", "移动选择"],
+    ["Shift + ↑ ↓", "扩展选择"],
+    ["Enter / Space", "打开 / 预览选中项"],
+    ["u / n / r / v", "上传 / 新建文件夹 / 刷新 / 切换视图"],
+    ["Alt + ←", "返回上一级"],
+    ["Delete / F2", "删除 / 重命名"],
+    ["Ctrl+C X V A", "复制 / 剪切 / 粘贴 / 全选"],
+    ["/ 或 Ctrl+K", "搜索"],
+    ["保险箱", ""],
+    ["↑ ↓ / Home End", "移动选择"],
+    ["Enter / Space", "打开文件夹 / 预览文件"],
+    ["Delete / Backspace", "删除 / 返回上一级"],
+    ["u / n / m / l", "上传 / 新建文件夹 / 加密迁移 / 锁定"],
+    ["e / d / r", "导出 / 下载 / 刷新"],
+    ["播放器", ""],
+    ["Space / ← →", "播放暂停 / 前后 5 秒"],
+    ["j / l", "前 / 后 10 秒"],
+    ["[ ] 或 - =", "减速 / 加速"],
+    ["f / p", "全屏 / 画中画"],
+    ["n / b", "下一个 / 上一个"],
+    ["m", "静音"],
+    ["?", "显示本帮助"],
+  ];
+  const body = $("#keys-body");
+  body.innerHTML = "";
+  for (const [k, d] of rows) {
+    if (!d) { const h = document.createElement("div"); h.className = "kt"; h.textContent = k; body.appendChild(h); continue; }
+    const keys = document.createElement("div");
+    keys.innerHTML = k.split(" / ").map((x) => x.split(" ").map((w) => `<kbd>${w}</kbd>`).join(" ")).join(" / ");
+    body.appendChild(keys);
+    const desc = document.createElement("div");
+    desc.className = "kd"; desc.textContent = d; body.appendChild(desc);
+  }
+  const dlg = $("#dlg-keys");
+  if (dlg && !dlg.open) dlg.showModal();
+}
+const btnKeys = $("#btn-keys"); if (btnKeys) btnKeys.onclick = () => showKeys();
+const keysClose = $("#keys-close"); if (keysClose) keysClose.onclick = () => $("#dlg-keys").close();
+
+/* 文件浏览键盘:方向键选择 / 空格预览 / 单键操作 */
+document.addEventListener("keydown", (e) => {
+  if (!$("#player-modal").hidden) return;
+  if (document.querySelector("dialog[open]")) return;
+  if (state.view !== "browse") return;
+  const t = e.target;
+  const typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
+  if (typing) return;
+  if (e.ctrlKey || e.metaKey) return;
+  if (e.altKey) { if (e.key === "ArrowLeft") { e.preventDefault(); browseGoUp(); } return; }
+  const list = browseVisibleList();
+  const cur = browseCurrentIndex();
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    if (!list.length) return;
+    const next = e.key === "ArrowDown" ? (cur < 0 ? 0 : cur + 1) : (cur < 0 ? list.length - 1 : cur - 1);
+    browseSelectIndex(next, e.shiftKey);
+    return;
+  }
+  if (e.key === "Home" || e.key === "End") { e.preventDefault(); if (list.length) browseSelectIndex(e.key === "Home" ? 0 : list.length - 1, e.shiftKey); return; }
+  if (e.key === "PageDown" || e.key === "PageUp") { e.preventDefault(); if (list.length) browseSelectIndex((cur < 0 ? 0 : cur) + (e.key === "PageDown" ? 10 : -10), e.shiftKey); return; }
+  if (e.key === " " || e.code === "Space") { if (browsePreviewSelected()) { e.preventDefault(); } return; }
+  if (e.key === "?") { e.preventDefault(); showKeys(); return; }
+  const k = (e.key || "").toLowerCase();
+  if (k === "u") { e.preventDefault(); $("#btn-upload").click(); }
+  else if (k === "n") { e.preventDefault(); $("#btn-mkdir").click(); }
+  else if (k === "r") { e.preventDefault(); loadDir(); }
+  else if (k === "v") { e.preventDefault(); $("#btn-viewmode").click(); }
+});
+
+/* 保险箱键盘:选择 / 打开预览 / 上传 / 迁移 / 锁定 */
+document.addEventListener("keydown", (e) => {
+  if (!$("#player-modal").hidden) return;
+  if (document.querySelector("dialog[open]")) return;
+  if (state.view !== "vault") return;
+  const t = e.target;
+  const typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
+  if (typing) return;
+  const v = state.vault;
+  if (!v || !v.unlocked) {
+    if (e.key === "Enter") { e.preventDefault(); vaultUnlock(); }
+    return;
+  }
+  const ents = v.entries || [];
+  const sel = typeof v.sel === "number" ? v.sel : -1;
+  if (e.key === "ArrowDown") { e.preventDefault(); if (ents.length) vaultSetSel(sel < 0 ? 0 : sel + 1); return; }
+  if (e.key === "ArrowUp") { e.preventDefault(); if (ents.length) vaultSetSel(sel < 0 ? ents.length - 1 : sel - 1); return; }
+  if (e.key === "Home") { e.preventDefault(); vaultSetSel(0); return; }
+  if (e.key === "End") { e.preventDefault(); vaultSetSel(ents.length - 1); return; }
+  if (e.key === "Enter" || e.key === " " || e.code === "Space") {
+    if (sel < 0) return;
+    const en = ents[sel]; if (!en) return;
+    e.preventDefault();
+    if (en.isDir) vaultOpen(en.path); else openVaultPreview(sel);
+    return;
+  }
+  if (e.key === "Backspace") { e.preventDefault(); const p = (v.path || "").split("/").filter(Boolean); p.pop(); vaultOpen(p.join("/")); return; }
+  const k = (e.key || "").toLowerCase();
+  if (k === "delete") { if (sel >= 0) { const en = ents[sel]; e.preventDefault(); vaultDelete(en.path, en.name, en.isDir); } return; }
+  if (k === "u") { e.preventDefault(); $("#vault-file-input").click(); return; }
+  if (k === "n") { e.preventDefault(); vaultMkdir(); return; }
+  if (k === "m") { e.preventDefault(); vaultMigrate(); return; }
+  if (k === "l") { e.preventDefault(); vaultLock(); return; }
+  if (k === "e") { if (sel >= 0) { e.preventDefault(); vaultExport(ents[sel].path); } return; }
+  if (k === "d") { if (sel >= 0 && !ents[sel].isDir) { e.preventDefault(); location.href = vaultRawUrl(ents[sel].path, true); } return; }
+  if (k === "r") { e.preventDefault(); loadVaultList().then(renderVault); return; }
+  if (e.key === "?") { e.preventDefault(); showKeys(); }
 });
 
 /* 全局搜索快捷键:Ctrl/⌘+K 或 / 随时唤起搜索 */
@@ -2078,10 +2253,11 @@ function renderVault() {
   const up = document.createElement("button"); up.className = "btn primary"; up.innerHTML = svgIcon("upload") + " 上传"; up.onclick = () => $("#vault-file-input").click();
   const mk = document.createElement("button"); mk.className = "btn"; mk.innerHTML = svgIcon("folder-plus") + " 新建文件夹"; mk.onclick = vaultMkdir;
   const imp = document.createElement("button"); imp.className = "btn"; imp.innerHTML = svgIcon("folder") + " 导入文件"; imp.onclick = vaultImportFiles;
+  const mig = document.createElement("button"); mig.className = "btn"; mig.innerHTML = svgIcon("lock") + " 加密现有文件"; mig.onclick = vaultMigrate;
   const chpw = document.createElement("button"); chpw.className = "btn"; chpw.innerHTML = svgIcon("key") + " 修改密码"; chpw.onclick = vaultChangePw;
   const expAll = document.createElement("button"); expAll.className = "btn"; expAll.innerHTML = svgIcon("download") + " 导出全部"; expAll.onclick = vaultExportAll;
   const lock = document.createElement("button"); lock.className = "btn"; lock.innerHTML = svgIcon("logout") + " 锁定"; lock.onclick = vaultLock;
-  acts.appendChild(up); acts.appendChild(mk); acts.appendChild(imp); acts.appendChild(chpw); acts.appendChild(expAll); acts.appendChild(lock);
+  acts.appendChild(up); acts.appendChild(mk); acts.appendChild(imp); acts.appendChild(mig); acts.appendChild(chpw); acts.appendChild(expAll); acts.appendChild(lock);
 
   // 面包屑
   const crumb = document.createElement("div");
@@ -2113,35 +2289,49 @@ function renderVault() {
   body.insertAdjacentHTML("beforeend", `<div class="vault-stat"><span>当前文件夹 <b>${v.entries.length}</b> 项</span><span>合计 <b>${fmtSize(vTotal)}</b></span><span class="vs-tip">已解锁 · 2 小时后自动锁定</span></div>`);
   const list = document.createElement("div");
   list.className = "vault-list";
-  for (const e of v.entries) {
+  if (typeof v.sel !== "number" || v.sel >= v.entries.length) v.sel = v.entries.length ? Math.max(0, Math.min(v.sel || 0, v.entries.length - 1)) : -1;
+  v.entries.forEach((e, idx) => {
     const kind = e.isDir ? "dir" : kindOf(e.name);
     const row = document.createElement("div");
     row.className = "vrow";
-    if (e.isDir) row.style.cursor = "pointer";
+    row.dataset.vidx = String(idx);
+    if (v.sel === idx) row.classList.add("selected");
+    row.style.cursor = "pointer";
     const iconMap = { dir: "folder", video: "video", image: "image", audio: "music", archive: "archive", file: "file" };
     const icon = document.createElement("div");
-    icon.className = "fi t-" + kind; icon.innerHTML = svgIcon(iconMap[kind]);
+    icon.className = "fi t-" + kind;
+    if (!e.isDir && (kind === "image" || kind === "video")) {
+      icon.classList.add("thumb");
+      const img = document.createElement("img");
+      img.loading = "lazy"; img.decoding = "async"; img.alt = ""; img.draggable = false;
+      img.src = vaultThumbUrl(e.path, 160);
+      img.onerror = () => { icon.classList.remove("thumb"); icon.innerHTML = svgIcon(iconMap[kind]); };
+      icon.appendChild(img);
+    } else {
+      icon.innerHTML = svgIcon(iconMap[kind]);
+    }
     const meta = document.createElement("div");
     meta.className = "vm";
     meta.innerHTML = `<div class="vname"></div><div class="vsub"></div>`;
     meta.querySelector(".vname").textContent = e.name;
-    meta.querySelector(".vsub").textContent = (e.isDir ? "文件夹" : fmtSize(e.size)) + (e.modTime ? "  ·  " + fmtTime(e.modTime) : "");
+    meta.querySelector(".vsub").textContent = (e.isDir ? "文件夹" : fmtSize(e.size)) + (!e.isDir && !e.encrypted ? "  ·  未加密" : "") + (e.modTime ? "  ·  " + fmtTime(e.modTime) : "");
     const acts2 = document.createElement("div");
     acts2.className = "facts";
     const ab = (ic, title, fn, extra) => { const b = document.createElement("button"); b.className = "btn icon-btn " + (extra || ""); b.title = title; b.innerHTML = svgIcon(ic); b.onclick = (ev) => { ev.stopPropagation(); fn(); }; acts2.appendChild(b); };
+    const previewable = !e.isDir && (kind === "video" || kind === "audio" || kind === "image");
     if (e.isDir) {
-      row.onclick = () => vaultOpen(e.path);
+      row.onclick = () => { v.sel = idx; vaultOpen(e.path); };
       ab("move", "导出整个文件夹到存储库…", () => vaultExport(e.path));
     } else {
-      const kv = kindOf(e.name);
-      if (kv === "video" || kv === "audio" || kv === "image") ab("play", "预览", () => openPreviewSrc(kv, vaultRawUrl(e.path), e.name));
+      row.onclick = () => { v.sel = idx; if (previewable) openVaultPreview(idx); };
+      if (previewable) ab("play", "预览", () => openVaultPreview(idx));
       ab("download", "下载", () => { location.href = vaultRawUrl(e.path, true); });
       ab("move", "导出到存储库…", () => vaultExport(e.path));
     }
     ab("trash", "删除", () => vaultDelete(e.path, e.name, e.isDir), "del");
     row.appendChild(icon); row.appendChild(meta); row.appendChild(acts2);
     list.appendChild(row);
-  }
+  });
   body.appendChild(list);
 }
 
@@ -2155,6 +2345,28 @@ async function vaultMkdir() {
 }
 
 function vaultRawUrl(rel, dl) { return apiUrl("/api/vault/raw?path=" + enc(rel) + (dl ? "&dl=1" : "") + "&vt=" + enc(state.vault.token)); }
+function vaultThumbUrl(rel, w) { return apiUrl("/api/vault/thumb?w=" + (w || 160) + "&path=" + enc(rel) + "&vt=" + enc(state.vault.token)); }
+
+/* 保险箱预览:图片 / 视频 / 音频直接打开播放器,不需要先点「播放」按钮 */
+function openVaultPreview(idx) {
+  const e = (state.vault.entries || [])[idx];
+  if (!e || e.isDir) return;
+  const kv = kindOf(e.name);
+  if (kv !== "video" && kv !== "audio" && kv !== "image") return;
+  state.vault.sel = idx;
+  openPreviewSrc(kv, vaultRawUrl(e.path), e.name);
+}
+
+/* 保险箱键盘选择:高亮第 idx 行并滚动到可见区 */
+function vaultSetSel(idx) {
+  const n = (state.vault.entries || []).length;
+  if (!n) return;
+  idx = Math.max(0, Math.min(n - 1, idx));
+  state.vault.sel = idx;
+  $$("#vault-body .vrow").forEach((r) => r.classList.toggle("selected", Number(r.dataset.vidx) === idx));
+  const row = document.querySelector('#vault-body .vrow[data-vidx="' + idx + '"]');
+  if (row) row.scrollIntoView({ block: "nearest" });
+}
 
 async function vaultSetup() {
   const r = await askVaultPw({ title: "设置保险箱密码", hint: "至少 4 位;请记牢,忘记无法找回。", withConfirm: true });
@@ -2248,6 +2460,25 @@ async function vaultChangePw() {
     toast("保险箱密码已更新");
     await vaultUnlock(r.password);
   } catch (e) { toast("修改失败: " + e.message); }
+}
+
+/* 加密保险箱里尚未加密的旧文件:先 dry-run 统计,确认后执行(会重写并删除旧文件) */
+async function vaultMigrate() {
+  let dry;
+  try { dry = await api("/api/vault/migrate?vt=" + enc(state.vault.token), { method: "POST", body: {} }); }
+  catch (e) { toast("失败: " + e.message); return; }
+  if (!dry.files) { toast("所有文件都已加密,无需迁移"); return; }
+  const ok = await askConfirm("加密现有文件",
+    `还有 ${dry.files} 个文件未加密(${fmtSize(dry.bytes || 0)}):旧明文 ${dry.plaintext || 0} 个、旧格式容器 ${dry.legacyContainers || 0} 个。` +
+    `加密会重写这些文件并删除旧文件,期间请勿关闭页面。立即加密?`);
+  if (!ok) return;
+  toast("正在加密…");
+  try {
+    const r = await api("/api/vault/migrate?vt=" + enc(state.vault.token), { method: "POST", body: { confirm: true } });
+    if (r.errors && r.errors.length) toast(`已加密 ${r.migrated} 个,${r.errors.length} 个失败: ` + r.errors[0]);
+    else toast(`已加密 ${r.migrated} 个文件`);
+    await loadVaultList(); renderVault();
+  } catch (e) { toast("失败: " + e.message); }
 }
 
 /* ---- 导入文件到保险箱:从存储库挑文件(可多选) ---- */

@@ -22,6 +22,7 @@
       <span id="conn-text">连接中…</span>
     </div>
     <button class="btn icon-btn" id="btn-search" title="搜索 (Ctrl+K)"><span data-icon="search"></span></button>
+    <button class="btn icon-btn" id="btn-keys" title="键盘快捷键 (?)" aria-label="键盘快捷键" style="font-weight:700">?</button>
     <button class="btn icon-btn" id="btn-theme" title="切换主题"></button>
     <div class="user-wrap">
       <button class="btn icon-btn" id="btn-user" title="账号"><span data-icon="user"></span></button>
@@ -527,6 +528,13 @@
   <h3>详情</h3>
   <div class="info-body" id="info-body"></div>
   <div class="dlg-actions"><button class="btn ghost" id="info-close" type="button">关闭</button></div>
+</dialog>
+
+<!-- 键盘快捷键帮助 -->
+<dialog id="dlg-keys">
+  <h3>键盘快捷键</h3>
+  <div class="keys-body" id="keys-body"></div>
+  <div class="dlg-actions"><button class="btn ghost" id="keys-close" type="button">关闭</button></div>
 </dialog>
 
 <!-- 添加/编辑存储库 -->

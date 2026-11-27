@@ -4,7 +4,7 @@
 
 方案与里程碑见 [PLAN.md](../PLAN.md)。
 
-> 当前服务端版本：**1.8.5**（`config.go` 中的 `Version`）。服务端与 Android 客户端独立版本化。Windows 构建和发布步骤见根目录 [RELEASING.md](../RELEASING.md)。
+> 当前服务端版本：**1.9.1**（`config.go` 中的 `Version`）。服务端与 Android 客户端独立版本化。Windows 构建和发布步骤见根目录 [RELEASING.md](../RELEASING.md)。
 
 ## 一键启动(推荐)
 
@@ -238,6 +238,23 @@ WebDAV 不属于 `/api` 路由：使用 `http://服务器地址:52700/dav/<库ID
 - **服务可靠性**:上传会话按会话加锁并校验偏移/大小；索引扫描以事务替换单库数据，扫描失败保留旧索引。
 - **数据维护**:仓库根目录新增 `scripts/backup-data.ps1` 与 `scripts/restore-data.ps1`，支持带 SHA-256 清单的应用数据备份/验证恢复；详见根目录 [DATA_BACKUP.md](../DATA_BACKUP.md)。
 - **自动化检查**:新增 Go 上传/索引/WebDAV 回归测试与 GitHub Actions 构建检查。
+
+## v1.9.1 新增 — 键盘操作与保险箱预览
+- **键盘快捷键**:顶栏新增 `?` 按钮,按 `?` 弹出快捷键帮助。
+  - 文件浏览:`↑ ↓` / `Home` `End` / `PgUp` `PgDn` 移动选择,`Shift+↑ ↓` 扩展选择,`Enter` 打开、`Space` 预览选中项,`u` 上传、`n` 新建文件夹、`r` 刷新、`v` 切换列表/网格、`Alt+←` 返回上一级;原有 `Delete`/`F2`/`Ctrl+C X V A`/搜索快捷键保持不变。
+  - 保险箱:`↑ ↓` / `Home` `End` 选择,`Enter` / `Space` 打开文件夹或预览文件,`Delete` 删除、`Backspace` 返回上一级,`u` 上传、`n` 新建文件夹、`m` 加密迁移、`l` 锁定、`e` 导出、`d` 下载、`r` 刷新。
+  - 播放器:`Space` 播放暂停、`← →` ±5 秒、`j` / `l` ∓10 秒、`k` 播放暂停、`m` 静音、`f` 全屏、`p` 画中画、`n` / `b` 下/上一集、`[` `]`(或 `-` `=`)减速/加速;音频同样支持空格与左右键。
+- **保险箱缩略图与直接预览**:保险箱列表为图片/视频显示缩略图(`GET /api/vault/thumb?path=&w=&vt=`,解密流 → ffmpeg stdin → JPEG stdout,只在**内存**缓存、绝不落明文临时文件,锁定/改密时清空);点击行或缩略图、或按空格/回车即可直接打开预览,不再需要先点播放按钮。
+- **测试**:新增 `TestVaultThumb`(未解锁 401、非媒体 415、图片 JPEG、缓存命中、锁定后 401);`node --check` 与浏览器实测(缩略图加载、方向键选择、回车预览、`?` 帮助弹窗、无控制台报错)通过。
+
+## v1.9.0 新增 — 隐私保险箱静态加密
+- **容器格式**:保险箱文件落盘为 `.lvault` 容器——AES-256-GCM、64KB 分块、AAD 绑定块索引(防重排)、头部区固定预留 512 字节后回填;`encryptedFile` 实现 `io.ReaderAt`+`io.ReadSeeker`,视频拖动 / Range 只解目标块。
+- **信封密钥层**:`vault.json` 只保存「口令 PBKDF2-HMAC-SHA256(120000) 派生 KEK 包裹的随机主密钥 VMK」;每文件随机 CEK 用 VMK 包裹;VMK 只在解锁会话内存中(`vaultState.keys`),锁定 / 过期 / 改密码即清零。旧版 `vault.json` 的 `hash` 字段就是 PBKDF2 派生值(等于明文主密钥),解锁时自动升级为 v2 并移除。
+- **文件名加密**:磁盘名为确定性 token(`HMAC(VMK, 目录+显示名)` 前 128 位)+ `.lvault`,真实文件名加密存容器头;列表 / 下载 / 导出仍用原显示名。目录名暂保持明文。
+- **一次性迁移**:`POST /api/vault/migrate {confirm}`——`confirm=false` 只统计旧明文 / 旧格式容器数量与字节数,`confirm=true` 才逐个重写新容器并删旧文件;Web 保险箱页新增「加密现有文件」按钮(先统计再确认),未加密文件在列表里标记「未加密」。
+- **Windows 隐藏属性**:保险箱目录及子目录自动设置 `Hidden|System` 属性,资源管理器默认不可见(非 Windows 为 no-op)。
+- **兼容**:旧明文文件仍可列表 / 下载 / 导出,迁移前不影响使用;导出会还原明文与文件名;改密码只重新包裹 VMK,不重写任何文件。
+- **测试**:`server/vault_container_test.go` 容器往返 / 篡改 / 错误密钥;`server/vault_encryption_test.go` 上传即加密、文件名不泄漏、跨块 Range、改密码不变更容器、v1 配置自动升级、旧明文兼容、目录导入导出、迁移(干跑/执行/幂等)、会话密钥生命周期;`server/vault_hide_windows_test.go` 隐藏属性。
 
 ## v1.8.5 新增 — 跨设备播放进度与分享链接增强
 - **跨设备播放进度**:`GET /api/playback?vpath=`、`POST /api/playback`、`GET /api/playback/recent`,按账号保存到 `DataDir/playback.json`(临时文件+rename 原子写、每账号上限 1000 条、进度 <3s 或距结尾 <3s 自动清除);Web 播放器与 Android 客户端在同一账号下互相续播,离线时仍以本地记录为准。

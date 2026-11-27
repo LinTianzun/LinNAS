@@ -1,6 +1,6 @@
 # LinNAS 路线图与任务清单（ROADMAP BACKLOG）
 
-> 更新：2026-11-27 ｜ 基线：Windows 服务端 **1.8.5** / Android **1.8.13**（versionCode 22）
+> 更新：2026-11-28 ｜ 基线：Windows 服务端 **1.9.1** / Android **1.8.15**（versionCode 24）
 > 本文件把「还能做什么」整理成可执行任务：优先级、最小可交付、验收标准、涉及文件、依赖与建议排期。
 > 方向性构想见 [FEATURE_ROADMAP.md](FEATURE_ROADMAP.md)；已完成历史见 [PLAN.md](../PLAN.md) 与 [TASK_HISTORY.md](TASK_HISTORY.md)；当前状态见 [DEVELOPMENT_STATUS.md](DEVELOPMENT_STATUS.md)。
 

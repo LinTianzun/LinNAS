@@ -7,7 +7,7 @@
 
 | 组件 | 版本 | 说明 |
 |---|---|---|
-| Windows 服务端 | 1.8.5 | `server/config.go` 的 `const Version` |
+| Windows 服务端 | 1.9.1 | `server/config.go` 的 `const Version` |
 | Android 客户端 | 1.8.15（versionCode 24） | `android/app/build.gradle.kts` |
 
 ## 里程碑进度
@@ -25,6 +25,10 @@
 - CI：`.github/workflows/ci.yml` 三个任务 —— `go-windows`（测试 / vet / 构建 + Android 单测与 debug 构建并上传产物）、`go-race`（竞态检测）、`android-emulator`（API 34 模拟器跑 `connectedDebugAndroidTest`）。
 
 ## 最近改动
+
+- 2026-11-28 服务端 **1.9.1 键盘操作与保险箱预览**：Web UI 新增成体系键盘快捷键（文件浏览方向键/Home/End/PgUp/PgDn 选择、Shift 扩选、空格预览、`u` 上传、`n` 新建文件夹、`r` 刷新、`v` 切视图、`Alt+←` 上一级；保险箱方向键选择、Enter/空格预览、Delete 删除、Backspace 上一级、`u/n/m/l` 上传/新建/加密迁移/锁定、`e` 导出、`d` 下载；播放器 `j/l` ±10s、`k` 播放暂停、`f` 全屏、`p` 画中画、`n/b` 上下集、`[ ]` 调速；顶栏 `?` 按钮与 `?` 弹出帮助）；保险箱列表图片/视频显示缩略图（`GET /api/vault/thumb`，解密流→ffmpeg 管道、仅内存缓存、锁定时清空），点击行/缩略图或空格/回车直接预览。新增 `server/vault_thumb.go` 与 `TestVaultThumb`；`go test`/`vet`/`node --check` 与浏览器实测通过。版本 1.9.0 → **1.9.1**。
+
+- 2026-11-28 服务端 **1.9.0（M23/M24）隐私保险箱静态加密**：`.lvault` 容器（AES-256-GCM、64KB 分块、512 字节固定头区、AAD 绑定块索引）与 `encryptedFile`（`io.ReaderAt`+`io.ReadSeeker`，Range/视频拖动按需解密）；**信封密钥层**——`vault.json` 改为只保存「口令 KEK 包裹的随机 VMK」、每文件 CEK 用 VMK 包裹，旧 v1 的 `hash`（=明文主密钥）解锁时自动升级清除；**文件名加密**——磁盘名 token、显示名加密存容器头；**一次性迁移** `POST /api/vault/migrate`（先统计后确认）与 Web「加密现有文件」按钮、未加密标记；Windows 保险箱目录自动「隐藏+系统」属性；上传/导入流式加密（不落明文临时文件），旧明文兼容读取。新增 `server/{vault_keystore,vault_paths,vault_transfer,vault_migrate,vault_hide_windows,vault_hide_other}.go` 与 `server/{vault_encryption_test,vault_hide_windows_test}.go`；`go build` / `go vet` / `go test ./...` 全绿，真实二进制隔离实例冒烟（文件名加密、Range、迁移、改密、v1 配置升级、隐藏属性）通过。版本 1.8.5 → **1.9.0**。
 
 - 2026-11-27 Android **1.8.15**（M13.15）：无选集时收起选集区——新增 pplyEpisodeAreaVisibility()，playlist.isNotEmpty() && !isLandscape() 才显示 episodeArea，单集视频不再空出半屏；多集仍上下分栏。:app:testDebugUnitTest 15/15、ssembleDebug 成功。
 - 2026-11-27 Android **1.8.14**（M13.14）：选集列表从详情 ScrollView 里移出，成为同级独立滚动区（episodeArea + v_episodes 0dp/weight=1/自身滚动），滑动选集只动列表，上方标题与简介不再被顶走、不会被视频盖住。:app:testDebugUnitTest 15/15、ssembleDebug 成功。

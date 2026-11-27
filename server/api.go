@@ -144,10 +144,12 @@ func NewServer(cfg *Config) *Server {
 	api.HandleFunc("GET /api/vault/ls", s.handleVaultList)
 	api.HandleFunc("POST /api/vault/upload", s.handleVaultUpload)
 	api.HandleFunc("GET /api/vault/raw", s.handleVaultRaw)
+	api.HandleFunc("GET /api/vault/thumb", s.handleVaultThumb)
 	api.HandleFunc("POST /api/vault/delete", s.handleVaultDelete)
 	api.HandleFunc("POST /api/vault/mkdir", s.handleVaultMkdir)
 	api.HandleFunc("POST /api/vault/import", s.handleVaultImport)
 	api.HandleFunc("POST /api/vault/export", s.handleVaultExport)
+	api.HandleFunc("POST /api/vault/migrate", s.handleVaultMigrate)
 
 	// 设备管理
 	api.HandleFunc("GET /api/devices", s.handleDevices)

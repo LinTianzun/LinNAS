@@ -19,16 +19,11 @@ import (
 
 // ---- helpers ----
 
-// resetVaultSessions 清空全局保险箱会话,避免测试之间互相污染。
+// resetVaultSessions 清空全局保险箱会话与主密钥,避免测试之间互相污染。
 func resetVaultSessions(t *testing.T) {
 	t.Helper()
-	clear := func() {
-		vault.mu.Lock()
-		vault.sessions = map[string]int64{}
-		vault.mu.Unlock()
-	}
-	clear()
-	t.Cleanup(clear)
+	clearVaultSessions()
+	t.Cleanup(clearVaultSessions)
 }
 
 // newVaultTestServer 构造一个最小可用 *Server:一个临时 DataDir + 一个可写存储库。
@@ -506,8 +501,15 @@ func TestVaultFileRoundTrip(t *testing.T) {
 	if up.Name != "hello.bin" || up.Path != "sub/hello.bin" || up.Size != int64(len(content)) {
 		t.Fatalf("upload response = %+v, want name=hello.bin path=sub/hello.bin size=%d", up, len(content))
 	}
-	if _, err := os.Stat(filepath.Join(s.vaultDir(), "sub", "hello.bin")); err != nil {
-		t.Fatalf("uploaded file missing on disk: %v", err)
+	if _, err := os.Stat(filepath.Join(s.vaultDir(), "sub", "hello.bin")); !os.IsNotExist(err) {
+		t.Fatalf("vault file must not be stored as plaintext, stat err = %v", err)
+	}
+	encPath, isEnc := vaultTestDiskPath(t, s, vaultTestKey(t, tok), "sub/hello.bin")
+	if !isEnc {
+		t.Fatalf("uploaded file is not an encrypted container")
+	}
+	if _, err := os.Stat(encPath); err != nil {
+		t.Fatalf("uploaded encrypted container missing on disk: %v", err)
 	}
 
 	// ls 子目录能看到
@@ -611,20 +613,29 @@ func TestVaultImport(t *testing.T) {
 		t.Fatalf("import response = %+v, want ok=true count=2 no errors", resp)
 	}
 
-	// 保留了相对存储库根的目录结构
-	got, err := os.ReadFile(filepath.Join(s.vaultDir(), "imp", "a", "b.txt"))
-	if err != nil {
-		t.Fatalf("imported nested file missing: %v", err)
-	}
-	if string(got) != "nested" {
-		t.Fatalf("imported nested content = %q, want %q", got, "nested")
-	}
-	got, err = os.ReadFile(filepath.Join(s.vaultDir(), "imp", "top.txt"))
-	if err != nil {
-		t.Fatalf("imported top file missing: %v", err)
-	}
-	if string(got) != "topdata" {
-		t.Fatalf("imported top content = %q, want %q", got, "topdata")
+	// 保留了相对存储库根的目录结构;导入后落盘为加密容器
+	for _, tc := range []struct{ rel, want string }{
+		{"imp/a/b.txt", "nested"},
+		{"imp/top.txt", "topdata"},
+	} {
+		encPath, isEnc := vaultTestDiskPath(t, s, vaultTestKey(t, tok), tc.rel)
+		if !isEnc {
+			t.Fatalf("imported file %s is not encrypted", tc.rel)
+		}
+		if _, err := os.Stat(encPath); err != nil {
+			t.Fatalf("imported encrypted container missing for %s: %v", tc.rel, err)
+		}
+		if _, err := os.Stat(filepath.Join(s.vaultDir(), filepath.FromSlash(tc.rel))); !os.IsNotExist(err) {
+			t.Fatalf("imported file %s must not be stored as plaintext, stat err = %v", tc.rel, err)
+		}
+		rawRec := httptest.NewRecorder()
+		s.handleVaultRaw(rawRec, httptest.NewRequest(http.MethodGet, "/api/vault/raw?path="+tc.rel+"&vt="+tok, nil))
+		if rawRec.Code != http.StatusOK {
+			t.Fatalf("raw %s status = %d, want 200; body: %s", tc.rel, rawRec.Code, rawRec.Body.String())
+		}
+		if rawRec.Body.String() != tc.want {
+			t.Fatalf("decrypted content of %s = %q, want %q", tc.rel, rawRec.Body.String(), tc.want)
+		}
 	}
 
 	// 原文件已从存储库移走

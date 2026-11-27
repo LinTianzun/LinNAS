@@ -724,6 +724,14 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator {
 .vrow .vm { flex: 1; min-width: 0; }
 .vrow .vname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14.5px; }
 .vrow .vsub { font-size: 11.5px; color: var(--faint); font-family: var(--font-mono); }
+.vrow.selected { outline: 2px solid var(--accent); outline-offset: -1px; background: var(--panel-2); }
+.vrow .fi.thumb img { width: 100%; height: 100%; object-fit: cover; border-radius: 6px; display: block; }
+
+/* 键盘快捷键帮助 */
+.keys-body { display: grid; grid-template-columns: auto 1fr; gap: 7px 16px; align-items: center; font-size: 13px; max-height: 62vh; overflow: auto; margin-top: 4px; min-width: min(78vw, 420px); }
+.keys-body .kt { grid-column: 1 / -1; margin-top: 8px; font-weight: 600; color: var(--muted); font-size: 12px; letter-spacing: .04em; }
+.keys-body kbd { background: var(--panel-2); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; font-family: var(--font-mono); font-size: 11.5px; color: var(--text); white-space: nowrap; }
+.keys-body .kd { color: var(--muted); font-size: 12.5px; }
 
 /* 设置 */
 .dialog-wide { width: min(94vw, 600px); }
