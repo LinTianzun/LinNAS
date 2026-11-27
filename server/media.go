@@ -22,9 +22,34 @@ var (
 	ffmpegPath string
 )
 
-// findFFmpeg locates ffmpeg (PATH first, then common Windows install spots).
+// bundledBinPath 返回 exe 同目录下 bin/<name> 的绝对路径;不存在则返回空串。
+func bundledBinPath(name string) string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return bundledBinPathFrom(filepath.Dir(exe), name)
+}
+
+// bundledBinPathFrom 在给定目录下查找 bin/<name>,是可测试的核心实现。
+func bundledBinPathFrom(dir, name string) string {
+	if dir == "" || name == "" {
+		return ""
+	}
+	p := filepath.Join(dir, "bin", name)
+	if st, err := os.Stat(p); err == nil && !st.IsDir() {
+		return p
+	}
+	return ""
+}
+
+// findFFmpeg locates ffmpeg (bundled bin/ first, then PATH, then common Windows install spots).
 func findFFmpeg() string {
 	ffmpegOnce.Do(func() {
+		if p := bundledBinPath("ffmpeg.exe"); p != "" {
+			ffmpegPath = p
+			return
+		}
 		if p, err := exec.LookPath("ffmpeg"); err == nil {
 			ffmpegPath = p
 			return

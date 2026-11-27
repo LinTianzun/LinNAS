@@ -78,7 +78,11 @@ func knownTailscalePaths() []string {
 }
 
 // findTailscale 定位 tailscale 命令行;找不到返回空串。
+// 优先用随包携带的副本(exe 同目录 bin/),其次 PATH,最后常见安装位置。
 func findTailscale() string {
+	if p := bundledBinPath("tailscale.exe"); p != "" {
+		return p
+	}
 	if p, err := exec.LookPath("tailscale"); err == nil {
 		return p
 	}

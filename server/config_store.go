@@ -5,6 +5,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 )
 
 // configFileName is the JSON config file inside DataDir.
@@ -28,6 +30,7 @@ func LoadConfig(dataDir string) (*Config, error) {
 	}
 	raw, err := os.ReadFile(filepath.Join(dataDir, configFileName))
 	if errors.Is(err, os.ErrNotExist) {
+		applyPortEnv(cfg)
 		return cfg, nil // first run: defaults, no libraries yet
 	}
 	if err != nil {
@@ -37,6 +40,7 @@ func LoadConfig(dataDir string) (*Config, error) {
 		return nil, err
 	}
 	cfg.DataDir = dataDir // never trust persisted DataDir
+	applyPortEnv(cfg)
 	if cfg.IdleLockMinutes <= 0 {
 		cfg.IdleLockMinutes = 30
 	}
@@ -47,6 +51,22 @@ func LoadConfig(dataDir string) (*Config, error) {
 		cfg.SpaceCriticalPercent = defaultSpaceCriticalPercent
 	}
 	return cfg, nil
+}
+
+// applyPortEnv 用 LINNAS_PORT 环境变量覆盖端口(优先于 config.json),
+// 便于在同一台机器上跑多个实例(各自换端口 + 换 LINNAS_DATA)。
+// 无效值(非数字 / 越界)打一条警告到 stderr 并忽略,不改动端口。
+func applyPortEnv(cfg *Config) {
+	p := strings.TrimSpace(os.Getenv("LINNAS_PORT"))
+	if p == "" {
+		return
+	}
+	n, err := strconv.Atoi(p)
+	if err != nil || n <= 0 || n > 65535 {
+		os.Stderr.WriteString("LINNAS_PORT 无效(需 1-65535 的数字),忽略: " + p + "\n")
+		return
+	}
+	cfg.Port = n
 }
 
 // SaveConfig persists config to dataDir/config.json.
