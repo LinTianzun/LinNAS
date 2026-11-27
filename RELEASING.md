@@ -42,7 +42,19 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\release.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\release.ps1 -GradleCommand "C:\path\to\gradle.bat"
 ```
 
-`scripts/release.ps1` 默认产出 **debug** 签名 APK（适合直接安装测试），不是正式生产签名包；正式发布请用下面的 release 签名或标签工作流。
+`scripts/release.ps1` 默认产出 **debug** 签名 APK（适合直接安装测试），不是正式生产签名包；正式发布请用 `-Release` 出签名包，或用下面的标签工作流。
+
+## 本地一键出签名包
+
+先配置签名（环境变量或 `android/keystore.properties`，见下节），然后：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\release.ps1 -Release
+```
+
+- 产物：`release/linNas-<Android版本>-release.apk`（R8 混淆 + release 签名）+ `.sha256`。
+- 只出 Android：加 `-AndroidOnly`；只出服务端：`-ServerOnly`（`-Release` 不能与 `-ServerOnly` 同用）。
+- 未配置签名时脚本会直接报错并提示两种配置方式；只做本地混淆验证可加 `-AllowDebugSigning`（产物**不可**用于正式分发）。
 
 ## Android release 签名
 

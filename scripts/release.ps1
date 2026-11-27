@@ -3,12 +3,19 @@ param(
     [string]$GradleCommand,
     [switch]$Overwrite,
     [switch]$ServerOnly,
-    [switch]$AndroidOnly
+    [switch]$AndroidOnly,
+    # 出 release 签名包（R8 混淆 + release keystore），而不是 debug 包。
+    [switch]$Release,
+    # 未配置签名密钥时，允许 -Release 回退成 debug 签名（仅本地验证用）。
+    [switch]$AllowDebugSigning
 )
 
 $ErrorActionPreference = "Stop"
 if ($ServerOnly -and $AndroidOnly) {
     throw "Choose at most one of -ServerOnly and -AndroidOnly."
+}
+if ($Release -and $ServerOnly) {
+    throw "-Release only applies to the Android build; it cannot be combined with -ServerOnly."
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -32,8 +39,42 @@ if (-not $androidVersionMatch.Success -or -not $androidCodeMatch.Success) {
 $androidVersion = $androidVersionMatch.Groups["version"].Value
 $androidVersionCode = [int]$androidCodeMatch.Groups["code"].Value
 
+# release 签名：环境变量优先，其次 android/keystore.properties（已在 .gitignore）。
+function Test-ReleaseSigningConfigured {
+    $envKeys = @(
+        "LINNAS_KEYSTORE_FILE", "LINNAS_KEYSTORE_PASSWORD",
+        "LINNAS_KEY_ALIAS", "LINNAS_KEY_PASSWORD"
+    )
+    if (-not ($envKeys | Where-Object { [string]::IsNullOrWhiteSpace((Get-Item "env:$_" -ErrorAction SilentlyContinue).Value) })) {
+        return $true
+    }
+    $propsPath = Join-Path $androidDir "keystore.properties"
+    if (-not (Test-Path $propsPath)) { return $false }
+    $props = @{}
+    foreach ($line in Get-Content $propsPath) {
+        $trimmed = $line.Trim()
+        if (-not $trimmed -or $trimmed.StartsWith("#") -or -not $trimmed.Contains("=")) { continue }
+        $idx = $trimmed.IndexOf("=")
+        $props[$trimmed.Substring(0, $idx).Trim()] = $trimmed.Substring($idx + 1).Trim()
+    }
+    foreach ($key in @("storeFile", "storePassword", "keyAlias", "keyPassword")) {
+        if ([string]::IsNullOrWhiteSpace($props[$key])) { return $false }
+    }
+    return $true
+}
+
+$androidBuildType = if ($Release) { "release" } else { "debug" }
+if ($Release -and -not $AllowDebugSigning -and -not (Test-ReleaseSigningConfigured)) {
+    throw @"
+release 签名未配置。请任选一种方式后重试：
+  1) 设置环境变量 LINNAS_KEYSTORE_FILE / LINNAS_KEYSTORE_PASSWORD / LINNAS_KEY_ALIAS / LINNAS_KEY_PASSWORD
+  2) 复制 android/keystore.properties.example 为 android/keystore.properties 并填入真实值
+如果只是想本地验证混淆构建，可加 -AllowDebugSigning（产物不可用于正式分发）。
+"@
+}
+
 $serverArtifact = Join-Path $releaseDir "linNas-server-$serverVersion-windows-amd64.exe"
-$androidArtifact = Join-Path $releaseDir "linNas-$androidVersion-debug.apk"
+$androidArtifact = Join-Path $releaseDir "linNas-$androidVersion-$androidBuildType.apk"
 $artifacts = @()
 if (-not $AndroidOnly) {
     $artifacts += $serverArtifact
@@ -99,16 +140,21 @@ try {
     if (-not $ServerOnly) {
         Push-Location $androidDir
         try {
-            & $GradleCommand --no-daemon :app:assembleDebug
+            $gradleTask = if ($Release) { ":app:assembleRelease" } else { ":app:assembleDebug" }
+            & $GradleCommand --no-daemon $gradleTask
             if ($LASTEXITCODE -ne 0) {
-                throw "Android assembleDebug failed."
+                throw "Android $gradleTask failed."
             }
         }
         finally {
             Pop-Location
         }
 
-        $androidBuildArtifact = Join-Path $androidDir "app/build/outputs/apk/debug/app-debug.apk"
+        $androidBuildArtifact = if ($Release) {
+            Join-Path $androidDir "app/build/outputs/apk/release/app-release.apk"
+        } else {
+            Join-Path $androidDir "app/build/outputs/apk/debug/app-debug.apk"
+        }
         if (-not (Test-Path $androidBuildArtifact)) {
             throw "Android APK was not produced at $androidBuildArtifact."
         }

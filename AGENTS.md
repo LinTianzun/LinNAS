@@ -74,3 +74,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\backup-data.ps1 -D
 
 - 面向用户的改动写进 [CHANGELOG.md](CHANGELOG.md) 与 [PLAN.md](PLAN.md)。
 - 当前进度见 [docs/DEVELOPMENT_STATUS.md](docs/DEVELOPMENT_STATUS.md)，任务流水见 [docs/TASK_HISTORY.md](docs/TASK_HISTORY.md)。
+
+## 上下文压缩失败时怎么办（写给后续 AI）
+
+本会话的 `compress` 工具会按「消息引用」（`mNNNNN`）折叠历史。引用是**按顺序生成、不可预分配**的，因此以下情况会连续报错，并且**重试同一批区间一定继续失败**：
+
+- 报错 `startId="mXXXXX" is above this session's highest allocated ref (mYYYYY)` —— 说明引用的区间来自**上一代会话**（模型/上游切换会让引用从 m00001 重新计数）或已被折叠；当前会话根本不存在这些消息。
+- 报错 `overlaps an earlier range in the batch` —— 同一批里区间互相重叠；区间必须**互不重叠**。
+- 报错 `folded nothing — every message in it is already covered by active block(s)` —— 该区间早已被折叠，属于重复提交。
+- 连续 3–5 次失败后会出现 **COMPRESS CIRCUIT BREAKER**：本会话后续 `compress` 全部拒绝。
+
+**正确做法（按顺序）**：
+
+1. **立刻停止**，不要重试同一区间，也不要换一个区间碰运气——熔断后所有调用都会失败。
+2. 调用 `acp_status` 看**当前这一代**的可压缩区间与最高引用；只压缩它列出的、`startId` 与 `endId` 都不超过最高引用的区间。
+3. 一次 `compress` 调用里放**多个互不重叠**的区间（每块以 `mNNNNN–mNNNNN 主题` 开头），不要一个区间一次调用。
+4. 如果 `acp_status` 显示「无可压缩区间」，就**直接继续任务**，不要再调 `compress`、也不要轮询 `acp_status`。压缩失败不会损坏会话或文件，只是白费一次调用。
+5. 每次模型/上游切换后，`mNNNNN` 引用会重置；**切换后的第一件事是重新 `acp_status`**，不要沿用旧引用。
+6. 熔断通常在**新会话/新生成**后自动解除；若换新会话仍复现，按工具描述到 `github.com/ranxianglei/billion-context` 反馈，并附完整报错（含越界区间）。
