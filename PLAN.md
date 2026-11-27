@@ -1,6 +1,6 @@
 # LinNAS — 本地云盘/NAS 方案与版本路线图
 
-> 当前组件版本（2026-11-27）：Windows 服务端 **1.8.4**；Android 客户端 **1.8.14**（`versionCode` 23）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
+> 当前组件版本（2026-11-27）：Windows 服务端 **1.8.4**；Android 客户端 **1.8.15**（`versionCode` 24）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
 
 > 下文保留早期技术决策与里程碑记录；历史版本号描述当时状态，不代表当前版本。
 
@@ -390,6 +390,13 @@
 - **版本**：Android `versionCode` 19 / `versionName` 1.8.10；产物 `release/linNas-1.8.10-debug.apk`（附 SHA-256）。
 - **验证**：`:app:compileDebugKotlin`、`:app:testDebugUnitTest`（15 个单测）、`:app:assembleDebug` 均 BUILD SUCCESSFUL。
 
+### M13.15 Android v1.8.15 无选集时收起选集区（2026-11-27，Android v1.8.15）
+
+M13.14 把选集挪成独立滚动区后，episodeArea 恒占 layout_weight=1，单集视频也会空出半屏。
+
+- 修复：E:\linNas\android\app\src\main\java\com\linnas\app\PlayerActivity.kt 新增 private fun applyEpisodeAreaVisibility() —— episodeArea.visibility = if (!isLandscape() && playlist.isNotEmpty()) View.VISIBLE else View.GONE，并在 efreshEpisodes() 末尾调用。
+- 效果：单集/无选集 → 详情区独占整屏；多集 → 上下分栏，滑动选集只动下方列表。
+- 验证：:app:testDebugUnitTest 15/15、:app:assembleDebug BUILD SUCCESSFUL；产物 `release/linNas-1.8.15-debug.apk`。
 ### M13.14 Android v1.8.14 选集改为独立滚动区（2026-11-27，Android v1.8.14）
 
 上一版把选集列表改成固定高度后能滑了，但它是详情 ScrollView 的一部分：往下滑选集时整页跟着动，标题与简介被顶到视频下面遮住。

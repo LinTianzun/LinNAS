@@ -704,11 +704,18 @@ class PlayerActivity : AppCompatActivity() {
         rv.visibility = if (playlist.isEmpty()) View.GONE else View.VISIBLE
         rv.layoutManager = LinearLayoutManager(this)
         rv.adapter = EpisodeAdapter(playlist, playIdx) { i -> loadListIndex(i) }
-        // 选集列表已在布局里放进独立的 episodeArea(固定高度 + 自身滚动),
-        // 滚动它只动选集列表,不会带动上方简介/标题。这里只需开启自身滚动。
+        // 选集列表已在布局里放进独立的 episodeArea(自身滚动),
+        // 滚动它只动选集列表,不会带动上方简介/标题。
         rv.isNestedScrollingEnabled = true
+        applyEpisodeAreaVisibility()
         // 打开就对齐到「正在播放」的那一集,长列表不用自己找
         if (playIdx in playlist.indices) rv.post { rv.scrollToPosition(playIdx) }
+    }
+
+    /** 竖屏且有多集时才占位;没有选集或横屏时整块收起,把空间还给详情区。 */
+    private fun applyEpisodeAreaVisibility() {
+        episodeArea.visibility =
+            if (!isLandscape() && playlist.isNotEmpty()) View.VISIBLE else View.GONE
     }
 
     /** 选集:横屏从右侧滑出面板;竖屏用底部弹层。 */
