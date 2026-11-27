@@ -1,6 +1,6 @@
 # LinNAS — 本地云盘/NAS 方案与版本路线图
 
-> 当前组件版本（2026-11-27）：Windows 服务端 **1.8.4**；Android 客户端 **1.8.13**（`versionCode` 22）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
+> 当前组件版本（2026-11-27）：Windows 服务端 **1.8.4**；Android 客户端 **1.8.14**（`versionCode` 23）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
 
 > 下文保留早期技术决策与里程碑记录；历史版本号描述当时状态，不代表当前版本。
 
@@ -390,6 +390,15 @@
 - **版本**：Android `versionCode` 19 / `versionName` 1.8.10；产物 `release/linNas-1.8.10-debug.apk`（附 SHA-256）。
 - **验证**：`:app:compileDebugKotlin`、`:app:testDebugUnitTest`（15 个单测）、`:app:assembleDebug` 均 BUILD SUCCESSFUL。
 
+### M13.14 Android v1.8.14 选集改为独立滚动区（2026-11-27，Android v1.8.14）
+
+上一版把选集列表改成固定高度后能滑了，但它是详情 ScrollView 的一部分：往下滑选集时整页跟着动，标题与简介被顶到视频下面遮住。
+
+- 根因：v_episodes 与标题/简介同处 contentScroll（ScrollView，:505）内，滚动方向必然共享。
+- 修复：E:\linNas\android\app\src\main\res\layout\activity_player.xml 把选集段落（	v_episode_header/tn_prev_p/tn_next_p + v_episodes）移出 contentScroll，改为其兄弟 LinearLayout android:id="@+id/episodeArea"（layout_height=0dp + layout_weight=1）；v_episodes 改  dp + weight=1 + 
+estedScrollingEnabled=true，自己滚自己的。contentScroll 只保留标题/简介/进度/操作。
+- E:\linNas\android\app\src\main\java\com\linnas\app\PlayerActivity.kt：新增 private lateinit var episodeArea: View 并在 onCreate 绑定；efreshEpisodes() 去掉动态设高度的逻辑（布局已定高）；updateVideoSize() 横屏把 episodeArea 一起 GONE，竖屏 VISIBLE。
+- 验证：:app:testDebugUnitTest 15/15、:app:assembleDebug BUILD SUCCESSFUL；产物 `release/linNas-1.8.14-debug.apk`。
 ### M13.13 Android v1.8.13 竖屏详情页选集列表可滚动（2026-11-27，Android v1.8.13）
 
 v1.8.12 只修了竖屏的**底部弹层**选集，用户实际用的是详情页里的**内联**选集列表，仍然只能看到前 5 集：

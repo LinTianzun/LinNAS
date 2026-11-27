@@ -8,7 +8,7 @@
 | 组件 | 版本 | 说明 |
 |---|---|---|
 | Windows 服务端 | 1.8.5 | `server/config.go` 的 `const Version` |
-| Android 客户端 | 1.8.13（versionCode 22） | `android/app/build.gradle.kts` |
+| Android 客户端 | 1.8.14（versionCode 23） | `android/app/build.gradle.kts` |
 
 ## 里程碑进度
 
@@ -26,6 +26,7 @@
 
 ## 最近改动
 
+- 2026-11-27 Android **1.8.14**（M13.14）：选集列表从详情 ScrollView 里移出，成为同级独立滚动区（episodeArea + v_episodes 0dp/weight=1/自身滚动），滑动选集只动列表，上方标题与简介不再被顶走、不会被视频盖住。:app:testDebugUnitTest 15/15、ssembleDebug 成功。
 - 2026-11-27 Android **1.8.13**（M13.13）：修复竖屏详情页选集列表「只能看到前 5 集、划不动」——v_episodes 在 ScrollView 里被 wrap_content 测量成可见几行且自身不滚动，现超过 5 集时改为固定高度（最多屏高 55%）并开启列表自身滚动。:app:testDebugUnitTest 15/15、ssembleDebug 成功。
 - 2026-11-27 服务端 **1.8.5**（M22 / BL-017 分享增强）：分享链接支持**下载次数上限**（`maxDownloads`，`dl=1` 下载前 `shareStore.ConsumeDownload`，耗尽后 `Disabled` 并返回 403「下载次数已用完」，`X-Downloads-Remaining` 告知剩余）、**单次链接**（`oneTime`，下载 1 次即失效）、**批量撤销**（`DELETE /api/shares?ids=a,b,c`，权限沿用 admin 或创建者）与**访问统计**（`RecordVisit` 记录 visits / lastVisitAt / lastVisitIp；`List()` 返回 downloads / remaining / visits 等）；Web 创建对话框加次数上限与单次开关，管理列表行内显示统计并支持勾选批量撤销，分享页显示剩余下载次数。新增 `server/share_enhance_test.go`（7 个单测全绿）；隔离实例端到端实测：2 次下载后第 3 次 403，列表显示 disabled:true / downloads:2 / remaining:0 / visits:1。本版本同时含 M21 跨设备播放进度。
 - 2026-11-27 Android **1.8.12**（M13.12）：保险箱解锁后密码弹层自动关闭；指纹凭据与保险箱密码按服务器地址分开保存（换服务器先密码登录、换回原服务器指纹可用）；视频镜像翻转生效（PlayerView 改 texture_view）；媒体文件夹模式选集只取当前文件夹、切类型回根目录；竖屏选集可滚动、打开对齐到播放中集并加粗显示。:app:testDebugUnitTest 15/15、assembleDebug 成功。

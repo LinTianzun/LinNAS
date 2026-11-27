@@ -94,6 +94,7 @@ class PlayerActivity : AppCompatActivity() {
     private lateinit var hintView: TextView
     private lateinit var videoContainer: View
     private lateinit var contentScroll: View
+    private lateinit var episodeArea: View
     private lateinit var portraitVideoOverlay: View
     private lateinit var overlay: View
     private lateinit var btnPlay: ImageButton
@@ -251,6 +252,7 @@ class PlayerActivity : AppCompatActivity() {
         view = findViewById(R.id.player_view)
         videoContainer = findViewById(R.id.videoContainer)
         contentScroll = findViewById(R.id.contentScroll)
+        episodeArea = findViewById(R.id.episodeArea)
         portraitVideoOverlay = findViewById(R.id.portraitVideoOverlay)
         overlay = findViewById(R.id.playerOverlay)
         hintView = findViewById(R.id.gestureHint)
@@ -422,6 +424,7 @@ class PlayerActivity : AppCompatActivity() {
         if (isLandscape()) {
             params.height = ViewGroup.LayoutParams.MATCH_PARENT
             contentScroll.visibility = View.GONE
+            episodeArea.visibility = View.GONE
             overlay.visibility = View.VISIBLE
             portraitVideoOverlay.visibility = View.GONE
             applyImmersion(false)
@@ -431,6 +434,7 @@ class PlayerActivity : AppCompatActivity() {
             // 视频区再高也不会更宽松;窄屏(如 360dp 宽)的 9/16 只有约 202dp,给个下限免得进度行被裁
             params.height = minOf(dp(235), (w * 9 / 16.0).toInt()).coerceAtLeast(dp(160))
             contentScroll.visibility = View.VISIBLE
+            episodeArea.visibility = View.VISIBLE
             overlay.visibility = View.GONE
             portraitVideoOverlay.visibility = View.VISIBLE
             applyImmersion(true)
@@ -700,19 +704,9 @@ class PlayerActivity : AppCompatActivity() {
         rv.visibility = if (playlist.isEmpty()) View.GONE else View.VISIBLE
         rv.layoutManager = LinearLayoutManager(this)
         rv.adapter = EpisodeAdapter(playlist, playIdx) { i -> loadListIndex(i) }
-        // 竖屏详情页的选集列表夹在外层 ScrollView 里:wrap_content 会被测量成可见的几行,
-        // 列表自己又不滚动,于是「只能看到前 5 集、划不动」。这里超过 5 集就给它一个
-        // 固定高度(最多占屏高 55%)并开启自身滚动,长列表由列表内部滑动。
-        val lp = rv.layoutParams
-        if (playlist.size > 5) {
-            val cap = (resources.displayMetrics.heightPixels * 0.55f).toInt()
-            lp.height = minOf(cap, dp(68) * playlist.size)
-            rv.isNestedScrollingEnabled = true
-        } else {
-            lp.height = ViewGroup.LayoutParams.WRAP_CONTENT
-            rv.isNestedScrollingEnabled = false
-        }
-        rv.layoutParams = lp
+        // 选集列表已在布局里放进独立的 episodeArea(固定高度 + 自身滚动),
+        // 滚动它只动选集列表,不会带动上方简介/标题。这里只需开启自身滚动。
+        rv.isNestedScrollingEnabled = true
         // 打开就对齐到「正在播放」的那一集,长列表不用自己找
         if (playIdx in playlist.indices) rv.post { rv.scrollToPosition(playIdx) }
     }

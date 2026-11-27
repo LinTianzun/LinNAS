@@ -722,13 +722,13 @@
                         android:textSize="11sp" />
                 </LinearLayout>
 
-                <LinearLayout
-                    android:id="@+id/act_pip"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:layout_marginEnd="8dp"
-                    android:visibility="gone"
+                <LinearLayout
+                    android:id="@+id/act_pip"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="8dp"
+                    android:visibility="gone"
                     android:background="@drawable/bg_player_action"
                     android:clickable="true"
                     android:focusable="true"
@@ -788,46 +788,61 @@
                         android:textSize="11sp" />
                 </LinearLayout>
             </LinearLayout>
-
-            <!-- 选集 -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="22dp"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:id="@+id/tv_episode_header"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="选集"
-                    android:textColor="?attr/lText"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_prev_p"
-                    style="@style/ChipButton"
-                    android:text="上一集"
-                    android:textColor="?attr/lPrimary" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_next_p"
-                    style="@style/ChipButton"
-                    android:layout_marginStart="6dp"
-                    android:text="下一集"
-                    android:textColor="?attr/lPrimary" />
-            </LinearLayout>
-
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/rv_episodes"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:nestedScrollingEnabled="false"
-                android:visibility="gone" />
         </LinearLayout>
     </ScrollView>
+
+    <!-- 选集:独立滚动区,与上方简介/标题不共用 ScrollView,
+         滚动选集只会动选集列表,上方简介保持不动。 -->
+    <LinearLayout
+        android:id="@+id/episodeArea"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:paddingStart="16dp"
+        android:paddingTop="14dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="24dp">
+
+        <!-- 选集 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/tv_episode_header"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="选集"
+                android:textColor="?attr/lText"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_prev_p"
+                style="@style/ChipButton"
+                android:text="上一集"
+                android:textColor="?attr/lPrimary" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_next_p"
+                style="@style/ChipButton"
+                android:layout_marginStart="6dp"
+                android:text="下一集"
+                android:textColor="?attr/lPrimary" />
+        </LinearLayout>
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rv_episodes"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_marginTop="8dp"
+            android:nestedScrollingEnabled="true"
+            android:visibility="gone" />
+    </LinearLayout>
 </LinearLayout>

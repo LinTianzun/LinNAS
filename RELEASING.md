@@ -7,7 +7,7 @@
 | 组件 | 当前版本 | 版本号维护位置 |
 |---|---:|---|
 | Windows 服务端 | 1.8.5 | `server/config.go`（`Version`） |
-| Android 客户端 | 1.8.13，`versionCode` 为 22 | `android/app/build.gradle.kts` |
+| Android 客户端 | 1.8.14，`versionCode` 为 23 | `android/app/build.gradle.kts` |
 
 发布前先更新对应组件的版本号。每次发布新的 Android APK 时，`versionCode` 必须递增。请同步更新对应组件的 README 和 `PLAN.md`；两个组件的版本号互不关联，不要根据其中一个推算另一个。
 
@@ -55,6 +55,44 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\release.ps1 -R
 - 产物：`release/linNas-<Android版本>-release.apk`（R8 混淆 + release 签名）+ `.sha256`。
 - 只出 Android：加 `-AndroidOnly`；只出服务端：`-ServerOnly`（`-Release` 不能与 `-ServerOnly` 同用）。
 - 未配置签名时脚本会直接报错并提示两种配置方式；只做本地混淆验证可加 `-AllowDebugSigning`（产物**不可**用于正式分发）。
+
+## 便携版自包含打包(可选)
+
+默认的 `linNas-server-*.exe` 是纯静态单文件,但**视频转码 / 缩略图依赖外部 ffmpeg**。
+服务端查找 ffmpeg 的顺序是(`server/media.go` 的 `findFFmpeg`):
+
+1. exe 同目录的 `bin\ffmpeg.exe`(随包自带,优先);
+2. 系统 `PATH`;
+3. 常见安装位置(`%LOCALAPPDATA%\Programs\ffmpeg`、`C:\ffmpeg`、`C:\Program Files\ffmpeg`)。
+
+要让**其它设备零依赖运行**,用便携打包脚本把服务端 exe 和 ffmpeg 打成一个 zip:
+
+```powershell
+# 先构建服务端(可只构建服务端)
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\release.ps1 -ServerOnly
+
+# 打便携包:默认取 release\ 下最新的服务端 exe,ffmpeg 取本机 %LOCALAPPDATA% 那份
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\bundle-portable.ps1
+
+# 也可显式指定路径 / 输出名 / 覆盖
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\bundle-portable.ps1 `
+  -ServerExe .\release\linNas-server-1.8.5-windows-amd64.exe `
+  -FfmpegPath "C:\path\to\ffmpeg.exe" `
+  -OutZip .\release\linNas-portable.zip -Overwrite
+```
+
+产物 `linNas-portable-<版本>-windows-amd64.zip`(附 `.sha256`)解压后结构:
+
+```
+linNas-server.exe   服务端主程序
+bin\ffmpeg.exe      随包携带的 ffmpeg,服务端会优先加载
+README.txt          面向最终用户的使用说明
+```
+
+把整个文件夹拷到任何 Windows 10/11 x64 上都能直接运行,**目标设备无需安装 ffmpeg**。
+
+> **Tailscale 不随包分发**。它是需要后台服务 + 登录的组网工具,只作为「远程访问」的可选依赖。
+> 服务端会探测本机 Tailscale(`server/tailscale.go`),未安装时「远程访问」页会提示安装,不影响局域网内的核心功能。
 
 ## Android release 签名
 
