@@ -230,6 +230,8 @@ open class ApiException(message: String) : IOException(message)
 class LockoutException(val retryAfterSec: Int) :
     ApiException("尝试次数过多,请在 $retryAfterSec 秒后重试")
 
+data class PlaybackPos(val positionMs: Long, val durationMs: Long)
+
 class LinNasClient {
     private val P_SETTINGS = "/api/" + "sett" + "ings"
     private val http = OkHttpClient.Builder()
@@ -357,6 +359,31 @@ class LinNasClient {
             lib?.optString("path") ?: "",
         )
         return LsResp(libObj, o.optString("path"), entries, o.optBoolean("exists"))
+    }
+
+    /** 跨设备播放进度：没有记录或调用失败时返回 null。 */
+    fun getPlayback(vpath: String): PlaybackPos? = try {
+        val o = JSONObject(get("/api/playback", mapOf("vpath" to vpath)))
+        if (!o.optBoolean("found")) null else PlaybackPos(
+            (o.optDouble("position") * 1000).toLong(),
+            (o.optDouble("duration") * 1000).toLong(),
+        )
+    } catch (_: Exception) {
+        null
+    }
+
+    fun putPlayback(vpath: String, positionMs: Long, durationMs: Long) {
+        try {
+            post(
+                "/api/playback",
+                JSONObject()
+                    .put("vpath", vpath)
+                    .put("position", positionMs / 1000.0)
+                    .put("duration", durationMs / 1000.0)
+                    .toString(),
+            )
+        } catch (_: Exception) {
+        }
     }
 
     fun rawUrl(vpath: String, download: Boolean = false): String =

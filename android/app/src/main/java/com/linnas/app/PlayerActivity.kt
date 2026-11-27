@@ -173,11 +173,26 @@ class PlayerActivity : AppCompatActivity() {
 
     // ---------- 进度与界面刷新 ----------
 
+    private var lastServerSave = 0L
+
+    /** 把进度同步到服务端（跨设备续播）；仅同步虚拟路径，离线/本地播放跳过。 */
+    private fun saveProgressToServer(position: Long, duration: Long, force: Boolean = false) {
+        val vp = playbackKey
+        if (!vp.startsWith("/") || duration <= 0) return
+        val now = System.currentTimeMillis()
+        if (!force && now - lastServerSave < 15_000) return
+        lastServerSave = now
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) { runCatching { client.putPlayback(vp, position, duration) } }
+        }
+    }
+
     private val saveProgressRunnable = object : Runnable {
         override fun run() {
             val p = player ?: return
             if (p.isPlaying) {
                 PlaybackStore.save(this@PlayerActivity, playbackKey, p.currentPosition, p.duration)
+                saveProgressToServer(p.currentPosition, p.duration)
             }
             handler.postDelayed(this, 5000)
         }
@@ -285,7 +300,20 @@ class PlayerActivity : AppCompatActivity() {
 
         // 续播:优先用传入起点,否则用本地记录
         startPosition = intent.getLongExtra(EXTRA_START, 0L)
-        if (startPosition <= 0) startPosition = PlaybackStore.position(this, playbackKey)
+        if (startPosition <= 0) {
+            startPosition = PlaybackStore.position(this, playbackKey)
+            if (startPosition <= 0 && playbackKey.startsWith("/")) {
+                lifecycleScope.launch {
+                    val remote = withContext(Dispatchers.IO) {
+                        runCatching { client.getPlayback(playbackKey) }.getOrNull()
+                    }
+                    if (remote != null && remote.positionMs > startPosition) {
+                        startPosition = remote.positionMs
+                        player?.seekTo(remote.positionMs)
+                    }
+                }
+            }
+        }
 
         // 构建播放器
         val p = ExoPlayer.Builder(this).build()
@@ -317,6 +345,7 @@ class PlayerActivity : AppCompatActivity() {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_ENDED) {
                     PlaybackStore.clear(this@PlayerActivity, playbackKey)
+                    saveProgressToServer(0, p.duration, true)
                     when {
                         // 「播完本集」睡眠优先,触发后不再连播
                         sleepAtEnd -> {
@@ -638,6 +667,12 @@ class PlayerActivity : AppCompatActivity() {
             p.prepare()
             val resume = PlaybackStore.position(this@PlayerActivity, vp)
             if (resume > 0) p.seekTo(resume)
+            lifecycleScope.launch {
+                val remote = withContext(Dispatchers.IO) {
+                    runCatching { client.getPlayback(vp) }.getOrNull()
+                }
+                if (remote != null && remote.positionMs > resume) p.seekTo(remote.positionMs)
+            }
             p.playWhenReady = true
             showControls()
         }
@@ -1718,7 +1753,7 @@ class PlayerActivity : AppCompatActivity() {
             handler.removeCallbacks(saveProgressRunnable)
             handler.postDelayed(saveProgressRunnable, 5000)
         }
-        player?.let { PlaybackStore.save(this, playbackKey, it.currentPosition, it.duration) }
+        player?.let { p -> PlaybackStore.save(this, playbackKey, p.currentPosition, p.duration); saveProgressToServer(p.currentPosition, p.duration, true) }
     }
 
     override fun onDestroy() {
@@ -1733,7 +1768,7 @@ class PlayerActivity : AppCompatActivity() {
         handler.removeCallbacks(uiRunnable)
         handler.removeCallbacks(hideControlsRunnable)
         handler.removeCallbacks(sleepRunnable)
-        player?.let { PlaybackStore.save(this, playbackKey, it.currentPosition, it.duration) }
+        player?.let { p -> PlaybackStore.save(this, playbackKey, p.currentPosition, p.duration); saveProgressToServer(p.currentPosition, p.duration, true) }
         player?.release()
         player = null
         super.onDestroy()

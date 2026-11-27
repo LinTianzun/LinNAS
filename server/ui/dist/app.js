@@ -1412,6 +1412,20 @@ function playItem(idx, overrideName) {
   openPreviewSrc(it.kind, srcForItem(it), overrideName || it.name, "vp:" + it.vp, it.vp);
 }
 
+let playbackLastPost = 0;
+// 跨设备播放进度：服务端只接受虚拟路径（/libN/...），本地/离线播放不参与同步。
+async function fetchPlayback(vp) {
+  if (!vp || !String(vp).startsWith("/")) return null;
+  try { return await api("/api/playback?vpath=" + enc(vp)); } catch (e) { return null; }
+}
+function postPlayback(vp, position, duration, force) {
+  if (!vp || !String(vp).startsWith("/") || !(duration > 0) || !(position >= 0)) return;
+  const now = Date.now();
+  if (!force && now - playbackLastPost < 10000) return;
+  playbackLastPost = now;
+  api("/api/playback", { method: "POST", body: { vpath: vp, position, duration } }).catch(() => {});
+}
+
 function openPreviewSrc(kind, src, name, key, vp) {
   if (!vp) { state.playlist = [{ kind, vp: "", name }]; state.playIndex = 0; state.playlistOpen = false; }
   const modal = $("#player-modal");
@@ -1437,15 +1451,27 @@ function openPreviewSrc(kind, src, name, key, vp) {
   else { $("#player-sub").hidden = true; state.subTracks = []; state.subIdx = -1; }
   if (kind === "video" || kind === "audio") {
     const el = curPlay.el;
+    const vp = curPlay.vp;
     el.onloadedmetadata = () => {
-      const saved = parseFloat(localStorage.getItem("linnas_pos:" + curPlay.key) || "0");
-      if (saved > 3 && isFinite(el.duration) && saved < el.duration - 3) el.currentTime = saved;
-      el.play().catch(() => {});
+      const local = parseFloat(localStorage.getItem("linnas_pos:" + curPlay.key) || "0");
+      const apply = (saved) => {
+        if (saved > 3 && isFinite(el.duration) && saved < el.duration - 3) { try { el.currentTime = saved; } catch (e) {} }
+        el.play().catch(() => {});
+      };
+      if (!vp) { apply(local); return; }
+      fetchPlayback(vp).then((srv) => {
+        const remote = srv && srv.found ? Number(srv.position) || 0 : 0;
+        apply(remote > local ? remote : local);
+      }).catch(() => apply(local));
     };
     el.ontimeupdate = () => {
-      if (isFinite(el.currentTime) && el.currentTime > 0) { try { localStorage.setItem("linnas_pos:" + curPlay.key, String(el.currentTime)); } catch (e) {} }
+      if (!isFinite(el.currentTime) || el.currentTime <= 0) return;
+      try { localStorage.setItem("linnas_pos:" + curPlay.key, String(el.currentTime)); } catch (e) {}
+      postPlayback(vp, el.currentTime, el.duration);
     };
+    el.onpause = () => postPlayback(vp, el.currentTime, el.duration, true);
     el.onended = () => {
+      postPlayback(vp, 0, el.duration, true);
       if (state.playIndex >= 0 && state.playIndex < state.playlist.length - 1) playItem(state.playIndex + 1);
     };
   }
@@ -1521,6 +1547,7 @@ function savePos() {
 
 function closePreview() {
   savePos();
+  if (curPlay.el) postPlayback(curPlay.vp, curPlay.el.currentTime || 0, curPlay.el.duration || 0, true);
   const v = $("#player-video"), a = $("#player-audio"), img = $("#player-img");
   v.pause(); a.pause();
   v.onloadedmetadata = null; v.ontimeupdate = null; a.onloadedmetadata = null; a.ontimeupdate = null;

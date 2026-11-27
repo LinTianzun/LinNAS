@@ -31,7 +31,7 @@
 | BL-010 | P1 | 对话空间 MVP（个人设备收件箱） | L–XL | 待办 |
 | BL-011 | P1 | ZIP 预览与安全解压 | M–L | 待办 |
 | BL-012 | P1 | 上传收集箱 | M | 待办 |
-| BL-013 | P1 | 跨设备播放进度 | S | 待办 |
+| BL-013 | P1 | 跨设备播放进度 | S | 已完成 |
 | BL-014 | P1 | 内容搜索与自动整理 | L | 已完成（批次 3、批次 4 均交付） |
 | BL-015 | P1 | 存储空间分析增强 | M | 已完成（M15 批次 1/2） |
 | BL-016 | P1 | 自动化异地备份 | M–L | 待办 |
@@ -109,11 +109,11 @@
 
 ### BL-013 跨设备播放进度
 
-- **最小可交付**：服务端 `playback(user_id, vpath, position, duration, updated_at)` + `GET/POST /api/playback`；Web 播放器读写；Android `PlaybackStore` 与服务端同步（离线先用本地，联网合并）。
-- **验收标准**：A 端看到一半，B 端打开从该位置继续；按账号隔离；离线不丢本地进度。
-- **涉及**：`server/`、Web player、`PlaybackStore.kt` / `PlayerActivity.kt`。
+- **现状**：✅ 已完成（2026-11-27）。`server/playback.go` 按账号保存到 `DataDir/playback.json`（原子写、每账号上限 1000 条、进度 <3s 或距结尾 <3s 自动删除）；`GET /api/playback?vpath=`、`POST /api/playback`、`GET /api/playback/recent`，任何登录角色（含 viewer）可读写自己的进度。
+- **最小可交付**：Web 播放器在 `openPreviewSrc` 中读取远端/本地较新位置，播放中每 10s 回写、暂停/关闭时强制回写；Android `LinNasClient.getPlayback/putPlayback` + `PlayerActivity` 启动恢复、每 15s / 暂停 / 结束同步。
+- **验收标准**：A 端看到一半，B 端打开从该位置继续；按账号隔离；离线不丢本地进度。（单元测试覆盖账号隔离、持久化、边界删除；Android 单测与构建通过；跨设备真机待复核）
+- **涉及**：`server/playback.go`、`server/api.go`、`server/ui/dist/app.js`、`LinNasClient.kt`、`PlayerActivity.kt`。
 - **依赖**：无。
-- **说明**：工作量 `S`，建议作为第一个「小而快」的落地项。
 
 ### BL-014 内容搜索与自动整理
 

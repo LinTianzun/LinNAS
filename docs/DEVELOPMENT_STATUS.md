@@ -26,6 +26,7 @@
 
 ## 最近改动
 
+- 2026-11-27 跨设备播放进度（M21 / BL-013）：新增 `server/playback.go` 与 `playback_test.go`（按账号隔离、`DataDir/playback.json` 原子写、`GET/POST /api/playback` 与 `GET /api/playback/recent`，viewer 可读写自己的进度）；Web 播放器读取远端/本地较新位置并每 10s 回写；Android `LinNasClient.getPlayback/putPlayback` + `PlayerActivity` 启动恢复与每 15s/暂停/结束同步。`go test/vet` 与 `node --check` 通过，Android `:app:testDebugUnitTest` / `:app:assembleDebug` 通过。
 - 2026-11-27 发布工程（M20 / BL-002、BL-003）：`android/app/build.gradle.kts` 增加 `signingConfigs.release`（环境变量或 `android/keystore.properties`）与 R8 `isMinifyEnabled`，新增 `android/app/proguard-rules.pro`；未配置密钥时回退 debug 签名仅供本地验证。新增 `.github/workflows/release.yml`：`v*` 标签触发双端构建 + `.sha256` + GitHub Release（密钥走 Secrets）。本地 `:app:assembleRelease` 通过，release APK 4.85 MB；`:app:testDebugUnitTest` 通过。
 - 2026-11-27 服务端 **1.8.4**（M19）：修开机自启仍拉起旧版 1.7.0——`server/autostart.go` 拆出 `autostartScript` / `autostartExeFromScript` / `autostartTargetAt` / `autostartSetAt` / `samePath` / `autostartStaleTarget` / `autostartHeal`，`main.go` 启动时自愈脚本（旧路径→当前 exe 并记日志），`GET /api/autostart` 新增 `target` / `stale`；端口被旧实例占用时托盘弹窗提示；新增 `server/autostart_test.go`；本机已把旧 `linNas.exe` 退役，52700 由 `linNas-server.exe` 提供服务。
 - 2026-11-27 服务端 **1.8.3** + Android **1.8.11**（M13.11）：添加存储库支持**路径自动创建**——`POST /api/libs` 对不存在的绝对路径 `os.MkdirAll` 自动建目录；新增 `POST /api/fs/mkdir`（`fsops.go`，按绝对路径建目录、补建父目录、拒绝盘符根，仅管理员）与 `fsops_mkdir_test.go`；Android 侧「手动输入路径」改为先创建再进入、新增**「新建文件夹」**入口（`LinNasClient.fsMkdir`）；`go test/vet` 全绿、Android 单测 15/15、出包 `release/linNas-1.8.11-debug.apk`。

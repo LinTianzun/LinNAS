@@ -36,6 +36,8 @@ type Server struct {
 	content *contentIndexer
 	// organize 保存自动整理的规则、单飞作业状态与作业历史(DataDir/organize.json)。
 	organize *organizeManager
+	// playback 按账号保存跨设备播放进度(DataDir/playback.json)。
+	playback *playbackStore
 }
 
 // NewServer creates the HTTP mux with all routes registered.
@@ -55,6 +57,7 @@ func NewServer(cfg *Config) *Server {
 		patrol:     newPatrolManager(cfg.DataDir),
 		content:    &contentIndexer{},
 		organize:   newOrganizeManager(cfg.DataDir),
+		playback:   newPlaybackStore(cfg.DataDir),
 	}
 
 	api := http.NewServeMux()
@@ -65,6 +68,10 @@ func NewServer(cfg *Config) *Server {
 	api.HandleFunc("GET /api/disks", s.handleDisks)
 	// 总览仪表盘(所有登录角色可访问)
 	api.HandleFunc("GET /api/overview", s.handleOverview)
+	// 跨设备播放进度(按账号隔离,所有登录角色可读写自己的进度)
+	api.HandleFunc("GET /api/playback", s.handlePlaybackGet)
+	api.HandleFunc("POST /api/playback", s.handlePlaybackSet)
+	api.HandleFunc("GET /api/playback/recent", s.handlePlaybackRecent)
 	// 存储空间分析:汇总 / 大文件 / 重复文件候选
 	api.HandleFunc("GET /api/storage/summary", s.handleStorageSummary)
 	api.HandleFunc("GET /api/storage/large", s.handleStorageLarge)
@@ -303,6 +310,10 @@ func (s *Server) authorize(sess *Session, r *http.Request) bool {
 	}
 	// 告警已读状态只影响本人看到的提醒,任意登录角色(含 viewer)都可以标记。
 	if p == "/api/alerts/ack" {
+		return true
+	}
+	// 播放进度是每个账号自己的数据,任意登录角色(含 viewer)都可以读写。
+	if strings.HasPrefix(p, "/api/playback") {
 		return true
 	}
 	// 管理员专属

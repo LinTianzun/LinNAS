@@ -59,6 +59,7 @@
 | `overview.go` | 总览仪表盘数据：`GET /api/overview`（库容量、全库与类型统计、索引 / 回收站 / 分享 / 设备、近期活动、空间与索引告警） |
 | `content.go` | 正文索引与内容搜索：`content` / `content_meta` 表、后台抽取 worker（并发 2、300ms 软超时、可取消、单文件 ≤2MB、文本截断 1MB、UTF-8 优先 / GB18030 兜底）、`GET /api/search/content`（命中片段高亮）、`GET /api/content/status` |
 | `organize.go` | 自动整理规则：规则 CRUD（`organize.json`）、`POST /api/organize/preview`（只读预览）、`/run`（单飞执行，`os.Rename`、同名加序号、跨库/只读/保险箱/回收站/排除目录跳过、上限 5000、journal jsonl、完成后 `Index.UpdatePaths`）、`/undo`（按 journal 倒序回搬）、`/jobs`（最近 50 条）；全部接口 admin only，不删除文件 |
+| `playback.go` | 跨设备播放进度：按账号保存到 `DataDir/playback.json`（临时文件 + rename 原子写、每账号上限 1000 条、进度过前或接近结尾自动删除），`GET /api/playback?vpath=`、`POST /api/playback`、`GET /api/playback/recent`；任何登录角色（含 viewer）可读写自己的进度 |
 | `webdav.go` | WebDAV 服务（`/dav/<库ID>/`，继承账号 / 只读，敏感目录不可访问） |
 | `zip.go` | 文件夹 / 多选服务端流式 Zip 打包 |
 | `wol.go` | 网络唤醒主机管理与 magic packet |
@@ -78,7 +79,7 @@
 - 安全 / 账号：`auth/{login,logout,me,status,sessions,revoke}`、`users`（+password / update）、`audit`、`devices`、`shares`、`share/{id}`、`share/{id}/raw`
 - 保险箱：`vault/{status,setup,unlock,lock,ls,raw,upload,delete,mkdir,import,export,改密}`
 - 回收站：`trash`、`trash/{restore,delete,empty,thumb}`
-- 其它：`health`、`settings`、`pair`、`pair/qr`、`qr`、`remote`、`remote/serve`、`hotspot`、`autostart`、`app/version`、`app/apk`、`wol`、`wol/send`、`maintenance/cleanup`、`system/open`、`overview`、`storage/{summary,large,duplicates,duplicates/scan,trend}`、`disks/health`（可 `?lib=` 按存储库过滤）、`alerts`、`alerts/ack`、`storage/patrol/{start,status,cancel,last}`
+- 其它：`health`、`settings`、`pair`、`pair/qr`、`qr`、`remote`、`remote/serve`、`hotspot`、`autostart`、`app/version`、`app/apk`、`wol`、`wol/send`、`maintenance/cleanup`、`system/open`、`overview`、`playback`、`playback/recent`、`storage/{summary,large,duplicates,duplicates/scan,trend}`、`disks/health`（可 `?lib=` 按存储库过滤）、`alerts`、`alerts/ack`、`storage/patrol/{start,status,cancel,last}`
 - 非 `/api`：`/pair`（配对页）、`/s/{id}`（分享页）、`/dav/<lib>/`（WebDAV）、`/ui/`（管理端）
 
 ### 3.3 鉴权与权限
