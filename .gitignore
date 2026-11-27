@@ -61,6 +61,7 @@ android/*.keystore
 # ===== 本地临时产物（不入库）=====
 .smoke/
 .b3/
+.uitest*/
 .task-spec.md
 .task-spec*.md
 android/build_tmp_compile.log

@@ -4,7 +4,7 @@
 
 方案与里程碑见 [PLAN.md](../PLAN.md)。
 
-> 当前服务端版本：**1.8.4**（`config.go` 中的 `Version`）。服务端与 Android 客户端独立版本化。Windows 构建和发布步骤见根目录 [RELEASING.md](../RELEASING.md)。
+> 当前服务端版本：**1.8.5**（`config.go` 中的 `Version`）。服务端与 Android 客户端独立版本化。Windows 构建和发布步骤见根目录 [RELEASING.md](../RELEASING.md)。
 
 ## 一键启动(推荐)
 
@@ -238,6 +238,10 @@ WebDAV 不属于 `/api` 路由：使用 `http://服务器地址:52700/dav/<库ID
 - **服务可靠性**:上传会话按会话加锁并校验偏移/大小；索引扫描以事务替换单库数据，扫描失败保留旧索引。
 - **数据维护**:仓库根目录新增 `scripts/backup-data.ps1` 与 `scripts/restore-data.ps1`，支持带 SHA-256 清单的应用数据备份/验证恢复；详见根目录 [DATA_BACKUP.md](../DATA_BACKUP.md)。
 - **自动化检查**:新增 Go 上传/索引/WebDAV 回归测试与 GitHub Actions 构建检查。
+
+## v1.8.5 新增 — 跨设备播放进度与分享链接增强
+- **跨设备播放进度**:`GET /api/playback?vpath=`、`POST /api/playback`、`GET /api/playback/recent`,按账号保存到 `DataDir/playback.json`(临时文件+rename 原子写、每账号上限 1000 条、进度 <3s 或距结尾 <3s 自动清除);Web 播放器与 Android 客户端在同一账号下互相续播,离线时仍以本地记录为准。
+- **分享链接增强**:创建时可设**下载次数上限**(`maxDownloads`,0=不限)与**单次链接**(`oneTime`,下载 1 次即失效);`dl=1` 下载前先校验并计数,耗尽后链接失效并返回 403(响应头 `X-Downloads-Remaining` 告知剩余);分享管理支持**勾选批量撤销**(`DELETE /api/shares?ids=a,b,c`)与**访问统计**(访问次数 / 最近访问 / IP / 下载次数与剩余),分享页显示剩余下载次数;新增 `share_enhance_test.go`。
 
 ## v1.7.0 新增 — 增量索引、安全加固与多媒体增强
 - **索引增量更新**:移动/复制/重命名/删除/上传/回收站恢复/保险箱导入导出/WebDAV 写入后,只增量更新受影响的子树(新增 `Index.UpdatePaths`),不再每次全库重扫;增删库改为按库重建/清行;全量扫描进行中的增量请求自动丢弃。扫描时跳过 `$RECYCLE.BIN`、`System Volume Information` 等系统目录。

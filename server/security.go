@@ -734,6 +734,19 @@ type Share struct {
 	PasswordSalt  string `json:"passwordSalt,omitempty"`
 	PasswordHash  string `json:"passwordHash,omitempty"`
 	AllowDownload bool   `json:"allowDownload"`
+	// MaxDownloads 允许的下载次数上限;0 = 不限。达到上限后链接自动失效(Disabled)。
+	MaxDownloads int64 `json:"maxDownloads,omitempty"`
+	// OneTime 单次链接:第一次下载后立即失效。
+	OneTime bool `json:"oneTime,omitempty"`
+	// Disabled 链接已失效(单次链接已用 / 达到下载上限 / 手动撤销)。
+	Disabled       bool   `json:"disabled,omitempty"`
+	DisabledReason string `json:"disabledReason,omitempty"`
+	// 访问统计。
+	Downloads      int64  `json:"downloads"`
+	LastDownloadAt int64  `json:"lastDownloadAt,omitempty"`
+	Visits         int64  `json:"visits"`
+	LastVisitAt    int64  `json:"lastVisitAt,omitempty"`
+	LastVisitIP    string `json:"lastVisitIp,omitempty"`
 }
 
 func (sh *Share) checkPw(pw string) bool {
@@ -780,20 +793,89 @@ func (st *shareStore) Add(sh Share) error {
 	return st.saveLocked()
 }
 
-// Get 返回未过期的分享副本;过期返回 nil。
+// Get 返回未过期且未失效的分享副本;过期或已禁用返回 nil。
 func (st *shareStore) Get(id string) *Share {
+	sh, state := st.GetState(id)
+	if state != "ok" {
+		return nil
+	}
+	return sh
+}
+
+// GetState 返回分享与其可用状态:ok / missing / expired / disabled。
+func (st *shareStore) GetState(id string) (*Share, string) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	for i := range st.items {
-		if st.items[i].ID == id {
-			sh := st.items[i]
-			if sh.ExpiresAt > 0 && time.Now().Unix() > sh.ExpiresAt {
-				return nil
-			}
-			return &sh
+		if st.items[i].ID != id {
+			continue
 		}
+		sh := st.items[i]
+		if sh.Disabled {
+			return &sh, "disabled"
+		}
+		if sh.ExpiresAt > 0 && time.Now().Unix() > sh.ExpiresAt {
+			return &sh, "expired"
+		}
+		return &sh, "ok"
 	}
-	return nil
+	return nil, "missing"
+}
+
+// RecordVisit 记录一次分享页/内容访问(仅统计有效分享)。
+func (st *shareStore) RecordVisit(id, ip string) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	for i := range st.items {
+		if st.items[i].ID != id || st.items[i].Disabled {
+			continue
+		}
+		st.items[i].Visits++
+		st.items[i].LastVisitAt = time.Now().Unix()
+		st.items[i].LastVisitIP = ip
+		_ = st.saveLocked()
+		return
+	}
+}
+
+// ConsumeDownload 消耗一次下载名额;返回是否允许与剩余次数(-1 = 不限)。
+// 单次链接下载一次即失效;达到 MaxDownloads 后链接失效。
+func (st *shareStore) ConsumeDownload(id string) (bool, int64) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	for i := range st.items {
+		sh := &st.items[i]
+		if sh.ID != id || sh.Disabled {
+			return false, 0
+		}
+		if sh.ExpiresAt > 0 && time.Now().Unix() > sh.ExpiresAt {
+			return false, 0
+		}
+		if !sh.AllowDownload {
+			return false, 0
+		}
+		if sh.MaxDownloads > 0 && sh.Downloads >= sh.MaxDownloads {
+			return false, 0
+		}
+		sh.Downloads++
+		sh.LastDownloadAt = time.Now().Unix()
+		var remaining int64 = -1
+		if sh.MaxDownloads > 0 {
+			remaining = sh.MaxDownloads - sh.Downloads
+		}
+		if sh.OneTime || (sh.MaxDownloads > 0 && sh.Downloads >= sh.MaxDownloads) {
+			sh.Disabled = true
+			if sh.OneTime {
+				sh.Disabled = true
+				sh.DisabledReason = "单次链接已使用"
+			} else {
+				sh.DisabledReason = "下载次数已达上限"
+			}
+		}
+		_ = st.saveLocked()
+		return true, remaining
+	}
+	return false, 0
 }
 
 func (st *shareStore) raw(id string) *Share {
@@ -832,10 +914,17 @@ func (st *shareStore) List() []map[string]any {
 	out := make([]map[string]any, 0, len(st.items))
 	for _, sh := range st.items {
 		expired := sh.ExpiresAt > 0 && now > sh.ExpiresAt
+		var remaining any = -1
+		if sh.MaxDownloads > 0 {
+			remaining = sh.MaxDownloads - sh.Downloads
+		}
 		out = append(out, map[string]any{
 			"id": sh.ID, "name": sh.Name, "vpath": sh.VPath, "isDir": sh.IsDir,
 			"createdBy": sh.CreatedBy, "createdAt": sh.CreatedAt, "expiresAt": sh.ExpiresAt,
 			"hasPassword": sh.PasswordHash != "", "allowDownload": sh.AllowDownload,
+			"maxDownloads": sh.MaxDownloads, "oneTime": sh.OneTime, "disabled": sh.Disabled,
+			"downloads": sh.Downloads, "remaining": remaining,
+			"visits": sh.Visits, "lastVisitAt": sh.LastVisitAt, "lastVisitIp": sh.LastVisitIP,
 			"expired": expired, "url": "/s/" + sh.ID,
 		})
 	}
@@ -1054,6 +1143,8 @@ func (s *Server) handleSharesCreate(w http.ResponseWriter, r *http.Request) {
 		ExpiresHours  int    `json:"expiresHours"`
 		Password      string `json:"password"`
 		AllowDownload bool   `json:"allowDownload"`
+		MaxDownloads  int64  `json:"maxDownloads"`
+		OneTime       bool   `json:"oneTime"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeErr(w, 400, "请求格式错误")
@@ -1087,6 +1178,10 @@ func (s *Server) handleSharesCreate(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(req.Password) != "" {
 		sh.PasswordSalt, sh.PasswordHash = hashPassword(req.Password)
 	}
+	if req.MaxDownloads > 0 {
+		sh.MaxDownloads = req.MaxDownloads
+	}
+	sh.OneTime = req.OneTime
 	if err := s.shares.Add(sh); err != nil {
 		writeErr(w, 500, "保存分享失败: "+err.Error())
 		return
@@ -1099,20 +1194,54 @@ func (s *Server) handleSharesList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSharesDelete(w http.ResponseWriter, r *http.Request) {
-	id := r.URL.Query().Get("id")
-	sh := s.shares.raw(id)
-	if sh == nil {
-		writeErr(w, 404, "分享不存在")
+	ids := splitIDs(r.URL.Query().Get("ids"))
+	if id := r.URL.Query().Get("id"); id != "" && len(ids) == 0 {
+		ids = []string{id}
+	}
+	if len(ids) == 0 {
+		writeErr(w, 400, "缺少 id 或 ids 参数")
 		return
 	}
 	u := userFrom(r)
 	admin := u != nil && u.Role == "admin"
-	if !admin && (u == nil || sh.CreatedBy != u.Username) {
-		writeErr(w, 403, "只能删除自己创建的分享")
+	deleted := 0
+	denied := 0
+	for _, id := range ids {
+		sh := s.shares.raw(id)
+		if sh == nil {
+			continue
+		}
+		if !admin && (u == nil || sh.CreatedBy != u.Username) {
+			denied++
+			continue
+		}
+		if s.shares.Delete(id) {
+			deleted++
+		}
+	}
+	if deleted == 0 {
+		if denied > 0 {
+			writeErr(w, 403, "只能撤销自己创建的分享")
+			return
+		}
+		writeErr(w, 404, "分享不存在")
 		return
 	}
-	s.shares.Delete(id)
-	writeJSON(w, 200, map[string]bool{"ok": true})
+	writeJSON(w, 200, map[string]any{"ok": true, "deleted": deleted, "denied": denied})
+}
+
+// splitIDs 把 "a,b,c" 拆成去重后的 ID 列表。
+func splitIDs(s string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		p = strings.TrimSpace(p)
+		if p != "" && !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // ---------------- 分享的公开访问(免登录) ----------------
@@ -1136,9 +1265,17 @@ func (s *Server) shareAbs(sh *Share, rel string) (string, error) {
 
 func (s *Server) handleShareInfo(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	sh := s.shares.Get(id)
-	if sh == nil {
+	sh, state := s.shares.GetState(id)
+	if sh == nil || state == "expired" {
 		writeErr(w, 404, "分享不存在或已过期")
+		return
+	}
+	if state == "disabled" {
+		msg := "分享链接已失效"
+		if sh.DisabledReason != "" {
+			msg = "分享链接已失效：" + sh.DisabledReason
+		}
+		writeErr(w, 403, msg)
 		return
 	}
 	pw := r.URL.Query().Get("pw")
@@ -1146,9 +1283,19 @@ func (s *Server) handleShareInfo(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"needPassword": true, "name": sh.Name, "isDir": sh.IsDir})
 		return
 	}
+	// 访问统计:密码校验通过后记一次(含 IP)。
+	s.shares.RecordVisit(id, clientIP(r))
 	resp := map[string]any{
 		"name": sh.Name, "isDir": sh.IsDir, "allowDownload": sh.AllowDownload,
 		"expiresAt": sh.ExpiresAt, "password": sh.PasswordHash != "",
+	}
+	if sh.MaxDownloads > 0 {
+		resp["maxDownloads"] = sh.MaxDownloads
+		resp["downloads"] = sh.Downloads
+		resp["remaining"] = sh.MaxDownloads - sh.Downloads
+	}
+	if sh.OneTime {
+		resp["oneTime"] = true
 	}
 	if sh.IsDir {
 		full, err := s.shareAbs(sh, "")
@@ -1192,9 +1339,21 @@ func (s *Server) handleShareInfo(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleShareRaw(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	sh := s.shares.Get(id)
+	sh, state := s.shares.GetState(id)
 	if sh == nil {
 		writeErr(w, 404, "分享不存在或已过期")
+		return
+	}
+	if state == "expired" {
+		writeErr(w, 404, "分享不存在或已过期")
+		return
+	}
+	if state == "disabled" {
+		msg := "分享链接已失效"
+		if sh.DisabledReason != "" {
+			msg = "分享链接已失效：" + sh.DisabledReason
+		}
+		writeErr(w, 403, msg)
 		return
 	}
 	if !sh.checkPw(r.URL.Query().Get("pw")) {
@@ -1218,6 +1377,14 @@ func (s *Server) handleShareRaw(w http.ResponseWriter, r *http.Request) {
 	}
 	defer f.Close()
 	if sh.AllowDownload && r.URL.Query().Get("dl") != "" {
+		ok, remaining := s.shares.ConsumeDownload(id)
+		if !ok {
+			writeErr(w, 403, "下载次数已用完，链接已失效")
+			return
+		}
+		if remaining >= 0 {
+			w.Header().Set("X-Downloads-Remaining", strconv.FormatInt(remaining, 10))
+		}
 		w.Header().Set("Content-Disposition", "attachment; filename*=UTF-8''"+urlPathEscape(info.Name()))
 	}
 	w.Header().Set("Accept-Ranges", "bytes")
@@ -1288,7 +1455,10 @@ function renderFile(d,p){
   else if(AUDIO.includes(e)) media='<audio controls src="'+src+'"></audio>';
   else if(IMAGE.includes(e)) media='<img src="'+src+'">';
   let dl = d.allowDownload ? '<a class="btn ghost" href="'+src+'&dl=1">下载</a>' : '';
-  app.innerHTML='<div class="name">'+esc(d.name)+'</div>'+media+'<div class="row"><a class="btn ghost" href="'+src+'" target="_blank">直接打开</a>'+dl+'</div>'+ (d.expiresAt? '<div class="muted" style="margin-top:10px">链接有效期至 '+new Date(d.expiresAt*1000).toLocaleString()+'</div>':'<div class="muted" style="margin-top:10px">长期有效</div>');
+  let limit='';
+  if(d.oneTime) limit='<div class="muted" style="margin-top:8px">单次链接：下载 1 次后失效</div>';
+  else if(d.maxDownloads>0) limit='<div class="muted" style="margin-top:8px">下载剩余 '+Math.max(0,d.remaining)+' / '+d.maxDownloads+' 次</div>';
+  app.innerHTML='<div class="name">'+esc(d.name)+'</div>'+media+'<div class="row"><a class="btn ghost" href="'+src+'" target="_blank">直接打开</a>'+dl+'</div>'+limit+ (d.expiresAt? '<div class="muted" style="margin-top:10px">链接有效期至 '+new Date(d.expiresAt*1000).toLocaleString()+'</div>':'<div class="muted" style="margin-top:10px">长期有效</div>');
 }
 function renderDir(d,p){
   let h='<div class="name">'+esc(d.name||"分享目录")+'</div><div class="muted">'+ (d.entries?d.entries.length:0)+' 项</div><div class="list">';

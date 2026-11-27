@@ -1,6 +1,6 @@
 # LinNAS 路线图与任务清单（ROADMAP BACKLOG）
 
-> 更新：2026-11-27 ｜ 基线：Windows 服务端 **1.8.4** / Android **1.8.11**（versionCode 20）
+> 更新：2026-11-27 ｜ 基线：Windows 服务端 **1.8.5** / Android **1.8.13**（versionCode 22）
 > 本文件把「还能做什么」整理成可执行任务：优先级、最小可交付、验收标准、涉及文件、依赖与建议排期。
 > 方向性构想见 [FEATURE_ROADMAP.md](FEATURE_ROADMAP.md)；已完成历史见 [PLAN.md](../PLAN.md) 与 [TASK_HISTORY.md](TASK_HISTORY.md)；当前状态见 [DEVELOPMENT_STATUS.md](DEVELOPMENT_STATUS.md)。
 
@@ -35,7 +35,7 @@
 | BL-014 | P1 | 内容搜索与自动整理 | L | 已完成（批次 3、批次 4 均交付） |
 | BL-015 | P1 | 存储空间分析增强 | M | 已完成（M15 批次 1/2） |
 | BL-016 | P1 | 自动化异地备份 | M–L | 待办 |
-| BL-017 | P1 | 分享能力增强 | S–M | 待办 |
+| BL-017 | P1 | 分享能力增强 | S–M | 已完成 |
 | BL-018 | P2 | 通知与首次启动向导 | M | 待办 |
 | BL-020 | P2 | 测试补齐 | M | 待办（部分完成） |
 | BL-021 | P2 | 可观测性与日志 | M | 待办 |
@@ -141,9 +141,14 @@
 
 ### BL-017 分享能力增强
 
-- **最小可交付**：下载次数上限、单次链接、批量撤销、访问统计；沿用现有密码 / 有效期 / 审计。
-- **验收标准**：达到次数后失效；批量撤销即时生效；统计可查。
-- **涉及**：`server/security.go`（shareStore）、Web UI。
+- **现状**：✅ 已完成（2026-11-27）。`server/security.go`：`Share` 新增 `MaxDownloads`（0 = 不限）/`OneTime`/`Disabled`/`DisabledReason` 与访问统计字段（`Downloads`/`LastDownloadAt`/`Visits`/`LastVisitAt`/`LastVisitIP`）；`shareStore` 新增 `GetState`（ok/missing/expired/disabled）、`RecordVisit(id, ip)`、`ConsumeDownload(id)`（返回是否允许与剩余次数，-1 = 不限；单次链接或达到上限后自动失效）。
+- **最小可交付**：
+  - 下载次数上限：创建分享可设 `maxDownloads`；`dl=1` 下载前先 `ConsumeDownload`，耗尽后链接失效（raw/info 返回 403 + 原因）；`X-Downloads-Remaining` 响应头。
+  - 单次链接：`oneTime` 创建参数；下载 1 次即失效（DisabledReason「单次链接已使用」）。
+  - 批量撤销：`DELETE /api/shares?ids=a,b,c`（权限沿用：admin 或创建者本人，返回 `{ok, deleted, denied}`）。
+  - 访问统计：`RecordVisit` 在密码校验通过后记录（含 IP）；`List()` 返回 `downloads/remaining/visits/lastVisitAt/lastVisitIp`；Web 管理端行内展示统计 + 勾选批量撤销；分享页显示剩余次数。
+- **验收标准**：达到次数后失效（端到端实测：2 次下载后第 3 次 403）；批量撤销即时生效；统计可查（隔离实例实测通过，见 server/share_enhance_test.go 7 个单测）。
+- **涉及**：`server/security.go`（shareStore）、`server/share_enhance_test.go`、Web UI（`#dlg-share` / `#view-shares` / sharePageHTML）。
 - **依赖**：无。
 - **说明**：工作量 `S–M`，适合与 BL-013 同批做。
 
@@ -215,5 +220,6 @@
 
 ## 9. 变更记录
 
+- 2026-11-27：BL-017 分享增强完成（下载次数上限 / 单次链接 / 批量撤销 / 访问统计），BL-013 跨设备播放进度完成；服务端升至 1.8.5，基线同步 Android 1.8.12（vc21）。
 - 2026-11-27：同步基线到服务端 1.8.4 / Android 1.8.11（vc20）；BL-015 标记为已完成（M15 批次 1/2）；测试数字更新为 Go 26 / Android 4+3；BL-020/022/023/025 标注「部分完成」；其余待办保持不变。
 - 2026-11-26：初版，基于 v1.7.0 / v1.8.0 基线与 [FEATURE_ROADMAP.md](FEATURE_ROADMAP.md) 整理。

@@ -1,6 +1,6 @@
 # LinNAS 架构说明
 
-> 更新：2026-11-27。当前版本：Windows 服务端 1.8.4；Android 1.8.11（versionCode 20）。
+> 更新：2026-11-27。当前版本：Windows 服务端 1.8.5；Android 1.8.13（versionCode 22）。
 > 本文描述**现状**；里程碑与版本演进见 [PLAN.md](../PLAN.md)，后续候选见 [FEATURE_ROADMAP.md](FEATURE_ROADMAP.md)。
 
 ## 1. 目标与约束

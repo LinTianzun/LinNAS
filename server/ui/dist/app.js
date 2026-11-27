@@ -499,6 +499,43 @@ function showSearch() {
 function showDevices() { state.view = "devices"; showView("view-devices"); renderSidebar(); }
 function showTrash() { state.view = "trash"; showView("view-trash"); renderSidebar(); }
 
+/* ============================================================ 窄屏侧栏抽屉
+   手机/平板竖屏(<900px)侧栏默认藏在左侧,由顶栏汉堡按钮滑出;宽屏仍常驻。 */
+const NAV_MOBILE_MAX = 899;
+let navMaskTimer = 0;
+function navIsMobile() { return window.innerWidth <= NAV_MOBILE_MAX; }
+function navSetOpen(open) {
+  const sb = $("#sidebar"), mask = $("#nav-mask"), btn = $("#btn-nav");
+  if (!sb || !btn) return;
+  const on = !!open && navIsMobile();
+  sb.classList.toggle("open", on);
+  document.body.classList.toggle("nav-open", on);
+  btn.setAttribute("aria-expanded", on ? "true" : "false");
+  btn.setAttribute("aria-label", on ? "关闭菜单" : "打开菜单");
+  btn.title = on ? "关闭菜单" : "菜单";
+  btn.innerHTML = svgIcon(on ? "x" : "list");
+  if (!mask) return;
+  clearTimeout(navMaskTimer);
+  if (on) {
+    mask.hidden = false;
+    requestAnimationFrame(() => mask.classList.add("show"));
+  } else {
+    mask.classList.remove("show");
+    navMaskTimer = setTimeout(() => { if (!$("#sidebar").classList.contains("open")) mask.hidden = true; }, 220);
+  }
+}
+function navClose() { if ($("#sidebar") && $("#sidebar").classList.contains("open")) navSetOpen(false); }
+function navToggle() { navSetOpen(!$("#sidebar").classList.contains("open")); }
+if ($("#btn-nav")) $("#btn-nav").onclick = (ev) => { ev.stopPropagation(); navToggle(); };
+if ($("#nav-mask")) $("#nav-mask").onclick = () => navClose();
+$("#sidebar").addEventListener("click", (ev) => {
+  // 选中任一条目后自动收起抽屉,避免挡住内容
+  if (navIsMobile() && ev.target.closest("button, .side-head-btn")) navClose();
+});
+document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") navClose(); });
+window.addEventListener("resize", () => { if (!navIsMobile()) navSetOpen(false); });
+
+
 /* ============================================================ 总览(overview) */
 function ovEl(tag, cls, text) {
   const el = document.createElement(tag);
@@ -5129,10 +5166,18 @@ async function loadShares() {
     const nm = document.createElement("div"); nm.className = "sname"; nm.textContent = s.name;
     const sub = document.createElement("div"); sub.className = "ssub";
     const expTxt = s.expiresAt ? new Date(s.expiresAt * 1000).toLocaleString() : "永久有效";
-    sub.textContent = `${s.vpath || ""} · ${s.hasPassword ? "有密码" : "无密码"} · ${s.allowDownload ? "可下载" : "仅查看"} · ${expTxt}`;
+    const dlTxt = s.oneTime ? "单次链接"
+      : (Number(s.maxDownloads) > 0 ? `可下载 ${s.remaining}/${s.maxDownloads} 次` : (s.allowDownload ? "可下载" : "仅查看"));
+    const statTxt = `访问 ${s.visits || 0} 次` + (s.lastVisitAt ? ` · 最近 ${new Date(s.lastVisitAt * 1000).toLocaleString()}` : "");
+    sub.textContent = `${s.vpath || ""} · ${s.hasPassword ? "有密码" : "无密码"} · ${dlTxt} · ${expTxt} · ${statTxt}`;
     meta.appendChild(nm); meta.appendChild(sub);
     row.appendChild(ic); row.appendChild(meta);
-    if (s.expired) { const ex = document.createElement("span"); ex.className = "sexpired"; ex.textContent = "已过期"; row.appendChild(ex); }
+    if (s.disabled) { const ex = document.createElement("span"); ex.className = "sexpired"; ex.textContent = "已失效"; row.appendChild(ex); }
+    else if (s.expired) { const ex = document.createElement("span"); ex.className = "sexpired"; ex.textContent = "已过期"; row.appendChild(ex); }
+    const chk = document.createElement("input");
+    chk.type = "checkbox"; chk.className = "sharechk"; chk.value = s.id;
+    chk.onchange = updateShareSelected;
+    row.appendChild(chk);
     const copy = document.createElement("button"); copy.className = "btn small"; copy.textContent = "复制链接";
     copy.onclick = () => { copyText(location.origin + s.url); };
     row.appendChild(copy);
@@ -5146,7 +5191,26 @@ async function loadShares() {
     row.appendChild(del);
     box.appendChild(row);
   }
+  updateShareSelected();
 }
+
+// updateShareSelected 根据勾选数量显示「撤销所选」按钮。
+function updateShareSelected() {
+  const n = document.querySelectorAll("#share-list .sharechk:checked").length;
+  const btn = $("#btn-share-revoke-selected");
+  if (btn) btn.hidden = n === 0;
+}
+$("#btn-share-revoke-selected").onclick = async () => {
+  const ids = Array.from(document.querySelectorAll("#share-list .sharechk:checked")).map((c) => c.value);
+  if (!ids.length) return;
+  const ok = await askConfirm("批量撤销", `撤销选中的 ${ids.length} 个分享链接?链接立即失效。`, "撤销");
+  if (!ok) return;
+  try {
+    const r = await api("/api/shares?ids=" + enc(ids.join(",")), { method: "DELETE" });
+    toast(`已撤销 ${r.deleted || 0} 个`);
+    loadShares();
+  } catch (e) { toast("失败: " + e.message); }
+};
 function copyText(t) {
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(t).then(() => toast("已复制")).catch(() => fallbackCopy(t));
@@ -5165,6 +5229,8 @@ function openShareDialog(vp, name) {
   $("#share-exp").value = "24";
   $("#share-pw").value = "";
   $("#share-dl").checked = true;
+  $("#share-maxdl").value = "0";
+  $("#share-onetime").checked = false;
   state.shareTarget = vp;
   $("#dlg-share").showModal();
 }
@@ -5175,8 +5241,10 @@ $("#btn-share-ok").onclick = async () => {
   const hours = parseInt($("#share-exp").value, 10) || 0;
   const pw = $("#share-pw").value.trim();
   const dl = $("#share-dl").checked;
+  const maxdl = Math.max(0, parseInt($("#share-maxdl").value, 10) || 0);
+  const onetime = $("#share-onetime").checked;
   try {
-    const r = await api("/api/shares", { method: "POST", body: { vpath: vp, expiresHours: hours, password: pw, allowDownload: dl } });
+    const r = await api("/api/shares", { method: "POST", body: { vpath: vp, expiresHours: hours, password: pw, allowDownload: dl, maxDownloads: maxdl, oneTime: onetime } });
     $("#dlg-share").close();
     const full = location.origin + (r.url || ("/s/" + r.id));
     $("#share-url").value = full;

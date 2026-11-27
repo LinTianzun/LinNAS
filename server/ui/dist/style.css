@@ -576,6 +576,10 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator {
 }
 
 /* ---------- 响应式 ---------- */
+/* 汉堡菜单按钮:窄屏(手机/平板竖屏)才出现,宽屏用常驻侧栏 */
+.nav-toggle { display: none; }
+.nav-mask { display: none; }
+
 @media (min-width: 900px) {
   .sidebar { display: flex; }
   .main { padding: 26px 30px 60px; }
@@ -589,6 +593,42 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator {
   .frow { padding: 9px 10px; gap: 10px; }
   .tools { row-gap: 8px; }
   .tools .search { flex: 1 1 100%; max-width: none; }
+
+  /* 侧栏改为抽屉:从左侧滑入,盖住内容 + 半透明遮罩 */
+  .topbar { padding: 0 12px; gap: 6px; }
+  .nav-toggle { display: inline-flex; flex: 0 0 auto; }
+  .brand-name { font-size: 16px; }
+  .sidebar {
+    display: flex;
+    position: fixed; left: 0; top: 56px; bottom: 0;
+    width: min(84vw, 300px); height: auto;
+    margin: 0; padding: 16px 12px calc(16px + env(safe-area-inset-bottom));
+    background: var(--bg-soft);
+    border-right: 1px solid var(--line);
+    box-shadow: var(--shadow-3);
+    z-index: 60;
+    transform: translateX(-102%);
+    transition: transform .26s var(--ease-out);
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  .sidebar.open { transform: none; }
+  .nav-mask {
+    display: block;
+    position: fixed; inset: 56px 0 0;
+    background: rgba(0, 0, 0, .48);
+    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px);
+    z-index: 55;
+    opacity: 0;
+    transition: opacity .2s ease;
+  }
+  .nav-mask.show { opacity: 1; }
+  body.nav-open { overflow: hidden; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sidebar { transition: none; }
+  .nav-mask { transition: none; }
 }
 
 /* ---------- 动效偏好 ---------- */
@@ -858,6 +898,7 @@ dialog.wide { width: min(94vw, 600px); }
 .sharerow .sname { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sharerow .ssub { font-size: 11.5px; color: var(--faint); font-family: var(--font-mono); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sharerow .sexpired { font-size: 11px; color: var(--danger, #e05c4b); }
+.sharerow .sharechk { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; flex-shrink: 0; }
 .btn.del { color: var(--err); }
 .btn.del:hover { border-color: rgba(226,96,77,.4); }
 

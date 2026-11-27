@@ -11,6 +11,7 @@
 <body>
 
 <header class="topbar">
+  <button class="btn icon-btn nav-toggle" id="btn-nav" title="菜单" aria-label="打开菜单" aria-expanded="false" aria-controls="sidebar"><span data-icon="list"></span></button>
   <button id="btn-brand" class="brand" title="回到主页">
     <span class="brand-led"></span>
     <span class="brand-name">linNas</span>
@@ -35,6 +36,8 @@
     <button class="btn icon-btn" id="btn-settings" title="系统设置"></button>
   </div>
 </header>
+
+<div class="nav-mask" id="nav-mask" hidden></div>
 
 <div class="app">
 
@@ -365,6 +368,7 @@
       <div class="page-head">
         <h1><span data-icon="link" class="title-ic"></span>分享链接</h1>
         <div class="btns">
+          <button class="btn" id="btn-share-revoke-selected" hidden>撤销所选</button>
           <button class="btn" id="btn-share-refresh"><span data-icon="refresh"></span>刷新</button>
         </div>
       </div>
@@ -650,6 +654,8 @@
   </label>
   <label>访问密码(可选) <input id="share-pw" type="text" autocomplete="off" placeholder="留空表示无需密码"></label>
   <label class="chk"><input type="checkbox" id="share-dl" checked> 允许下载</label>
+  <label>下载次数上限 <input id="share-maxdl" type="number" min="0" step="1" value="0" placeholder="0 = 不限制"></label>
+  <label class="chk"><input type="checkbox" id="share-onetime"> 单次链接(下载 1 次后立即失效)</label>
   <div class="dlg-btns">
     <button class="btn ghost" id="btn-share-cancel">取消</button>
     <button class="btn primary" id="btn-share-ok">创建</button>
