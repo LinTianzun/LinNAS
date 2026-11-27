@@ -1,6 +1,6 @@
 # LinNAS — 本地云盘/NAS 方案与版本路线图
 
-> 当前组件版本（2026-11-27）：Windows 服务端 **1.8.4**；Android 客户端 **1.8.12**（`versionCode` 21）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
+> 当前组件版本（2026-11-27）：Windows 服务端 **1.8.4**；Android 客户端 **1.8.13**（`versionCode` 22）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
 
 > 下文保留早期技术决策与里程碑记录；历史版本号描述当时状态，不代表当前版本。
 
@@ -390,6 +390,14 @@
 - **版本**：Android `versionCode` 19 / `versionName` 1.8.10；产物 `release/linNas-1.8.10-debug.apk`（附 SHA-256）。
 - **验证**：`:app:compileDebugKotlin`、`:app:testDebugUnitTest`（15 个单测）、`:app:assembleDebug` 均 BUILD SUCCESSFUL。
 
+### M13.13 Android v1.8.13 竖屏详情页选集列表可滚动（2026-11-27，Android v1.8.13）
+
+v1.8.12 只修了竖屏的**底部弹层**选集，用户实际用的是详情页里的**内联**选集列表，仍然只能看到前 5 集：
+
+- 根因：v_episodes 在 contentScroll（普通 ScrollView + illViewport）里是 layout_height=wrap_content，被测量成可见几行；同时它的 
+estedScrollingEnabled=false 又拒绝自己滚动，于是第 6 集之后完全够不到。
+- 修复：efreshEpisodes() 里超过 5 集时给列表设固定高度 min(屏高*0.55, dp(68)*集数) 并开启自身滚动（isNestedScrollingEnabled = true），5 集以内仍用 wrap_content；打开时 scrollToPosition(playIdx) 对齐正在播放的一集。
+- 验证：:app:testDebugUnitTest 15/15、:app:assembleDebug BUILD SUCCESSFUL；产物 `release/linNas-1.8.13-debug.apk`。
 ### M13.12 Android v1.8.12 保险箱/指纹与播放器选集修复（2026-11-27，Android v1.8.12）
 
 修复一组真机反馈：
@@ -505,3 +513,20 @@ v1.8.8 只把「名 · host」拼成一行，用户反馈希望**名称和 IP �
 - **端口占用**：`net.Listen` 失败且处于托盘 / 静默启动时改为弹窗提示「已有一个 linNas 在运行（可能是升级前的旧版本），请先在托盘退出或结束旧进程」，不再无声退出。
 - **测试**：新增 `server/autostart_test.go`——`TestAutostartScriptRoundTrip`、`TestAutostartExeFromScriptLegacy`（解析旧版 `linNas.exe` 脚本）、`TestAutostartExeFromScriptInvalid`、`TestSamePath`、`TestAutostartSetAtAndTarget`（开启 / 改写 / 关闭）、`TestAutostartSetAtRejectsEmpty`。
 - **验证**：把启动脚本改回旧路径后启动新 exe → 脚本被改写为 `linNas-server.exe`、日志出现自愈记录、`/api/autostart` 返回 `stale:false`；本机旧 `linNas.exe` 已改名 `linNas.exe.old-1.7.0.bak`，52700 现由 `linNas-server.exe` 提供服务（`/api/health` = 1.8.4）；`go test ./...` / `go vet` / `node --check` 全绿。
+
+### M22 跨设备播放进度与分享链接增强（2026-11-27，服务端 1.8.5）
+> 状态：已实现、测试通过；版本由 1.8.4 升至 **1.8.5**。
+
+**跨设备播放进度（BL-013）**
+- **服务端**：新增 `server/playback.go`——`playbackStore` 按账号保存到 `DataDir/playback.json`（`.tmp` 写入后 `os.Rename` 原子替换）；`playbackUserKey` 按 `UserID`（多用户）或 `guest`（开放模式）隔离；每账号上限 1000 条，进度 <3 秒或距结尾 <3 秒自动删除；`GET /api/playback?vpath=`、`POST /api/playback`、`GET /api/playback/recent?limit=`；`authorize` 放行 `/api/playback*`（viewer 也可读写自己的进度）。
+- **Web**：`openPreviewSrc` 打开时取「服务端 / 本地 localStorage 中较新且可续播」的位置；播放中每 10s 回写，`pause`、关闭播放器时强制回写，`ended` 上报 0 清除；仅同步 `/libN/...` 虚拟路径。
+- **Android**：`LinNasClient.getPlayback/putPlayback`（秒 ↔ 毫秒换算）；`PlayerActivity` 启动时远端恢复（远端更大才 seek）、播放中每 15s、暂停 / `onStop` / `onDestroy` / 播放失败时同步，播完上报 0。
+- **测试**：`server/playback_test.go`（账号隔离、持久化、边界删除、validPath、handlers）。
+
+**分享链接增强（BL-017）**
+- **数据模型**：`Share` 新增 `MaxDownloads`（0=不限）/ `OneTime` / `Disabled` / `DisabledReason` 与统计字段 `Downloads` / `LastDownloadAt` / `Visits` / `LastVisitAt` / `LastVisitIP`。
+- **shareStore**：新增 `GetState`（ok / missing / expired / disabled，`Get` 对非 ok 返回 nil）、`RecordVisit(id, ip)`、`ConsumeDownload(id) (ok, remaining)`（`dl=1` 下载前校验并计数；单次链接或达到上限后 `Disabled=true`，reason「单次链接已使用」/「下载次数已达上限」）。
+- **接口**：`handleShareInfo` / `handleShareRaw` 按 GetState 区分 404（过期/不存在）与 403（已失效，附原因）；`handleSharesDelete` 支持 `?ids=a,b,c` 批量撤销（权限沿用 admin 或创建者，返回 `{ok, deleted, denied}`）；`List()` 返回统计字段；`X-Downloads-Remaining` 响应头。
+- **UI**：创建对话框加「下载次数上限」「单次链接」；管理列表行内显示「单次链接 / 可下载 N/M 次」「访问 N 次 · 最近 …」「已失效」徽标与勾选框，「撤销所选」批量操作；分享页显示剩余下载次数。
+- **测试**：`server/share_enhance_test.go` 7 个单测（下载上限、单次、统计、批量撤销、raw 403、过期、splitIDs）；隔离实例端到端实测：2 次下载后第 3 次 403，列表显示 disabled:true / downloads:2 / remaining:0 / visits:1。
+- **验证**：`go test ./...` / `go vet` / `node --check` 全绿；版本升 1.8.5 并同步 README / RELEASING / CHANGELOG / AGENTS / ARCHITECTURE / DEVELOPMENT_STATUS / TASK_HISTORY / ROADMAP_BACKLOG。

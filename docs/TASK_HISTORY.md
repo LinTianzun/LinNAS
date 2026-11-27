@@ -6,9 +6,11 @@
 
 | 里程碑 | 日期 | 组件 / 版本 | 主要内容 |
 |---|---|---|---|
+| M22 | 2026-11-27 | 服务端 1.8.5 | 跨设备播放进度（BL-013）+ 分享增强（BL-017）：`server/playback.go` 按账号保存到 `DataDir/playback.json`（`GET/POST /api/playback`、`GET /api/playback/recent`），Web/Android 互相续播；`server/security.go` 的 `Share`/`shareStore` 支持下载次数上限、单次链接、批量撤销（`DELETE /api/shares?ids=`）与访问统计（`visits/lastVisitAt/lastVisitIp/downloads/remaining`），分享页显示剩余次数；新增 `playback_test.go`、`share_enhance_test.go` |
 | M21 | 2026-11-27 | 服务端 + Web + Android | 跨设备播放进度（BL-013）：`server/playback.go` 按账号保存到 `DataDir/playback.json`（`GET /api/playback?vpath=`、`POST /api/playback`、`GET /api/playback/recent`，viewer 也可读写自己的进度）；Web 播放器 `openPreviewSrc` 读取远端/本地较新位置并每 10s 回写；Android `LinNasClient.getPlayback/putPlayback` + `PlayerActivity` 启动恢复、每 15s / 暂停 / 结束时同步 |
 | M20 | 2026-11-27 | 发布工程（BL-002 / BL-003） | release 签名与构建加固：`signingConfigs.release` 走环境变量 / `android/keystore.properties`，R8 `isMinifyEnabled` + `proguard-rules.pro`，release APK 4.85 MB；CI 发布：`.github/workflows/release.yml` 在 `v*` 标签时构建双端产物、生成 `.sha256` 并创建 GitHub Release |
 | M19 | 2026-11-27 | Windows 服务端 1.8.4 | 开机自启修正：启动脚本写死绝对路径指向改名前的 `linNas.exe`（1.7.0），每次登录拉起旧版并占住 52700，新版静默绑定失败；`server/autostart.go` 拆出 `autostartScript` / `autostartExeFromScript` / `autostartTargetAt` / `autostartSetAt` / `samePath` / `autostartStaleTarget` / `autostartHeal`，`main.go` 启动自愈 + 日志，`GET /api/autostart` 增加 `target` / `stale`，端口占用时托盘弹窗；新增 `server/autostart_test.go` |
+| M13.13 | 2026-11-27 | Android 1.8.13 (vc22) | 竖屏详情页选集列表可滚动：超过 5 集时固定高度 + 自身滚动，打开对齐播放中一集（v1.8.12 只修了底部弹层） |
 | M13.12 | 2026-11-27 | Android 1.8.12 (vc21) | 保险箱/指纹与播放器选集修复：保险箱解锁后密码弹层自动关闭；指纹凭据与保险箱密码按服务器分开保存；视频镜像翻转生效（PlayerView 	exture_view）；媒体文件夹模式选集只取当前文件夹、切类型回根目录；竖屏选集可滚动并高亮播放中 |
 | M13.11 | 2026-11-27 | 服务端 1.8.3 + Android 1.8.11 (vc20) | 添加存储库路径自动创建与新建文件夹：服务端 `POST /api/libs` 对不存在的绝对路径 `os.MkdirAll` 自动创建、新增 `POST /api/fs/mkdir`（`fsops.go`，绝对路径建目录、补建父目录、拒绝盘符根，仅管理员）与 `fsops_mkdir_test.go`；Android「手动输入路径」先创建再进入（主按钮「创建并进入」）、新增「新建文件夹」入口（`LinNasClient.fsMkdir`）；`go test/vet` 全绿、Android 单测 15/15 |
 | M18 | 2026-11-27 | Windows 服务端 1.8.2 | 播放器与登录体验（用户 4 项）：音乐三态播放模式（列表/单曲循环/随机）、睡眠定时剩余时间显示与自定义时间、侧栏存储库行高与选中竖条修复、登录会话持久化（`sessions.json`，重启免登录） |
