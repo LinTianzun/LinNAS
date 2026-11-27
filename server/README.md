@@ -203,7 +203,7 @@ WebDAV 不属于 `/api` 路由：使用 `http://服务器地址:52700/dav/<库ID
 
 - 上传会话在内存中,服务重启后客户端需重新 init(已传的 .part 字节仍可续传)
 - 首次播放转码文件时边转边发,该次转码不支持 Range 拖动;转码缓存生成后可 Range 拖动
-- 索引为全量重建(暂未做 mtime 增量);目录浏览仍实时读盘,索引只用于搜索/媒体库
+- 目录浏览仍实时读盘，索引只用于搜索 / 媒体库；索引已支持增量更新（`Index.UpdatePaths`）与 `indexRefreshSeconds` 定时对账，不是每次全量重建
 
 ## v1.1.1 PC 端「手机连接」入口
 - ui/dist/index.html 侧栏「更多」里新增 #btn-pair(文字「手机连接」,图标 smartphone);ui/dist/app.js 增加其点击处理:请求 GET /api/pair,把 ips[0] 传给 GET /api/pair/qr?size=320&ip= 设为弹窗内二维码,并把 urls 逐一列出;#dlg-pair-close 关闭弹窗。

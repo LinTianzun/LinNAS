@@ -1,13 +1,13 @@
 # LinNAS 路线图与任务清单（ROADMAP BACKLOG）
 
-> 更新：2026-11-26 ｜ 基线：Windows 服务端 **1.7.0** / Android **1.8.2**（versionCode 11）
+> 更新：2026-11-27 ｜ 基线：Windows 服务端 **1.8.4** / Android **1.8.11**（versionCode 20）
 > 本文件把「还能做什么」整理成可执行任务：优先级、最小可交付、验收标准、涉及文件、依赖与建议排期。
 > 方向性构想见 [FEATURE_ROADMAP.md](FEATURE_ROADMAP.md)；已完成历史见 [PLAN.md](../PLAN.md) 与 [TASK_HISTORY.md](TASK_HISTORY.md)；当前状态见 [DEVELOPMENT_STATUS.md](DEVELOPMENT_STATUS.md)。
 
 ## 0. 使用说明
 
 - **优先级**：**P0** 发布门槛 ｜ **P1** 高价值功能 ｜ **P2** 质量 / 体验 ｜ **P3** 可选
-- **状态**：待办 / 进行中 / 已完成 / 暂缓（本文件初版全部为「待办」）
+- **状态**：待办 / 进行中 / 已完成 / 暂缓
 - **工作量**（单人粗估）：`S` ≤ 1 天 ｜ `M` 2–4 天 ｜ `L` 1–2 周 ｜ `XL` > 2 周
 - **完成定义（DoD）**：代码 + 对应测试 + 文档（README / PLAN / CHANGELOG 按需）+ 验收标准逐条通过；完成后在 [TASK_HISTORY.md](TASK_HISTORY.md) 记一条，并把本项状态改为「已完成」。
 
@@ -15,9 +15,9 @@
 
 | 项 | 现状 |
 |---|---|
-| 服务端 | 1.7.0（`server/config.go` 的 `Version`），单 exe、内嵌 Web UI、纯 Go SQLite |
-| Android | 1.8.2 / versionCode 11（`android/app/build.gradle.kts`），debug 签名 |
-| 测试 | Go 15 个 `*_test.go`；Android 3 个单测 + 3 个仪器测试 |
+| 服务端 | 1.8.4（`server/config.go` 的 `Version`），单 exe、内嵌 Web UI、纯 Go SQLite |
+| Android | 1.8.11 / versionCode 20（`android/app/build.gradle.kts`），debug 签名 |
+| 测试 | Go 26 个 `*_test.go`；Android 4 个单测 + 3 个仪器测试 |
 | CI | `.github/workflows/ci.yml`：`go-windows` / `go-race` / `android-emulator` |
 | 已知缺口 | 无 release 签名；完整多机型 / 系统版本矩阵未覆盖；`linnas-data` 备份不含媒体 / 保险箱文件 |
 
@@ -33,16 +33,16 @@
 | BL-012 | P1 | 上传收集箱 | M | 待办 |
 | BL-013 | P1 | 跨设备播放进度 | S | 待办 |
 | BL-014 | P1 | 内容搜索与自动整理 | L | 已完成（批次 3、批次 4 均交付） |
-| BL-015 | P1 | 存储空间分析增强 | M | 待办 |
+| BL-015 | P1 | 存储空间分析增强 | M | 已完成（M15 批次 1/2） |
 | BL-016 | P1 | 自动化异地备份 | M–L | 待办 |
 | BL-017 | P1 | 分享能力增强 | S–M | 待办 |
 | BL-018 | P2 | 通知与首次启动向导 | M | 待办 |
-| BL-020 | P2 | 测试补齐 | M | 待办 |
+| BL-020 | P2 | 测试补齐 | M | 待办（部分完成） |
 | BL-021 | P2 | 可观测性与日志 | M | 待办 |
-| BL-022 | P2 | 性能与容量 | M | 待办 |
-| BL-023 | P2 | 安全加固 | M | 待办 |
+| BL-022 | P2 | 性能与容量 | M | 待办（部分） |
+| BL-023 | P2 | 安全加固 | M | 待办（部分） |
 | BL-024 | P2 | 国际化与无障碍 | M | 待办 |
-| BL-025 | P2 | 发布工程（版本 / CHANGELOG 自动化） | S | 待办 |
+| BL-025 | P2 | 发布工程（版本 / CHANGELOG 自动化） | S | 待办（部分） |
 
 ## 3. P0 — 发布门槛
 
@@ -62,7 +62,7 @@
 
 ### BL-002 release 签名与构建加固
 
-- **现状**：`android/app/build.gradle.kts` 仅有 debug 签名，`isMinifyEnabled = false`。
+- **现状**：`android/app/build.gradle.kts` 仅有 debug 签名，`isMinifyEnabled = false`，无 `signingConfigs` / ProGuard 规则。
 - **最小可交付**：`signingConfigs.release`（keystore 走环境变量 / CI secret）、`buildTypes.release` 开 `isMinifyEnabled` + ProGuard/R8 规则、产出 `assembleRelease` / `bundleRelease`。
 - **验收标准**：release 包可安装登录；混淆后播放器 / 反射 / 序列化无崩溃；构建可重复；密钥不入库。
 - **涉及**：`android/app/build.gradle.kts`、`android/app/proguard-rules.pro`（新建）、`.gitignore`、CI。
@@ -125,10 +125,10 @@
 
 ### BL-015 存储空间分析增强
 
-- **现状**：概览 / 大文件 Top N / 重复候选已随 1.7.0 上线。
-- **最小可交付**：容量趋势（定期快照）、校验巡检（抽样 SHA-256 变化告警）、磁盘健康 / 空间阈值告警（按 Windows 能力）。
-- **验收标准**：趋势图可见；巡检异常提示；阈值告警可配置；不影响主服务。
-- **涉及**：`server/analysis.go`、`housekeeping.go`、Web UI。
+- **现状**：概览 / 大文件 Top N / 重复候选已随 v1.7.0 上线；**增长趋势、校验巡检、磁盘健康与空间告警已随 M15（批次 1/2）交付并部署**（`server/{trend,patrol,disk_health,alerts}.go` 及单测）。
+- **最小可交付**：容量趋势（定期快照）、校验巡检（抽样 SHA-256 变化告警）、磁盘健康 / 空间阈值告警（按 Windows 能力）——均已交付。
+- **验收标准**：趋势图可见；巡检异常提示；阈值告警可配置；不影响主服务。（已满足）
+- **涉及**：`server/{trend,patrol,disk_health,alerts}.go`、`housekeeping.go`、Web UI。
 - **依赖**：无。
 
 ### BL-016 自动化异地备份
@@ -150,7 +150,7 @@
 
 ### BL-020 测试补齐
 
-- **现状**：Go 15 个测试文件；Android 3 个单测 + 3 个仪器测试。
+- **现状**：Go 26 个测试文件；Android 4 个单测 + 3 个仪器测试。
 - **最小可交付**（按风险排序）：
   - Go：`authorize` 角色矩阵（admin/user/viewer × 读写接口）、上传异常 / 回滚 / 同名冲突、WebDAV 边界（Range、只读、越权）、Zip 路径穿越、索引对账并发。
   - Android：传输中心暂停 / 续传 / 取消、生物识别降级路径、版本检查 404 / 降级、筛选组合。
@@ -191,12 +191,12 @@
 
 | 阶段 | 内容 | 建议周期 |
 |---|---|---|
-| Sprint 1 | BL-001 真机验收、BL-002 release 签名、BL-003 CI 发布 | 1 周 |
+| Sprint 1 | BL-001 真机验收（已完成）、BL-002 release 签名、BL-003 CI 发布 | 1 周 |
 | Sprint 2 | BL-013 跨设备进度、BL-017 分享增强、BL-020 部分测试 | 1 周 |
 | Sprint 3–4 | BL-010 对话空间 MVP | 2 周 |
-| Sprint 5 | BL-011 ZIP 预览 / 解压、BL-015 存储分析增强 | 1–2 周 |
+| Sprint 5 | BL-011 ZIP 预览 / 解压、BL-015 存储分析增强（已完成） | 1–2 周 |
 | Sprint 6 | BL-012 上传收集箱、BL-016 异地备份、BL-021 / BL-023 | 1–2 周 |
-| 持续 | BL-014 内容搜索、BL-018 通知 / 向导、BL-022 / BL-024 / BL-025 | 按需 |
+| 持续 | BL-014 内容搜索（已完成）、BL-018 通知 / 向导、BL-022 / BL-024 / BL-025 | 按需 |
 
 ## 7. 暂不做 / 明确排除
 
@@ -214,4 +214,5 @@
 
 ## 9. 变更记录
 
+- 2026-11-27：同步基线到服务端 1.8.4 / Android 1.8.11（vc20）；BL-015 标记为已完成（M15 批次 1/2）；测试数字更新为 Go 26 / Android 4+3；BL-020/022/023/025 标注「部分完成」；其余待办保持不变。
 - 2026-11-26：初版，基于 v1.7.0 / v1.8.0 基线与 [FEATURE_ROADMAP.md](FEATURE_ROADMAP.md) 整理。

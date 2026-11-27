@@ -41,18 +41,29 @@
 （M2 / M3 等为早期 Android 构建阶段，逐项记录见 [PLAN.md](../PLAN.md)。）
 
 ## 近期提交（git log）
-- 工作区（待提交）：服务端 **1.8.1** —— M17 界面与体验改进（`server/disk_health.go` 卷容量 `totalGB`/`freeGB`、`server/main.go` 静默启动 + `linnas.log`、`server/tray_windows.go` `launchedFromTerminal`、`server/config.go` `ServerName`/`DisplayName()` + 版本 1.8.1、`server/settings.go` `serverName`；UI 磁盘健康容量条 / 图片翻页 / 音乐音量记忆与增强 / 服务器名称 / 移除规划中卡 / 侧栏选中竖条）。
 
-## 近期提交（git log）
-- 工作区（待提交）：服务端 **1.8.2** —— M18 播放器与登录体验（`server/security.go` 会话持久化 + `server/security_session_test.go`；UI 三态播放模式 / 睡眠定时剩余时间与自定义 / 侧栏行高与竖条修复）。
-- 工作区（待提交）：服务端 **1.8.0** —— 版本升级（`server/config.go` `const Version` 1.7.0 → 1.8.0；同步 README / PLAN / RELEASING / CHANGELOG / ARCHITECTURE / DEVELOPMENT_STATUS / CURRENT_TASK / TASK_HISTORY）。
-- 工作区（待提交）：服务端 1.7.0 —— M16 批次 4（自动整理 `server/organize.go` + `organize_test.go`、`/api/organize/{rules,preview,run,undo,status,cancel,jobs}`、`organize.json` / `jobs.json` / `journal-<jobID>.jsonl`、UI「自动整理」页签）。
-- 工作区（待提交）：服务端 1.7.0 —— M16 批次 3（正文索引 `server/content.go` + `content` / `content_meta` 表 + `GET /api/search/content` / `GET /api/content/status`；UI 搜索范围切换与片段高亮；磁盘健康默认只显示已添加存储库所在磁盘）。
-
-- 工作区（待提交）：服务端 1.7.0 —— M15 批次 2（校验巡检 `server/patrol.go` + `file_sig` 表 + 4 个 patrol API；`GET /api/disks/health?lib=` 过滤；`ui/dist` 巡检页签与磁盘健康存储库下拉）。
-- 工作区（未提交）：服务端 1.7.0 —— M15 批次 1（趋势 / 磁盘健康 / 空间告警；`server/{trend,disk_health,alerts}.go`、`storage_snapshots` 表、设置阈值、`ui/dist` 趋势 tab / sparkline / 磁盘健康卡 / 告警「全部已读」）。
-- 工作区（未提交）：服务端 1.7.0 —— Web UI 总览仪表盘与侧栏分组重构（`server/overview.go`、`GET /api/overview`、`overview_test.go`、`ui/dist/{index.html,app.js,style.css}`）；主区全宽、五张总览卡片、规划中两张路线图。
-- 工作区（未提交）：服务端 1.7.0 修补 —— 媒体库自动分页加载、回收站缩略图（`GET /api/trash/thumb`）、「不在媒体库展示」睁眼/闭眼图标与即时徽标；补 `trash_thumb_test.go`。
+- `5b39f95` fix(autostart): 服务端 1.8.4 —— 开机自启指向旧版本自愈 + 端口占用弹窗提示
+- `0374bcc` feat: v1.8.11 存储库路径自动创建与新建文件夹（服务端 1.8.3：POST /api/fs/mkdir + addLib 自动建目录）
+- `7f0f5ad` fix(ui): 睡眠倒计时徽标移到播放器右上角；手机连接页热点输入框美化
+- `c27960f` feat(ui): 服务端 1.8.2 —— M18 播放器与登录体验
+- `edff434` fix(android): v1.8.10 GIF 动图不播放与添加存储库底部按钮被挤出屏幕
+- `e9dc8e4` feat(android): v1.8.9 服务器名称与 IP 同时展示
+- `5462633` feat(android): v1.8.8 服务器自定义名展示、GIF 动图与手动路径弹层统一
+- `7cc4a3f` fix(ui): 音乐音量首次默认 70%
+- `0813d8d` feat(ui): 服务端 1.8.1 —— M17 界面与体验改进
+- `482cacd` feat(android): v1.8.7 更新包版本核对、指纹登录可用与应用内图片浏览
+- `3bc4a70` chore(release): 服务端 1.8.0 —— M16 全部交付后升版本
+- `81773a9` feat(organize): M16 批次 4 —— 自动整理规则（预览 / 执行 / 撤销 / 作业）
+- `e8889ac` feat(android): v1.8.6 指纹登录修复、保险箱免勾选与设备图标修复
+- `0153a1f` feat(android): v1.8.5 播放器面板重做、生物识别开关、保险箱免密与选中态修复
+- `446f759` feat(search): M16 批次 3 —— 正文索引与内容搜索 + 磁盘健康默认范围
+- `e4f8635` feat(android): v1.8.4 更新安装修复、登录持久化、弹窗收尾与主题/播放器面板打磨
+- `2ecbe93` feat(storage): M15 批次 2 —— 校验巡检与磁盘健康按存储库过滤
+- `0ce76bf` feat(android): v1.8.3 浅色主题、播放页 B 站式重做、二级弹窗统一与传输增强
+- `2b63d37` feat(storage): M15 批次 1 —— 存储增长趋势、磁盘健康与空间告警
+- `dbf92cd` docs: 对齐版本到 Android 1.8.2 并补 M10 真机设备
+- `34d184b` docs: CHANGELOG 补 1.8.1/1.8.2，ARCHITECTURE 版本对齐 1.8.2
+- `0574c47` docs: 记录 M10 真机基本回归通过（单设备）
 - `12b5c2a` feat(android): v1.8.0 体验升级（传输中心 / 多选批量 / 生物识别 / 版本检查 / 播放器重做 / 收藏筛选 / 媒体分组 / 视觉打磨）
 - `03efa0d` feat(web): 媒体库分组折叠留一行 + 音乐播放器优化；补 vault/ui-dir 单测与 e2e 冒烟脚本
 - `22bcb1c` docs: PLAN/RELEASING 更新（M12 Android 对齐 v1.7.0）；忽略 release/ 构建产物

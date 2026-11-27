@@ -420,7 +420,7 @@ v1.8.8 只把「名 · host」拼成一行，用户反馈希望**名称和 IP �
 
 **批次 1：趋势快照 + 磁盘健康 + 空间告警**（✅ 已完成并部署 2026-11-26）
 
-> 状态：批次 1 已实现、测试并部署到本机 52700（服务端版本仍为 1.7.0）；新增 `server/trend.go`、`server/disk_health.go`、`server/alerts.go` 及单测 `trend_test.go` / `disk_health_test.go` / `alerts_test.go`。批次 2（校验巡检）待开始。
+> 状态：批次 1 已实现、测试并部署到本机 52700（服务端版本仍为 1.7.0）；新增 `server/trend.go`、`server/disk_health.go`、`server/alerts.go` 及单测 `trend_test.go` / `disk_health_test.go` / `alerts_test.go`。批次 2（校验巡检）随后完成（见下）。
 - 快照表：`storage_snapshots(ts INTEGER, lib_id TEXT, bytes INTEGER, files INTEGER)`，`PRIMARY KEY(lib_id, ts)` + `CREATE INDEX idx_snap_lib ON storage_snapshots(lib_id, ts)`；在 `ScanAll` / `ReconcileAll` 完成后调用 `Index.Snapshot()`，同一小时最多一条（按 `ts/3600` 去重），保留 400 天，超出由 housekeeping 清理。
 - `GET /api/storage/trend?days=30&lib=` → `{days, libs:[{libId,name,points:[{t,bytes,files,delta}]}], total:{points:[...], weekDeltaBytes}}`；无快照时返回空数组而非 500。
 - `GET /api/disks/health`：Windows 侧执行 `Get-PhysicalDisk` + `Get-Volume`（`exec.Command("powershell", "-NoProfile", "-Command", ...)`），把结果缓存 5 分钟，返回 `[{drive, model, mediaType, healthStatus, operationalStatus, sizeGB, temperature?}]`；非 Windows 或命令失败返回 `{supported:false, reason}`，不影响其它接口。
@@ -486,7 +486,7 @@ v1.8.8 只把「名 · host」拼成一行，用户反馈希望**名称和 IP �
 - **登录会话持久化**：`authStore` 增加 `sessions.json`（`loadSessions` / `saveSessionsLocked`，0600，60s 限流落盘），Login/Logout/Revoke/DeleteUser/闲置清理时同步；重启后恢复会话（跳过已删/禁用用户），停机时间不计入闲置超时；新增 `server/security_session_test.go`。
 - **验证**：`go test -count=1 ./...` ok、`go vet` 干净、`node --check app.js` 通过；隔离实例实测三态循环、睡眠倒计时与自定义校验、侧栏无裁剪；已重建部署 52700（`/api/health` = 1.8.2）。
 - **部署后小修（同日，随 1.8.3 发布）**：睡眠倒计时徽标从控制按钮行移到播放器右上角（.music-box 相对定位 + .music-sleep-left 绝对定位 top:12px/right:14px，悬浮显示不挤压按钮）；手机连接页热点名称/密码输入框改纵向卡片式（圆角 10px、聚焦 accent 光圈）。
-ode --check 通过，已重建部署 52700。
+`node --check` 通过，已重建部署 52700。
 
 ### M19 开机自启指向旧版本修复（2026-11-27，服务端 1.8.4）
 > 状态：已修复、测试并部署到本机 52700。用户反馈「开机自启动后，托盘里打开的还是 1.7.0 版本」。
