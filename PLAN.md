@@ -1,6 +1,6 @@
 # LinNAS — 本地云盘/NAS 方案与版本路线图
 
-> 当前组件版本（2026-11-27）：Windows 服务端 **1.8.3**；Android 客户端 **1.8.11**（`versionCode` 20）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
+> 当前组件版本（2026-11-27）：Windows 服务端 **1.8.4**；Android 客户端 **1.8.11**（`versionCode` 20）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
 
 > 下文保留早期技术决策与里程碑记录；历史版本号描述当时状态，不代表当前版本。
 
@@ -487,3 +487,12 @@ v1.8.8 只把「名 · host」拼成一行，用户反馈希望**名称和 IP �
 - **验证**：`go test -count=1 ./...` ok、`go vet` 干净、`node --check app.js` 通过；隔离实例实测三态循环、睡眠倒计时与自定义校验、侧栏无裁剪；已重建部署 52700（`/api/health` = 1.8.2）。
 - **部署后小修（同日，随 1.8.3 发布）**：睡眠倒计时徽标从控制按钮行移到播放器右上角（.music-box 相对定位 + .music-sleep-left 绝对定位 top:12px/right:14px，悬浮显示不挤压按钮）；手机连接页热点名称/密码输入框改纵向卡片式（圆角 10px、聚焦 accent 光圈）。
 ode --check 通过，已重建部署 52700。
+
+### M19 开机自启指向旧版本修复（2026-11-27，服务端 1.8.4）
+> 状态：已修复、测试并部署到本机 52700。用户反馈「开机自启动后，托盘里打开的还是 1.7.0 版本」。
+- **根因**：启动文件夹 `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\linNas-autostart.vbs` 里写的是绝对路径 `"E:\linNas\server\linNas.exe" -tray`（1.7.0 时代的文件名），后续构建产物改名为 `linNas-server.exe` 后脚本从未更新 → 每次登录都拉起旧 exe；旧 exe 又占住 52700，新版启动时绑定失败且（托盘模式）没有控制台可看，用户只看到托盘里还是旧版本。
+- **修复**：`server/autostart.go` 拆出纯函数 `autostartScript` / `autostartExeFromScript` / `autostartTargetAt` / `autostartSetAt`，新增 `samePath`、`autostartStaleTarget`、`autostartHeal`；`main.go` 启动时若已启用自启且脚本指向别处，就用当前 exe 重写并记日志「开机自启原指向旧版本 X，已更新为 Y」。
+- **可观测**：`GET /api/autostart` 增加 `target`（脚本当前指向）与 `stale`（是否指向别的 exe）；`POST /api/autostart` 也回 `target`。
+- **端口占用**：`net.Listen` 失败且处于托盘 / 静默启动时改为弹窗提示「已有一个 linNas 在运行（可能是升级前的旧版本），请先在托盘退出或结束旧进程」，不再无声退出。
+- **测试**：新增 `server/autostart_test.go`——`TestAutostartScriptRoundTrip`、`TestAutostartExeFromScriptLegacy`（解析旧版 `linNas.exe` 脚本）、`TestAutostartExeFromScriptInvalid`、`TestSamePath`、`TestAutostartSetAtAndTarget`（开启 / 改写 / 关闭）、`TestAutostartSetAtRejectsEmpty`。
+- **验证**：把启动脚本改回旧路径后启动新 exe → 脚本被改写为 `linNas-server.exe`、日志出现自愈记录、`/api/autostart` 返回 `stale:false`；本机旧 `linNas.exe` 已改名 `linNas.exe.old-1.7.0.bak`，52700 现由 `linNas-server.exe` 提供服务（`/api/health` = 1.8.4）；`go test ./...` / `go vet` / `node --check` 全绿。

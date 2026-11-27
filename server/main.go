@@ -158,6 +158,18 @@ func main() {
 		}
 	}
 
+	// 开机自启自愈:启动脚本里写的是绝对路径,exe 改名或换目录后脚本仍指向旧文件,
+	// 重开机就会跑起旧版本。这里发现指向别处就用当前 exe 重写。
+	if autostartEnabled() {
+		if old, healErr := autostartHeal(); old != "" {
+			if healErr != nil {
+				log.Printf("开机自启指向 %s(非当前 exe),改写失败: %v", old, healErr)
+			} else {
+				log.Printf("开机自启原指向旧版本 %s,已更新为 %s", old, autostartExe())
+			}
+		}
+	}
+
 	// 首次运行:自动注册存在的 H:\、I:\ 外置盘,省得手动添加
 	if len(cfg.Libraries) == 0 {
 		candidates := []struct{ name, path string }{
@@ -239,7 +251,14 @@ func main() {
 
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		log.Fatalf("监听 %s 失败: %v", addr, err)
+		// 托盘/静默启动时没有控制台可看,这种情况多半是「旧版 linNas 还在运行」,
+		// 弹个提示,否则用户只看到托盘里还是旧版本、网页也连不上。
+		msg := fmt.Sprintf("linNas %s 无法监听 %s:\n%v\n\n通常表示已有一个 linNas 在运行(可能是升级前的旧版本)。\n"+
+			"请先在托盘图标上右键「退出 linNas」,或在任务管理器结束旧的 linNas 进程后再启动。", Version, addr, err)
+		if trayMode || quietLaunch {
+			showErrorBox("linNas 启动失败", msg)
+		}
+		log.Fatalf("%s", msg)
 	}
 
 	// Print local IPs so the phone can be pointed at one.
