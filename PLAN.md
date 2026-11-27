@@ -530,3 +530,13 @@ v1.8.8 只把「名 · host」拼成一行，用户反馈希望**名称和 IP �
 - **UI**：创建对话框加「下载次数上限」「单次链接」；管理列表行内显示「单次链接 / 可下载 N/M 次」「访问 N 次 · 最近 …」「已失效」徽标与勾选框，「撤销所选」批量操作；分享页显示剩余下载次数。
 - **测试**：`server/share_enhance_test.go` 7 个单测（下载上限、单次、统计、批量撤销、raw 403、过期、splitIDs）；隔离实例端到端实测：2 次下载后第 3 次 403，列表显示 disabled:true / downloads:2 / remaining:0 / visits:1。
 - **验证**：`go test ./...` / `go vet` / `node --check` 全绿；版本升 1.8.5 并同步 README / RELEASING / CHANGELOG / AGENTS / ARCHITECTURE / DEVELOPMENT_STATUS / TASK_HISTORY / ROADMAP_BACKLOG。
+
+### M20 手机端侧边栏（2026-11-27，服务端 1.8.5）
+> 状态：已实现、浏览器实测通过并部署到本机 52700。用户反馈「手机登录网页看不见侧边栏」。
+- **根因**：`server/ui/dist/style.css:122-132` `.sidebar { display: none; … }` 默认隐藏，只有 `@media (min-width: 900px) { .sidebar { display: flex } }`（style.css:579-584）显示 → 手机（<900px）完全没有导航入口。
+- **实现**：
+  - `server/ui/dist/index.html:14` 顶栏新增汉堡按钮 `<button class="btn icon-btn nav-toggle" id="btn-nav" title="菜单" aria-label="打开菜单" aria-expanded="false" aria-controls="sidebar">`；`index.html:40` 加 `<div class="nav-mask" id="nav-mask" hidden></div>`。
+  - `server/ui/dist/style.css`：`.nav-toggle`/`.nav-mask` 默认 `display:none`；`@media (max-width: 899px)` 内侧栏改为 `position:fixed` 抽屉（`width:min(84vw,300px)`、`transform:translateX(-102%)`、`.sidebar.open { transform:none }`），遮罩 `position:fixed; inset:56px 0 0; background:rgba(0,0,0,.48)` + `backdrop-filter:blur(2px)` + `body.nav-open { overflow:hidden }`。
+  - `server/ui/dist/app.js`（`showTrash()` 之后）：`NAV_MOBILE_MAX=899`、`navIsMobile()`、`navSetOpen(open)`、`navClose()`、`navToggle()`；`#btn-nav` 切换、`#nav-mask` 点击收起、`#sidebar` 委托点击任一条目后自动收起、Escape 关闭、`resize` 到宽屏自动复位。
+- **实测**：390×844 移动视口下——点 `#btn-nav` 抽屉打开（transform→none、遮罩显示、body 锁滚动、按钮图标变 ×）；点侧栏条目 / 遮罩 / 按 ESC 均自动收起；切到 1440×900 宽屏——汉堡按钮隐藏、侧栏恢复 sticky 常驻、抽屉状态清空。截图 `shots/v1.8.5-mobile-sidebar.png`。
+- **部署**：`go build` 后停旧实例换包，`/api/health`=1.8.5，线上 `/ui/*` 校验 `nav-toggle`/`sidebar.open`/`btn-nav`/`navSetOpen` 全部命中。
