@@ -296,6 +296,10 @@ class MainActivity : AppCompatActivity() {
                 R.id.btnTypeAudio -> "audio"
                 else -> "video"
             }
+            // 切成图片/音乐/视频后目录树完全不同,留在旧目录会显示空白,
+            // 所以类型切换时回到文件夹模式的根目录(平铺模式本来就无路径)。
+            mediaFolderStack.clear()
+            mediaFolderPath = ""
             loadMedia(mediaType)
         }
 
@@ -891,8 +895,13 @@ class MainActivity : AppCompatActivity() {
 
     /** P2:从当前浏览上下文(目录列表/全局搜索/媒体页)构建可播放列表,返回 (JSON 数组, 当前下标)。 */
     private fun playlistFor(currentVp: String): Pair<String, Int> {
-        val rows: List<Entry> = if (currentTab == R.id.tab_media) mediaAll
-            else allRows.mapNotNull { (it as? ListRow.FileRow)?.e }
+        val rows: List<Entry> = when {
+            currentTab != R.id.tab_media -> allRows.mapNotNull { (it as? ListRow.FileRow)?.e }
+            // 文件夹模式:选集只在本目录内(和用户看到的列表一致),不再跨目录串台
+            mediaMode == "folder" -> mediaFolderFiles()
+            // 全部模式:一个视频/音乐类型下的全部条目
+            else -> mediaAll
+        }
         val playable = rows.filter { it ->
             val x = it.name.substringAfterLast('.', "").lowercase()
             !it.isDir && (x in FileListAdapter.VIDEO || x in FileListAdapter.AUDIO)
@@ -1257,6 +1266,16 @@ class MainActivity : AppCompatActivity() {
         }
         mediaFolderAdapter.submit(dirs + childFiles)
         mediaEmpty.visibility = if (dirs.isEmpty() && childFiles.isEmpty()) View.VISIBLE else View.GONE
+    }
+
+    /** 文件夹模式:当前目录下的直属文件(与 renderMediaFolder 的列表口径一致)。 */
+    private fun mediaFolderFiles(): List<Entry> {
+        val cur = mediaFolderPath
+        val prefix = if (cur.isEmpty()) "/" else "$cur/"
+        return mediaFolderEntries.filter { e ->
+            val vp = e.vpath ?: return@filter false
+            vp.startsWith(prefix) && !vp.substring(prefix.length).contains('/')
+        }
     }
 
     /** 文件夹模式点目录:进入该目录。 */

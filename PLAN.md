@@ -1,6 +1,6 @@
 # LinNAS — 本地云盘/NAS 方案与版本路线图
 
-> 当前组件版本（2026-11-27）：Windows 服务端 **1.8.4**；Android 客户端 **1.8.11**（`versionCode` 20）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
+> 当前组件版本（2026-11-27）：Windows 服务端 **1.8.4**；Android 客户端 **1.8.12**（`versionCode` 21）。发布流程见根目录 [RELEASING.md](RELEASING.md)。
 
 > 下文保留早期技术决策与里程碑记录；历史版本号描述当时状态，不代表当前版本。
 
@@ -390,6 +390,15 @@
 - **版本**：Android `versionCode` 19 / `versionName` 1.8.10；产物 `release/linNas-1.8.10-debug.apk`（附 SHA-256）。
 - **验证**：`:app:compileDebugKotlin`、`:app:testDebugUnitTest`（15 个单测）、`:app:assembleDebug` 均 BUILD SUCCESSFUL。
 
+### M13.12 Android v1.8.12 保险箱/指纹与播放器选集修复（2026-11-27，Android v1.8.12）
+
+修复一组真机反馈：
+
+- **保险箱**：解锁成功后密码输入弹层自动关闭（之前停留在已解锁页面）；指纹解锁用的保险箱密码与指纹登录凭据都**按服务器地址分开保存**——换过服务器后不再互相覆盖，新服务器首次进入以密码输入为主、输入一次后才启用指纹，换回原服务器指纹仍然可用。
+- **媒体**：文件夹模式切到图片/音乐/视频时回到根目录（避免留在旧目录显示空白）；文件夹模式下选集只取**当前文件夹**的视频（不再跨目录串台）；全部模式选集仍为整个类型。
+- **播放器**：镜像翻转生效（PlayerView 改 	exture_view，scaleX=-1 真正翻转画面）；竖屏选集弹层可滚动（高度按屏高 62% 封顶、skipCollapsed 展开到位），打开即滚动到正在播放的一集，播放中的条目加粗显示。
+
+构建：:app:testDebugUnitTest 15/15、:app:assembleDebug BUILD SUCCESSFUL；产物 `release/linNas-1.8.12-debug.apk`。
 ### M13.11 添加存储库路径自动创建与新建文件夹（2026-11-27，服务端 1.8.3 + Android 1.8.11）
 用户反馈「手动输入路径」只是跳转，服务端并不会创建目录；且希望能在添加存储库界面直接新建文件夹。本轮：
 - **服务端**：`POST /api/libs`（`handleAddLib`）对不存在的绝对路径改为 `os.MkdirAll` 自动创建（非绝对路径/文件路径仍 400）；新增 `POST /api/fs/mkdir`（`handleFsMkdir`，`fsops.go`）按电脑绝对路径创建目录（MkdirAll 补建父目录、拒绝盘符根），仅管理员（`authorize` 拦截）；新增 `fsops_mkdir_test.go`，`go test ./...`/`go vet ./...` 全绿。

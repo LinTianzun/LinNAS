@@ -97,7 +97,7 @@ class VaultActivity : AppCompatActivity() {
         // 设置里已关闭生物识别时,顺手清掉已保存的保险箱密码——
         // 关掉开关后残留的凭据不该继续留在磁盘上;正常退出/返回不动它。
         if (!BiometricGate.isEnabled(this)) {
-            BiometricGate.clearSecret(this, KEY_VAULT_PW)
+            BiometricGate.clearSecret(this, vaultPwKey())
         }
     }
 
@@ -200,7 +200,7 @@ class VaultActivity : AppCompatActivity() {
 
     /** 指纹解锁的前提:开关开启 + 设备可用 + 已自动保存过密码。 */
     private fun bioUnlockAvailable(): Boolean =
-        bioAvailable() && !BiometricGate.loadSecret(this, KEY_VAULT_PW).isNullOrBlank()
+        bioAvailable() && !BiometricGate.loadSecret(this, vaultPwKey()).isNullOrBlank()
 
     /** 密码解锁 Sheet:生物识别可用时额外给一行「用指纹解锁」,方便取消/失败后重试。 */
     private fun showPasswordSheet() {
@@ -213,7 +213,7 @@ class VaultActivity : AppCompatActivity() {
         sheet.input("保险箱密码", inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD)
         sheet.primary("解锁") {
             val pwText = sheet.inputView(0)?.text?.toString().orEmpty()
-            unlockWithPassword(pwText, viaBio = false) { msg ->
+            unlockWithPassword(pwText, viaBio = false, sheet = sheet) { msg ->
                 sheet.inputView(0)?.error = msg
                 toast(msg)
             }
@@ -226,6 +226,7 @@ class VaultActivity : AppCompatActivity() {
     private fun unlockWithPassword(
         pw: String,
         viaBio: Boolean,
+        sheet: Sheet? = null,
         onError: (String) -> Unit,
     ) {
         lifecycleScope.launch {
@@ -236,11 +237,13 @@ class VaultActivity : AppCompatActivity() {
                 // 只要设置里开着生物识别就自动保存密码,下次进保险箱直接弹指纹,
                 // 用户不必再勾选任何开关;保存失败只影响指纹入口,不影响本次解锁。
                 if (bioAvailable() &&
-                    !BiometricGate.saveSecret(this@VaultActivity, KEY_VAULT_PW, pw)
+                    !BiometricGate.saveSecret(this@VaultActivity, vaultPwKey(), pw)
                 ) {
                     Log.w(TAG, "自动保存指纹解锁密码失败,下次进入仍需输入密码")
                 }
                 VaultSession.unlock(this@VaultActivity, tok)
+                // 解锁成功后自动关闭密码输入弹层,避免停留在已解锁页面上。
+                sheet?.dismiss()
                 hint.text = if (viaBio) "已通过生物识别解锁 · 文件在服务端加密存储" else "已解锁 · 文件在服务端加密存储"
                 showUnlocked()
                 loadList()
@@ -255,7 +258,7 @@ class VaultActivity : AppCompatActivity() {
      * 单次识别失败不会关闭系统弹窗,用户可在弹窗内重试,此时不弹密码 Sheet 打断。
      */
     private fun bioUnlockThenFallBack() {
-        val saved = BiometricGate.loadSecret(this, KEY_VAULT_PW)
+        val saved = BiometricGate.loadSecret(this, vaultPwKey())
         if (saved.isNullOrBlank()) { showPasswordSheet(); return }
         BiometricGate.authenticate(
             this, "指纹/面容解锁", "验证后解锁保险箱",
@@ -398,7 +401,7 @@ class VaultActivity : AppCompatActivity() {
                     list.removeAllViews()
                     emptyView.visibility = View.GONE
                     // 旧密码已作废,清掉之前自动保存的指纹密码;下次解锁成功会重新自动保存。
-                    BiometricGate.clearSecret(this@VaultActivity, KEY_VAULT_PW)
+                    BiometricGate.clearSecret(this@VaultActivity, vaultPwKey())
                     sheet.dismiss()
                     showLocked()
                     promptUnlock()
@@ -577,6 +580,15 @@ class VaultActivity : AppCompatActivity() {
         private const val TAG = "VaultActivity"
         private const val KEY_VAULT_PW = "bio_vault_pw"
     }
+
+    /**
+     * 指纹解锁用的保险箱密码按「服务器地址」分开存。
+     *
+     * 之前只有一个全局键：连过另一台服务端并解锁后，同一串密文被另一台服务的密码覆盖，
+     * 换回原服务器时指纹解锁必然失败。分键存储后，每台服务端各自记住自己的密码；
+     * 新服务器首次进入时没有对应密文 → 自然回退到密码输入，输入一次后才会启用指纹。
+     */
+    private fun vaultPwKey(): String = "$KEY_VAULT_PW|${ServerConfig.baseUrl.trimEnd('/')}"
 }
 
 /**

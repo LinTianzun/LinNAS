@@ -2,7 +2,7 @@
 
 局域网内的「本地云盘 / NAS」方案：一台 Windows PC 挂载外置硬盘跑服务端，手机在家连同一 WiFi 即可像云盘一样上传、浏览、下载，并在线播放视频。全程局域网直连；可选通过 Tailscale 远程访问，不需要公网 IP 或端口映射。
 
-> 当前组件版本：Windows 服务端 **1.8.4**；Android 客户端 **1.8.11**（`versionCode` 20）。组件独立演进，版本号不要求一致。发布说明见 [RELEASING.md](RELEASING.md)。
+> 当前组件版本：Windows 服务端 **1.8.4**；Android 客户端 **1.8.12**（`versionCode` 21）。组件独立演进，版本号不要求一致。发布说明见 [RELEASING.md](RELEASING.md)。
 
 ## 组成
 

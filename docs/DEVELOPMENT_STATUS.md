@@ -8,7 +8,7 @@
 | 组件 | 版本 | 说明 |
 |---|---|---|
 | Windows 服务端 | 1.8.4 | `server/config.go` 的 `const Version` |
-| Android 客户端 | 1.8.11（versionCode 20） | `android/app/build.gradle.kts` |
+| Android 客户端 | 1.8.12（versionCode 21） | `android/app/build.gradle.kts` |
 
 ## 里程碑进度
 
@@ -26,6 +26,7 @@
 
 ## 最近改动
 
+- 2026-11-27 Android **1.8.12**（M13.12）：保险箱解锁后密码弹层自动关闭；指纹凭据与保险箱密码按服务器地址分开保存（换服务器先密码登录、换回原服务器指纹可用）；视频镜像翻转生效（PlayerView 改 	exture_view）；媒体文件夹模式选集只取当前文件夹、切类型回根目录；竖屏选集可滚动、打开对齐到播放中集并加粗显示。:app:testDebugUnitTest 15/15、ssembleDebug 成功。
 - 2026-11-27 跨设备播放进度（M21 / BL-013）：新增 `server/playback.go` 与 `playback_test.go`（按账号隔离、`DataDir/playback.json` 原子写、`GET/POST /api/playback` 与 `GET /api/playback/recent`，viewer 可读写自己的进度）；Web 播放器读取远端/本地较新位置并每 10s 回写；Android `LinNasClient.getPlayback/putPlayback` + `PlayerActivity` 启动恢复与每 15s/暂停/结束同步。`go test/vet` 与 `node --check` 通过，Android `:app:testDebugUnitTest` / `:app:assembleDebug` 通过。
 - 2026-11-27 发布工程（M20 / BL-002、BL-003）：`android/app/build.gradle.kts` 增加 `signingConfigs.release`（环境变量或 `android/keystore.properties`）与 R8 `isMinifyEnabled`，新增 `android/app/proguard-rules.pro`；未配置密钥时回退 debug 签名仅供本地验证。新增 `.github/workflows/release.yml`：`v*` 标签触发双端构建 + `.sha256` + GitHub Release（密钥走 Secrets）。本地 `:app:assembleRelease` 通过，release APK 4.85 MB；`:app:testDebugUnitTest` 通过。
 - 2026-11-27 服务端 **1.8.4**（M19）：修开机自启仍拉起旧版 1.7.0——`server/autostart.go` 拆出 `autostartScript` / `autostartExeFromScript` / `autostartTargetAt` / `autostartSetAt` / `samePath` / `autostartStaleTarget` / `autostartHeal`，`main.go` 启动时自愈脚本（旧路径→当前 exe 并记日志），`GET /api/autostart` 新增 `target` / `stale`；端口被旧实例占用时托盘弹窗提示；新增 `server/autostart_test.go`；本机已把旧 `linNas.exe` 退役，52700 由 `linNas-server.exe` 提供服务。

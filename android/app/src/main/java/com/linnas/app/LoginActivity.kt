@@ -453,6 +453,11 @@ object SessionRestore {
     fun tryRestore(ctx: Context): Boolean {
         if (!Prefs.getBool("auto_login", false)) return false
         val meta = Prefs.sessionMeta() ?: return false
+        // 会话是按服务器保存的:当前地址和保存记录里的地址不是同一台时,
+        // 说明用户已切到别的服务器,不能把这台的 token 套过去(会立刻 401)。
+        val savedBase = meta[3].trimEnd('/')
+        val curBase = ServerConfig.baseUrl.trimEnd('/')
+        if (curBase.isNotBlank() && savedBase.isNotBlank() && savedBase != curBase) return false
         ServerConfig.sessionToken = meta[0]
         ServerConfig.sessionUser = meta[1]
         ServerConfig.sessionRole = meta[2]

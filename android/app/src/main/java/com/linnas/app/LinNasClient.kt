@@ -172,34 +172,42 @@ object Prefs {
         sp.edit().remove(KEY_SESS_TOKEN).apply()
     }
 
+    /**
+     * 指纹登录凭据也按服务器地址分开存：换过服务端后，旧服务器的账号密码
+     * 不能拿去登新服务器（否则指纹一点就报「用户名或密码错误」），
+     * 新服务器首次进入时没有凭据 → 走密码登录，登录一次后才启用指纹。
+     */
+    private fun bioKey(kind: String): String =
+        "$kind|${ServerConfig.baseUrl.trimEnd('/')}"
+
     /** 加密保存用于指纹登录的账号密码（best effort，任一失败返回 false）。 */
     fun saveBioCredentials(ctx: Context, user: String, pass: String): Boolean {
-        val okUser = BiometricGate.saveSecret(ctx, KEY_BIO_USER, user)
-        val okPass = BiometricGate.saveSecret(ctx, KEY_BIO_PASS, pass)
+        val okUser = BiometricGate.saveSecret(ctx, bioKey(KEY_BIO_USER), user)
+        val okPass = BiometricGate.saveSecret(ctx, bioKey(KEY_BIO_PASS), pass)
         return okUser && okPass
     }
 
     /** 已保存的指纹登录用户名（加密读取，仅用于展示；没有则 null）。 */
     fun bioUser(): String? =
-        appCtx?.let { BiometricGate.loadSecret(it, KEY_BIO_USER) }?.takeIf { it.isNotBlank() }
+        appCtx?.let { BiometricGate.loadSecret(it, bioKey(KEY_BIO_USER)) }?.takeIf { it.isNotBlank() }
 
-    /** 是否已保存可用于指纹重登的账号密码。 */
+    /** 是否已保存可用于指纹重登的账号密码（当前服务器）。 */
     fun hasBioCredentials(ctx: Context): Boolean =
-        !BiometricGate.loadSecret(ctx, KEY_BIO_USER).isNullOrBlank() &&
-            !BiometricGate.loadSecret(ctx, KEY_BIO_PASS).isNullOrBlank()
+        !BiometricGate.loadSecret(ctx, bioKey(KEY_BIO_USER)).isNullOrBlank() &&
+            !BiometricGate.loadSecret(ctx, bioKey(KEY_BIO_PASS)).isNullOrBlank()
 
     /** 读取加密保存的账号密码；任一为空返回 null。 */
     fun loadBioCredentials(ctx: Context): Pair<String, String>? {
-        val u = BiometricGate.loadSecret(ctx, KEY_BIO_USER)
-        val p = BiometricGate.loadSecret(ctx, KEY_BIO_PASS)
+        val u = BiometricGate.loadSecret(ctx, bioKey(KEY_BIO_USER))
+        val p = BiometricGate.loadSecret(ctx, bioKey(KEY_BIO_PASS))
         if (u.isNullOrBlank() || p.isNullOrBlank()) return null
         return u to p
     }
 
     /** 清除指纹登录凭据（密码失效 / 用户关闭指纹时调用）。 */
     fun clearBioCredentials(ctx: Context) {
-        BiometricGate.clearSecret(ctx, KEY_BIO_USER)
-        BiometricGate.clearSecret(ctx, KEY_BIO_PASS)
+        BiometricGate.clearSecret(ctx, bioKey(KEY_BIO_USER))
+        BiometricGate.clearSecret(ctx, bioKey(KEY_BIO_PASS))
     }
 
     /**

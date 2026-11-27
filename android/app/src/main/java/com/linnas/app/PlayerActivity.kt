@@ -700,6 +700,8 @@ class PlayerActivity : AppCompatActivity() {
         rv.visibility = if (playlist.isEmpty()) View.GONE else View.VISIBLE
         rv.layoutManager = LinearLayoutManager(this)
         rv.adapter = EpisodeAdapter(playlist, playIdx) { i -> loadListIndex(i) }
+        // 打开就对齐到「正在播放」的那一集,长列表不用自己找
+        if (playIdx in playlist.indices) rv.scrollToPosition(playIdx)
     }
 
     /** 选集:横屏从右侧滑出面板;竖屏用底部弹层。 */
@@ -712,6 +714,13 @@ class PlayerActivity : AppCompatActivity() {
         val content = LayoutInflater.from(this).inflate(R.layout.dialog_player_sheet, null)
         content.findViewById<TextView>(R.id.sheet_title).text = "选集(${playlist.size})"
         val rv = content.findViewById<RecyclerView>(R.id.rv_sheet_episodes)
+        // 竖屏弹层高度按屏幕算:列表本身可滚,但整块不能超过屏幕的 62%,
+        // 否则底部抽屉的拖拽手势会抢走列表的滑动(表现为「只能看到前 5 集、滑不动」)。
+        val maxH = (resources.displayMetrics.heightPixels * 0.62f).toInt()
+        rv.layoutParams = rv.layoutParams.apply {
+            height = (maxH - dp(96)).coerceAtLeast(dp(180))
+        }
+        rv.isNestedScrollingEnabled = true
         rv.layoutManager = LinearLayoutManager(this)
         rv.adapter = EpisodeAdapter(playlist, playIdx) { i -> loadListIndex(i) }
 
@@ -719,6 +728,11 @@ class PlayerActivity : AppCompatActivity() {
         sheet.setContentView(content)
         sheet.setOnDismissListener { if (player?.isPlaying == true) scheduleHide() }
         sheet.show()
+        // 弹层直接展开到位,列表吃满可用高度;peekHeight 同步调高避免抽屉停在半屏。
+        sheet.behavior.peekHeight = maxH
+        sheet.behavior.skipCollapsed = true
+        sheet.behavior.state = com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_EXPANDED
+        if (playIdx in playlist.indices) rv.post { rv.scrollToPosition(playIdx) }
     }
 
     /**
@@ -741,6 +755,9 @@ class PlayerActivity : AppCompatActivity() {
                 // 选完某一集自动收起面板
                 toggleLandEpisodes(false)
                 loadListIndex(i)
+            }
+            if (playIdx in playlist.indices) {
+                rvLandEpisodes.post { rvLandEpisodes.scrollToPosition(playIdx) }
             }
             landEpisodeScrim.visibility = View.VISIBLE
             landEpisodePanel.visibility = View.VISIBLE
@@ -790,6 +807,8 @@ class PlayerActivity : AppCompatActivity() {
             holder.index.text = (position + 1).toString()
             holder.name.text = items[position].second
             holder.badge.visibility = if (cur) View.VISIBLE else View.GONE
+            // 「播放中」这一行额外加粗,长列表里一眼能定位当前集
+            holder.name.setTypeface(null, if (cur) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
             // 选集封面缩略图(服务端 ffmpeg 抽帧)
             val vp = items[position].first
             holder.thumb.load(client.thumbUrl(vp, 240)) {
