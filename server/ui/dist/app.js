@@ -303,6 +303,25 @@ $("#btn-vaultpw-ok").onclick = () => {
 $("#dlg-vaultpw-cancel").onclick = () => { settleVaultPw(null); $("#dlg-vaultpw").close(); };
 $("#dlg-vaultpw").addEventListener("cancel", (e) => { e.preventDefault(); settleVaultPw(null); $("#dlg-vaultpw").close(); });
 
+/* 对话框内回车确认:输入框里按 Enter = 点主按钮(密码 / 输入 / 确认 / 分享等) */
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" || e.isComposing || e.defaultPrevented) return;
+  const t = e.target;
+  if (!t || !t.closest) return;
+  const dlg = t.closest("dialog[open]");
+  if (!dlg) return;
+  const isTextArea = t.tagName === "TEXTAREA";
+  if (isTextArea) {
+    if (!(e.ctrlKey || e.metaKey)) return;
+  } else if (t.tagName !== "INPUT") {
+    return; // 按钮 / 下拉等交给浏览器原生行为
+  }
+  const primary = dlg.querySelector("button.btn.primary");
+  if (!primary || primary.disabled) return;
+  e.preventDefault();
+  primary.click();
+});
+
 /* ============================================================ 主题 */
 function resolvedTheme() {
   if (state.theme === "system") return matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
@@ -1166,8 +1185,16 @@ function renderEntries() {
       if (kv === "video" || kv === "audio" || kv === "image") openPreview(kv, vp, e.name);
       else location.href = apiUrl("/api/raw?dl=1&vpath=" + enc(vp));
     };
-    if (e.isDir || state.mode === "grid") row.onclick = open;
-    else row.addEventListener("dblclick", open);
+    // Ctrl/⌘+单击切换单项、Shift+单击范围选择;列表模式普通单击选中、双击打开
+    row.onclick = (ev) => {
+      if (ev.ctrlKey || ev.metaKey) { ev.preventDefault(); toggleSelectRow(vp); return; }
+      if (ev.shiftKey) { ev.preventDefault(); rangeSelectTo(vp); return; }
+      if (e.isDir || state.mode === "grid") { open(); return; }
+      selectOnly(vp);
+    };
+    if (!e.isDir && state.mode !== "grid") {
+      row.ondblclick = (ev) => { if (!ev.ctrlKey && !ev.metaKey && !ev.shiftKey) open(); };
+    }
 
     // 拖拽:把文件/文件夹拖到同目录(或任意)文件夹上即移动进去
     row.draggable = true;
@@ -1698,6 +1725,41 @@ function browsePreviewSelected() {
   openPreview(kv, vps[0], en.name);
   return true;
 }
+/* 鼠标选择:单击选中、Ctrl/⌘+单击切换、Shift+单击范围选择 */
+function rowVPathIndex(vp) { return browseVisibleList().findIndex((en) => browseBaseVPath(en) === vp); }
+function syncRowSelection() {
+  $$(".frow").forEach((r) => r.classList.toggle("selected", state.selected.has(r.dataset.vpath)));
+  updateSelBar();
+}
+function toggleSelectRow(vp) {
+  if (!state.selected) state.selected = new Set();
+  if (state.selected.has(vp)) state.selected.delete(vp); else state.selected.add(vp);
+  state.selAnchor = rowVPathIndex(vp);
+  syncRowSelection();
+}
+function selectOnly(vp) {
+  if (!state.selected) state.selected = new Set();
+  state.selected.clear(); state.selected.add(vp);
+  state.selAnchor = rowVPathIndex(vp);
+  syncRowSelection();
+}
+function rangeSelectTo(vp) {
+  const list = browseVisibleList();
+  const target = rowVPathIndex(vp);
+  if (target < 0) return;
+  if (!state.selected) state.selected = new Set();
+  let anchor = state.selAnchor;
+  if (typeof anchor !== "number" || anchor < 0 || anchor >= list.length) {
+    const first = Array.from(state.selected)[0];
+    anchor = first ? rowVPathIndex(first) : target;
+  }
+  if (anchor < 0) anchor = target;
+  state.selAnchor = anchor;
+  state.selected.clear();
+  const lo = Math.min(anchor, target), hi = Math.max(anchor, target);
+  for (let k = lo; k <= hi; k++) state.selected.add(browseBaseVPath(list[k]));
+  syncRowSelection();
+}
 function browseGoUp() {
   const lib = state.curLib;
   if (!lib) return;
@@ -1746,6 +1808,9 @@ function showKeys() {
 }
 const btnKeys = $("#btn-keys"); if (btnKeys) btnKeys.onclick = () => showKeys();
 const keysClose = $("#keys-close"); if (keysClose) keysClose.onclick = () => $("#dlg-keys").close();
+/* 点击文件列表空白处清空选择 */
+const fileListEl = $("#file-list");
+if (fileListEl) fileListEl.addEventListener("click", (e) => { if (e.target === fileListEl) clearSelection(); });
 
 /* 文件浏览键盘:方向键选择 / 空格预览 / 单键操作 */
 document.addEventListener("keydown", (e) => {
@@ -1792,10 +1857,22 @@ document.addEventListener("keydown", (e) => {
   }
   const ents = v.entries || [];
   const sel = typeof v.sel === "number" ? v.sel : -1;
-  if (e.key === "ArrowDown") { e.preventDefault(); if (ents.length) vaultSetSel(sel < 0 ? 0 : sel + 1); return; }
-  if (e.key === "ArrowUp") { e.preventDefault(); if (ents.length) vaultSetSel(sel < 0 ? ents.length - 1 : sel - 1); return; }
-  if (e.key === "Home") { e.preventDefault(); vaultSetSel(0); return; }
-  if (e.key === "End") { e.preventDefault(); vaultSetSel(ents.length - 1); return; }
+  if (e.key === "ArrowDown") { e.preventDefault(); if (ents.length) vaultSetSel(sel < 0 ? 0 : sel + 1, e.shiftKey); return; }
+  if (e.key === "ArrowUp") { e.preventDefault(); if (ents.length) vaultSetSel(sel < 0 ? ents.length - 1 : sel - 1, e.shiftKey); return; }
+  if (e.key === "Home") { e.preventDefault(); vaultSetSel(0, e.shiftKey); return; }
+  if (e.key === "End") { e.preventDefault(); vaultSetSel(ents.length - 1, e.shiftKey); return; }
+  if ((e.ctrlKey || e.metaKey) && (e.key === "a" || e.key === "A")) {
+    e.preventDefault();
+    v.selected = new Set(ents.map((x) => x.path));
+    v.anchor = 0;
+    v.sel = ents.length ? 0 : -1;
+    applyVaultSelection();
+    return;
+  }
+  if (e.key === "Escape") {
+    if (vaultSelectedPaths().length) { e.preventDefault(); v.selected = new Set(); v.sel = -1; applyVaultSelection(); }
+    return;
+  }
   if (e.key === "Enter" || e.key === " " || e.code === "Space") {
     if (sel < 0) return;
     const en = ents[sel]; if (!en) return;
@@ -1805,13 +1882,32 @@ document.addEventListener("keydown", (e) => {
   }
   if (e.key === "Backspace") { e.preventDefault(); const p = (v.path || "").split("/").filter(Boolean); p.pop(); vaultOpen(p.join("/")); return; }
   const k = (e.key || "").toLowerCase();
-  if (k === "delete") { if (sel >= 0) { const en = ents[sel]; e.preventDefault(); vaultDelete(en.path, en.name, en.isDir); } return; }
+  if (k === "delete") {
+    const paths = vaultSelectedPaths();
+    if (paths.length > 1) { e.preventDefault(); vaultDeleteMany(paths); return; }
+    if (paths.length === 1) {
+      const en = ents.find((x) => x.path === paths[0]);
+      if (en) { e.preventDefault(); vaultDelete(en.path, en.name, en.isDir); }
+      return;
+    }
+    if (sel >= 0) { const en = ents[sel]; e.preventDefault(); vaultDelete(en.path, en.name, en.isDir); }
+    return;
+  }
   if (k === "u") { e.preventDefault(); $("#vault-file-input").click(); return; }
   if (k === "n") { e.preventDefault(); vaultMkdir(); return; }
   if (k === "m") { e.preventDefault(); vaultMigrate(); return; }
   if (k === "l") { e.preventDefault(); vaultLock(); return; }
-  if (k === "e") { if (sel >= 0) { e.preventDefault(); vaultExport(ents[sel].path); } return; }
-  if (k === "d") { if (sel >= 0 && !ents[sel].isDir) { e.preventDefault(); location.href = vaultRawUrl(ents[sel].path, true); } return; }
+  if (k === "e") {
+    const paths = vaultSelectedPaths();
+    if (paths.length) { e.preventDefault(); if (paths.length > 1) vaultExportMany(paths); else vaultExport(paths[0]); }
+    return;
+  }
+  if (k === "d") {
+    const paths = vaultSelectedPaths();
+    const target = paths.length ? ents.find((x) => x.path === paths[0]) : (sel >= 0 ? ents[sel] : null);
+    if (target && !target.isDir) { e.preventDefault(); location.href = vaultRawUrl(target.path, true); }
+    return;
+  }
   if (k === "r") { e.preventDefault(); loadVaultList().then(renderVault); return; }
   if (e.key === "?") { e.preventDefault(); showKeys(); }
 });
@@ -2219,6 +2315,9 @@ function joinRel(dir, name) {
 
 function vaultOpen(rel) {
   state.vault.path = rel || "";
+  state.vault.sel = -1;
+  state.vault.anchor = undefined;
+  state.vault.selected = new Set();
   loadVaultList().then(renderVault);
 }
 
@@ -2295,7 +2394,7 @@ function renderVault() {
     const row = document.createElement("div");
     row.className = "vrow";
     row.dataset.vidx = String(idx);
-    if (v.sel === idx) row.classList.add("selected");
+    if (v.sel === idx || (v.selected && v.selected.has(e.path))) row.classList.add("selected");
     row.style.cursor = "pointer";
     const iconMap = { dir: "folder", video: "video", image: "image", audio: "music", archive: "archive", file: "file" };
     const icon = document.createElement("div");
@@ -2319,11 +2418,20 @@ function renderVault() {
     acts2.className = "facts";
     const ab = (ic, title, fn, extra) => { const b = document.createElement("button"); b.className = "btn icon-btn " + (extra || ""); b.title = title; b.innerHTML = svgIcon(ic); b.onclick = (ev) => { ev.stopPropagation(); fn(); }; acts2.appendChild(b); };
     const previewable = !e.isDir && (kind === "video" || kind === "audio" || kind === "image");
+    // Ctrl/⌘+单击切换单项、Shift+单击范围选择;普通单击选中并打开/预览
+    row.onclick = (ev) => {
+      if (ev.ctrlKey || ev.metaKey) { ev.preventDefault(); vaultToggleSelect(idx); return; }
+      if (ev.shiftKey) { ev.preventDefault(); vaultRangeSelect(idx); return; }
+      v.selected = new Set([e.path]);
+      v.sel = idx;
+      v.anchor = idx;
+      applyVaultSelection();
+      if (e.isDir) { vaultOpen(e.path); return; }
+      if (previewable) openVaultPreview(idx);
+    };
     if (e.isDir) {
-      row.onclick = () => { v.sel = idx; vaultOpen(e.path); };
       ab("move", "导出整个文件夹到存储库…", () => vaultExport(e.path));
     } else {
-      row.onclick = () => { v.sel = idx; if (previewable) openVaultPreview(idx); };
       if (previewable) ab("play", "预览", () => openVaultPreview(idx));
       ab("download", "下载", () => { location.href = vaultRawUrl(e.path, true); });
       ab("move", "导出到存储库…", () => vaultExport(e.path));
@@ -2357,13 +2465,58 @@ function openVaultPreview(idx) {
   openPreviewSrc(kv, vaultRawUrl(e.path), e.name);
 }
 
-/* 保险箱键盘选择:高亮第 idx 行并滚动到可见区 */
-function vaultSetSel(idx) {
-  const n = (state.vault.entries || []).length;
+/* 保险箱选择:Ctrl/⌘+单击切换、Shift+单击范围、方向键移动(Shift 扩选) */
+function vaultEntries() { return state.vault.entries || []; }
+function vaultSelectedPaths() {
+  return Array.from(state.vault.selected || []).filter((p) => vaultEntries().some((e) => e.path === p));
+}
+function applyVaultSelection() {
+  const v = state.vault;
+  $$("#vault-body .vrow").forEach((r) => {
+    const i = Number(r.dataset.vidx);
+    const e = vaultEntries()[i];
+    r.classList.toggle("selected", !!e && ((v.selected && v.selected.has(e.path)) || v.sel === i));
+  });
+}
+function vaultToggleSelect(idx) {
+  const e = vaultEntries()[idx];
+  if (!e) return;
+  const v = state.vault;
+  if (!v.selected) v.selected = new Set();
+  if (v.selected.has(e.path)) v.selected.delete(e.path); else v.selected.add(e.path);
+  v.sel = idx; v.anchor = idx;
+  applyVaultSelection();
+}
+function vaultRangeSelect(idx) {
+  const v = state.vault;
+  const list = vaultEntries();
+  if (!list[idx]) return;
+  let anchor = typeof v.anchor === "number" ? v.anchor : idx;
+  if (anchor < 0 || anchor >= list.length) anchor = idx;
+  v.anchor = anchor;
+  v.selected = new Set();
+  const lo = Math.min(anchor, idx), hi = Math.max(anchor, idx);
+  for (let k = lo; k <= hi; k++) v.selected.add(list[k].path);
+  v.sel = idx;
+  applyVaultSelection();
+}
+function vaultSetSel(idx, extend) {
+  const list = vaultEntries();
+  const n = list.length;
   if (!n) return;
   idx = Math.max(0, Math.min(n - 1, idx));
-  state.vault.sel = idx;
-  $$("#vault-body .vrow").forEach((r) => r.classList.toggle("selected", Number(r.dataset.vidx) === idx));
+  const v = state.vault;
+  if (extend) {
+    if (typeof v.anchor !== "number") v.anchor = idx;
+    v.selected = new Set();
+    const lo = Math.min(v.anchor, idx), hi = Math.max(v.anchor, idx);
+    for (let k = lo; k <= hi; k++) v.selected.add(list[k].path);
+  } else {
+    v.selected = new Set([list[idx].path]);
+    v.anchor = idx;
+  }
+  v.sel = idx;
+  applyVaultSelection();
   const row = document.querySelector('#vault-body .vrow[data-vidx="' + idx + '"]');
   if (row) row.scrollIntoView({ block: "nearest" });
 }
@@ -2421,6 +2574,29 @@ async function vaultDelete(rel, name, isDir) {
   if (!ok) return;
   try { await api("/api/vault/delete?vt=" + enc(state.vault.token), { method: "POST", body: { paths: [rel] } }); await loadVaultList(); renderVault(); toast("已删除"); }
   catch (e) { toast("失败: " + e.message); }
+}
+/* 批量删除保险箱内容 */
+async function vaultDeleteMany(paths) {
+  if (!paths || !paths.length) return;
+  const ok = await askConfirm("删除", `从保险箱删除选中的 ${paths.length} 项?不可恢复。`);
+  if (!ok) return;
+  try {
+    const r = await api("/api/vault/delete?vt=" + enc(state.vault.token), { method: "POST", body: { paths } });
+    await loadVaultList(); renderVault();
+    toast(`已删除 ${r.count || 0} 项`);
+  } catch (e) { toast("失败: " + e.message); }
+}
+/* 批量导出保险箱内容到存储库 */
+function vaultExportMany(paths) {
+  if (!paths || !paths.length) return;
+  openFolderPicker(`导出 ${paths.length} 项到…`, async (dest) => {
+    try {
+      const r = await api("/api/vault/export?vt=" + enc(state.vault.token), { method: "POST", body: { paths, dest } });
+      if (r.errors && r.errors.length) toast(`已导出 ${r.count} 项,${r.errors.length} 项失败: ` + r.errors[0]);
+      else toast(`已导出 ${r.count} 项`);
+      await loadVaultList(); renderVault();
+    } catch (e) { toast("失败: " + e.message); }
+  }, "/");
 }
 function vaultExport(rel) {
   openFolderPicker("导出到…", async (dest) => {
